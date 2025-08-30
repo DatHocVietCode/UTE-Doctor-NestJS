@@ -22,6 +22,12 @@ export class User {
 
   @Prop({ default: Date.now })
   updatedAt: Date;
+
+  @Prop()
+  refreshToken: string;
+
+  @Prop()
+  accessToken: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
