@@ -66,7 +66,7 @@ export class AuthService {
         return dataRes;
     }
 
-    async createAccessToken(email: string): Promise<string> {
+    createAccessToken(email: string): string {
         // Implement JWT token creation logic here
         const payload = { sub: email };
         console.log("Creating access token with payload:", payload);
@@ -79,7 +79,7 @@ export class AuthService {
         return token;
     }
 
-    async createRefreshToken(email: string): Promise<string> {
+    createRefreshToken(email: string): string {
         // Implement JWT refresh token creation logic here
         const payload = { sub: email };
         console.log("Creating refresh token with payload:", payload);

@@ -57,7 +57,7 @@ export class UserService {
 
     async getUserRefreshToken(email: string) : Promise<DataResponse<string>>
     {
-        const user = await this.findByEmail(email);
+        const user = await this.userModel.findOne({email});
         const dataRes: DataResponse= {
             message: "",
             code: rc.SERVER_ERROR,
@@ -82,6 +82,8 @@ export class UserService {
             else
             {
                 const newRefreshToken = this.authService.createRefreshToken(email);
+                user.refreshToken = newRefreshToken;
+                await user.save();
                 dataRes.code = rc.SUCCESS;
                 dataRes.message = "Successfully create new refresh token";
                 dataRes.data = newRefreshToken;
