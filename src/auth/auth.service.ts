@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { forwardRef, Inject, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
@@ -12,7 +12,7 @@ import { LoginUserReqDto, LoginUserResDto, RegisterUserDto } from './dto/auth-us
 export class AuthService {
     constructor(@InjectModel(User.name) private userModel: Model<UserDocument>
                 , private jwtService: JwtService
-            , readonly userService: UserService) {}
+                ,@Inject(forwardRef(() => UserService)) private userService: UserService) {}
 
     async register(registerUserDto: RegisterUserDto): Promise<string> {
         const hashedPassword = await bcrypt.hash(registerUserDto.password, 10);
@@ -52,6 +52,7 @@ export class AuthService {
         }
         dataRes.message = "Login Successful";
         const refreshTokenRespone = await this.userService.getUserRefreshToken(user.email); 
+        console.log(refreshTokenRespone.data)
         const accessToken = await this.createAccessToken(loginUserDto.email);
         if (dataRes.data)
         {
