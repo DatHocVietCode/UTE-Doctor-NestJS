@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
+import { console } from 'inspector';
 import { Model } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code-enum';
@@ -12,7 +13,6 @@ import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { OtpUtils } from 'src/utils/otp/otp-utils';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserDto } from './dto/auth-user.dto';
-import { console } from 'inspector';
 @Injectable()
 export class AuthService {
     constructor(@InjectModel(User.name) private userModel: Model<UserDocument>
@@ -107,6 +107,8 @@ export class AuthService {
         return dataRes;
     }
 
+
+
     async handleOTPSending(email: string) : Promise<DataResponse<OtpDTO | null>>
     {
         let DataResponse: DataResponse = {
@@ -162,6 +164,8 @@ export class AuthService {
                 const isOTPAlive = this.otpUtils.isOTPAlive(otpInfo.data);
                 if (isOTPAlive && isOtpMatched)
                 {
+                    await this.userService.activateUserAccount(email);
+                    await this.userService.clearUserOTP(email);
                     dataRes.code = rc.SUCCESS;
                     dataRes.message = "OTP verify successfully!";
                 }

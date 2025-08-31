@@ -17,13 +17,15 @@ export class AuthController
         return this.authService.login(loginUserDTO);
     }
     @Post("/send-otp")
-    async sendOTP(@Body() email: string)
-    {
+    async sendOTP(@Body() body: { email: string }) {
+        const { email } = body;
         return this.authService.handleOTPSending(email);
     }
+
     @Post("/verify-otp")
-    async verifyOtp(@Body() email:string, otp: string)
-    {
+    async verifyOtp(@Body() body: { email: string, otp: string }) {
+        const { email, otp } = body;
         return this.authService.verifyOTP(email, otp);
     }
+
 }

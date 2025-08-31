@@ -52,6 +52,46 @@ export class UserService {
             .exec();
     }
 
+    async activateUserAccount(email: string): Promise<DataResponse<null>> {
+    let dataRes: DataResponse<null> = {
+        code: rc.ERROR,
+        message: "User not found",
+        data: null
+    };
+
+    
+    try {
+        const user = await this.userModel.findOne({ email }).exec();
+        if (!user) {
+        dataRes.message = "User not found!";
+        dataRes.code = rc.USER_NOT_FOUND;
+        return dataRes;
+        }
+
+        user.isActive = true; // kích hoạt tài khoản
+        await user.save();
+
+        dataRes.code = rc.SUCCESS;
+        dataRes.message = "User activated successfully!";
+        return dataRes;
+    } catch (error) {
+        dataRes.code = rc.SERVER_ERROR;
+        dataRes.message = error.message;
+        return dataRes;
+    }
+    }
+
+    
+    async clearUserOTP(email: string): Promise<User | null> {
+        return this.userModel
+            .findOneAndUpdate(
+                { email },
+                { otp: null, otpCreatedAt: null, otpExpiredAt: null },
+                { new: true }
+            )
+            .exec();
+    }
+
     async updateOTPByEmail(email: string, otpDTO: OtpDTO): Promise<DataResponse<null>>
     {
         let data: DataResponse = {
