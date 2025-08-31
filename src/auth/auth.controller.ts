@@ -16,4 +16,14 @@ export class AuthController
     {
         return this.authService.login(loginUserDTO);
     }
+    @Post("/send-otp")
+    async sendOTP(@Body() email: string)
+    {
+        return this.authService.handleOTPSending(email);
+    }
+    @Post("/verify-otp")
+    async verifyOtp(@Body() email:string, otp: string)
+    {
+        return this.authService.verifyOTP(email, otp);
+    }
 }

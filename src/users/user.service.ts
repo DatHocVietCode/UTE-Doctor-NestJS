@@ -52,6 +52,24 @@ export class UserService {
             .exec();
     }
 
+    async updateOTPByEmail(email: string, otpDTO: OtpDTO): Promise<DataResponse<null>>
+    {
+        let data: DataResponse = {
+            message: "Updated otp failed for user with email: " + email,
+            code: rc.ERROR,
+            data: null
+        }
+        const updatedUser = await this.userModel.findOneAndUpdate({email: email}, otpDTO, {new: true}).exec();
+        if (updatedUser)
+        {
+
+            data.message = "OTP updated for user with email: " + email;
+            data.code = rc.SUCCESS;
+            console.log(updatedUser);
+        }
+        return data;
+    }
+
     async remove(id: string): Promise<User | null> {
         return this.userModel.findByIdAndDelete(id).exec();
     }
@@ -141,8 +159,8 @@ export class UserService {
                 dataRes.code = rc.SUCCESS,
                 dataRes.data = {
                     otp: user.otp,
-                    OTPCreatedAt: user.otpCreatedAt,
-                    OTPExpiredAt: user.otpExpiredAt
+                    otpCreatedAt: user.otpCreatedAt,
+                    otpExpiredAt: user.otpExpiredAt
                 }
             }
         } catch (error) {

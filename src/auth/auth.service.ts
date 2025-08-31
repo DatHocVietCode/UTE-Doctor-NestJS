@@ -8,17 +8,19 @@ import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code-enum';
 import { MailService } from 'src/mail/mail.service';
 import { UserService } from 'src/users/user.service';
-import { otpUtils } from 'src/utils/otp/otp-utils';
+import { OtpDTO } from 'src/utils/otp/otp-dto';
+import { OtpUtils } from 'src/utils/otp/otp-utils';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserDto } from './dto/auth-user.dto';
-import { OtpDTO } from 'src/utils/otp/otp-dto';
+import { console } from 'inspector';
 @Injectable()
 export class AuthService {
     constructor(@InjectModel(User.name) private userModel: Model<UserDocument>
                 , private jwtService: JwtService
                 ,@Inject(forwardRef(() => UserService)) private userService: UserService
                 , private configService: ConfigService
-                , private mailService: MailService) {}
+                , private mailService: MailService
+                , private otpUtils: OtpUtils) {}
 
     async register(registerUserDto: RegisterUserDto): Promise<string> {
         const hashedPassword = await bcrypt.hash(registerUserDto.password, 10);
@@ -28,19 +30,11 @@ export class AuthService {
         });
         try
         {
-            const otp = otpUtils.generateOTP();
+            const otpInfo = this.otpUtils.generateOTP();
           
-            const currentTime = Date.now();
-            console.log("Current time: " + currentTime);
-            const expiresTime = this.configService.get<string>('OTP_EXPIRES') || '5m';
-            console.log("Expires In: " + expiresTime);
-            const ms = require('ms');
-            const expiresAt = currentTime + ms(expiresTime);
-            console.log("Expire at: " + expiresAt);
-
-            createdUser.otp = otp;
-            createdUser.otpCreatedAt = new Date(currentTime);
-            createdUser.otpExpiredAt = new Date(expiresAt);
+            createdUser.otp = otpInfo.otp;
+            createdUser.otpCreatedAt = otpInfo.otpCreatedAt;
+            createdUser.otpExpiredAt = otpInfo.otpExpiredAt;
 
             this.mailService.sendOTP(createdUser.email, createdUser.otp);
 
@@ -56,7 +50,7 @@ export class AuthService {
 
     async login(loginUserDto: LoginUserReqDto): Promise<DataResponse<LoginUserResDto>> {
         const user = await this.userModel.findOne({ email: loginUserDto.email }).exec();
-        var dataRes: DataResponse<LoginUserResDto> = {
+        let dataRes: DataResponse<LoginUserResDto> = {
             code: rc.SERVER_ERROR,
             message: "",
             data: { accessToken: "", refreshToken: "" }
@@ -78,14 +72,23 @@ export class AuthService {
             dataRes.message = "User is not activated! Automatically redirect you to verify OTP page..."
             // Implement check otp and resend if died
             dataRes.code = rc.ERROR;
-            const data = await this.userService.getUserOTPInfor(loginUserDto.email);
-            if (data.data)
-            {
-                const otpInfo: OtpDTO = data.data;
-                otpUtils.isOTPValid(otpInfo);
-                // if invalid, create a new one, else send it to user'email
-            }
-      
+            const data = await this.handleOTPSending(loginUserDto.email);
+            // if (data.data)
+            // {
+            //     const otpInfo: OtpDTO = data.data;
+            //     const isValid: boolean = this.otpUtils.isOTPValid(otpInfo);
+            //     // if invalid, create a new one, else send it to user'email
+            //     if (isValid)
+            //     {
+            //         this.mailService.sendOTP(loginUserDto.email, otpInfo.otp);
+            //     }
+            //     else
+            //     {
+            //         const newOTP = this.otpUtils.generateOTP();
+            //         const dataRes = await this.userService.updateOTPByEmail(loginUserDto.email, newOTP);
+            //         console.log((await dataRes).message)
+            //     }
+            // }
             return dataRes;
         }
         dataRes.message = "Login Successful";
@@ -101,6 +104,74 @@ export class AuthService {
                     dataRes.data.refreshToken = refreshTokenRespone.data;
             }
         }
+        return dataRes;
+    }
+
+    async handleOTPSending(email: string) : Promise<DataResponse<OtpDTO | null>>
+    {
+        let DataResponse: DataResponse = {
+            code: rc.ERROR,
+            message: "Server Error",
+            data : null
+        }
+        const data = await this.userService.getUserOTPInfor(email);
+            if (data.data)
+            {
+                const otpInfo: OtpDTO = data.data;
+                const isValid: boolean = this.otpUtils.isOTPAlive(otpInfo);
+                // if invalid, create a new one, else send it to user'email
+                if (isValid)
+                {
+                    DataResponse.data = otpInfo;
+                    DataResponse.message = "Succesfully resent otp!";
+                    DataResponse.code = rc.SUCCESS;
+                    this.mailService.sendOTP(email, otpInfo.otp);
+                }
+                else
+                {
+                    const newOTP = this.otpUtils.generateOTP();
+                    const dataRes = await this.userService.updateOTPByEmail(email, newOTP);
+                    console.log(dataRes.message)
+                    DataResponse.code = rc.SUCCESS;
+                    DataResponse.message = "Sucessfully sent new otp!";
+                    DataResponse.data = newOTP;
+                }
+            }
+        return DataResponse;
+    }
+
+    async verifyOTP(email:string, otp: string) : Promise<DataResponse<null>>
+    {
+        debugger;
+        let dataRes: DataResponse = {
+            code: rc.ERROR,
+            message: "OTP invalid or not exist!",
+            data: null
+        }
+        const otpInfo = await this.userService.getUserOTPInfor(email);
+        if (otpInfo)
+        {
+            let isOtpMatched: Boolean = false;
+            if (otpInfo.data?.otp == otp)
+            {
+                isOtpMatched = true;
+                console.log("OTP is matched!")
+            }
+            if (otpInfo.data)
+            {
+                const isOTPAlive = this.otpUtils.isOTPAlive(otpInfo.data);
+                if (isOTPAlive && isOtpMatched)
+                {
+                    dataRes.code = rc.SUCCESS;
+                    dataRes.message = "OTP verify successfully!";
+                }
+                else
+                {
+                    dataRes.code = rc.ERROR;
+                    dataRes.message = "OTP is died or not matched!"
+                }
+            }
+        }   
         return dataRes;
     }
 
