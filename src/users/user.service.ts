@@ -6,6 +6,7 @@ import { Model } from 'mongoose';
 import { AuthService } from 'src/auth/auth.service';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code-enum';
+import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { User, UserDocument } from './schemas/user.schema';
 @Injectable()
@@ -112,5 +113,44 @@ export class UserService {
             console.log("Error while checking token life time: " + error);
             return false;
         }
+    }
+
+
+    /**
+     * 
+     * @param email input user's email
+     * @returns DataResponse<OtpDTP>, include otp, created and expired time.
+     */
+    async getUserOTPInfor(email: string) : Promise<DataResponse<OtpDTO | null>> {
+        let dataRes: DataResponse<OtpDTO | null> = 
+        {
+            message: "",
+            code: rc.ERROR,
+            data: null
+        };
+        try {
+            const user = await this.findByEmail(email);
+            if (!user)
+            {
+                dataRes.message = "User not found!",
+                dataRes.code =  rc.USER_NOT_FOUND
+            }
+            else
+            {
+                dataRes.message = "OTP received successfully",
+                dataRes.code = rc.SUCCESS,
+                dataRes.data = {
+                    otp: user.otp,
+                    OTPCreatedAt: user.otpCreatedAt,
+                    OTPExpiredAt: user.otpExpiredAt
+                }
+            }
+        } catch (error) {
+            console.log("Server error:" + error);
+            dataRes.code = rc.SERVER_ERROR;
+            dataRes.message = error;
+            dataRes.data = null;
+        }
+        return dataRes;
     }
 }
