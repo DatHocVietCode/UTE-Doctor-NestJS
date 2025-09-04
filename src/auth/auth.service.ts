@@ -27,6 +27,9 @@ export class AuthService {
         const createdUser = new this.userModel({
             email: registerUserDto.email,
             password: hashedPassword,
+            fullName: registerUserDto.fullName,
+            dob: registerUserDto.dob,
+            phoneNumber: registerUserDto.phoneNumber,
         });
         try
         {

@@ -1,6 +1,9 @@
 export class RegisterUserDto {
     email: string;
-    password: string
+    password: string;
+    fullName: string;
+    dob: Date;
+    phoneNumber: string;
 }
 
 export class LoginUserReqDto {
