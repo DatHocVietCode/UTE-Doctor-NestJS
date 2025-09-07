@@ -9,6 +9,7 @@ import { ResponseCode as rc } from 'src/common/enum/reponse-code-enum';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { User, UserDocument } from './schemas/user.schema';
+import { UserProfileDTO } from './dto/create-user.dto';
 @Injectable()
 export class UserService {
     constructor(@InjectModel(User.name) private userModel: Model<UserDocument>
@@ -40,7 +41,8 @@ export class UserService {
     }
 
     async findByEmail(email: string): Promise<User | null> {
-        return this.userModel.findOne({ email }).exec();
+        console.log("Finding user by email: " + email);
+        return this.userModel.findOne({ email: email }).lean().exec();
     }
 
     async update(id: string, updateUserDto: Partial<User>): Promise<User | null> {
@@ -202,6 +204,43 @@ export class UserService {
                     otpCreatedAt: user.otpCreatedAt,
                     otpExpiredAt: user.otpExpiredAt
                 }
+            }
+        } catch (error) {
+            console.log("Server error:" + error);
+            dataRes.code = rc.SERVER_ERROR;
+            dataRes.message = error;
+            dataRes.data = null;
+        }
+        return dataRes;
+    }
+    async getUserByEmail(email: string): Promise<DataResponse<UserProfileDTO | null>> {
+        let dataRes: DataResponse<UserProfileDTO | null> = 
+        {
+            message: "",
+            code: rc.ERROR,
+            data: null
+        };
+        try {
+            const user = await this.findByEmail(email);
+            if (!user)
+            {
+                dataRes.message = "User not found!",
+                dataRes.code =  rc.USER_NOT_FOUND
+            }
+            else
+            {
+                let userProfile: UserProfileDTO = {
+                    id: user._id.toString(),
+                    name: user.fullName,
+                    email: user.email,
+                    dateOfBirth: user.dob,
+                    phoneNumber: user.phoneNumber,
+                    createdAt: user.createdAt,
+                    updatedAt: user.updatedAt
+                };
+                dataRes.message = "User received successfully",
+                dataRes.code = rc.SUCCESS, 
+                dataRes.data = userProfile;
             }
         } catch (error) {
             console.log("Server error:" + error);
