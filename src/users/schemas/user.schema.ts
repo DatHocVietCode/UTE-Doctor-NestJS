@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
-
+import { AccountStatusEnum } from 'src/common/enum/account-status-enum';
+import { GenderEnum } from 'src/common/enum/gender-enum';
 export type UserDocument = HydratedDocument<User>;
 
 @Schema({ timestamps: true})
@@ -20,8 +21,17 @@ export class User {
   @Prop({ default: 'user' })
   role: string;
 
+  @Prop({ default: GenderEnum.OTHER, type: String, enum: GenderEnum})
+  gender: GenderEnum;
+
   @Prop()
   dob: Date;
+
+  @Prop()
+  address: string;
+
+  @Prop()
+  avatarUrl?: string;
 
   @Prop()
   phoneNumber: string;
@@ -37,8 +47,12 @@ export class User {
 
   @Prop()
   accessToken: string;
-  @Prop({ default: false} )
-  isActive: boolean;
+
+  @Prop({ default: AccountStatusEnum.INACTIVE
+        , type: String,
+        enum: AccountStatusEnum
+  } )
+  status: AccountStatusEnum;
 
   @Prop({ default: null})
   otp: string;

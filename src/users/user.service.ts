@@ -7,9 +7,9 @@ import { AuthService } from 'src/auth/auth.service';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code-enum';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
-import { CreateUserDto } from './dto/create-user.dto';
+import { CreateUserDto, UserProfileDTO } from './dto/create-user.dto';
 import { User, UserDocument } from './schemas/user.schema';
-import { UserProfileDTO } from './dto/create-user.dto';
+import { AccountStatusEnum } from 'src/common/enum/account-status-enum';
 @Injectable()
 export class UserService {
     constructor(@InjectModel(User.name) private userModel: Model<UserDocument>
@@ -70,7 +70,7 @@ export class UserService {
         return dataRes;
         }
 
-        user.isActive = true; // kích hoạt tài khoản
+        user.status = AccountStatusEnum.ACTIVE; // kích hoạt tài khoản
         await user.save();
 
         dataRes.code = rc.SUCCESS;
@@ -236,7 +236,10 @@ export class UserService {
                     dateOfBirth: user.dob,
                     phoneNumber: user.phoneNumber,
                     createdAt: user.createdAt,
-                    updatedAt: user.updatedAt
+                    updatedAt: user.updatedAt,
+                    status: user.status,
+                    address: user.address,
+                    avatarUrl: user.avatarUrl,
                 };
                 dataRes.message = "User received successfully",
                 dataRes.code = rc.SUCCESS, 

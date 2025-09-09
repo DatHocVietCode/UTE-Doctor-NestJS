@@ -70,7 +70,7 @@ export class AuthService {
             dataRes.code = rc.ERROR;
             return dataRes;
         }
-        if (!user.isActive)
+        if (!user.status)
         {
             dataRes.message = "User is not activated! Automatically redirect you to verify OTP page..."
             // Implement check otp and resend if died
