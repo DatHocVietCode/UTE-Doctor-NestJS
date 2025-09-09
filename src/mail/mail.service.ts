@@ -12,7 +12,7 @@ export class MailService {
             to: toEmail,
             subject: "OTP Verification from UTE-Doctor",
             text: 'This email is automatically sent by UTE-Doctor, please no reply!',
-            html: '<h1> Your OTP is: ${otp}</h1>',
+            html: `<h1> Your OTP is: ${otp}</h1>`,
         });
         return otp;
     }

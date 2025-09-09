@@ -9,6 +9,7 @@ export class AuthController
     @Post("/register")
     async createNewUser(@Body() registerUserDTO: RegisterUserDto)
     {
+        console.log('Got register request:', registerUserDTO);
         return this.authService.register(registerUserDTO);
     }
     @Post("/login")

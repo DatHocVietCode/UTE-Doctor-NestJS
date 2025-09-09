@@ -14,7 +14,7 @@ export interface updateUserDto {
 }
 
 export interface UserProfileDTO {
-  id: string;
+  id?: string;
   name: string;
   email: string;
   phoneNumber?: string;

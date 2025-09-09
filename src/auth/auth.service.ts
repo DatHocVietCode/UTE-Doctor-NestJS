@@ -28,7 +28,7 @@ export class AuthService {
             email: registerUserDto.email,
             password: hashedPassword,
             fullName: registerUserDto.fullName,
-            dob: registerUserDto.dob,
+            dob: new Date(registerUserDto.dob),
             phoneNumber: registerUserDto.phoneNumber,
         });
         try

@@ -1,14 +1,14 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import mongoose, { HydratedDocument, Types } from 'mongoose';
 import { AccountStatusEnum } from 'src/common/enum/account-status-enum';
 import { GenderEnum } from 'src/common/enum/gender-enum';
 export type UserDocument = HydratedDocument<User>;
 
 @Schema({ timestamps: true})
 export class User {
-  @Prop()
-  _id: string;
 
+  _id: mongoose.Types.ObjectId;
+  
   @Prop()
   fullName: string;
 

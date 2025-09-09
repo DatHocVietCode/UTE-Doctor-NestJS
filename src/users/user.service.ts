@@ -230,7 +230,7 @@ export class UserService {
             else
             {
                 let userProfile: UserProfileDTO = {
-                    id: user._id.toString(),
+                    id: user._id?.toString(),
                     name: user.fullName,
                     email: user.email,
                     dateOfBirth: user.dob,
