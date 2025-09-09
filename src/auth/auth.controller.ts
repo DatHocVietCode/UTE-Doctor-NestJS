@@ -1,6 +1,9 @@
-import { Body, Controller, Post } from "@nestjs/common";
+import { Body, Controller, HttpException, HttpStatus, Post } from "@nestjs/common";
+import { DataResponse } from "src/common/dto/data-respone";
+import { ResponseCode as rc } from "src/common/enum/reponse-code-enum";
 import { AuthService } from "./auth.service";
 import { LoginUserReqDto, RegisterUserDto } from "./dto/auth-user.dto";
+import e from "express";
 
 @Controller("auth")
 export class AuthController
@@ -15,7 +18,25 @@ export class AuthController
     @Post("/login")
     async loginUser(@Body() loginUserDTO: LoginUserReqDto)
     {
-        return this.authService.login(loginUserDTO);
+        try {
+            const result = await this.authService.login(loginUserDTO);
+            console.log(result);
+            // Nếu đăng nhập thành công → trả 200
+            if (result.code === rc.SUCCESS) {
+                return result; // { code: rc.SUCCESS, message: "Login successfully!", data: { accessToken, refreshToken } }
+            }
+            // Nếu sai email hoặc mật khẩu → trả 401 (Unauthorized)
+            throw new HttpException(result.message, HttpStatus.UNAUTHORIZED);
+        }
+        catch (err: any) {
+            // Server error
+     
+            console.error('Error during login:', err);
+            throw new HttpException(
+                { code: rc.SERVER_ERROR, message: err.message, data: null },
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
     }
     @Post("/send-otp")
     async sendOTP(@Body() body: { email: string }) {
@@ -23,10 +44,28 @@ export class AuthController
         return this.authService.handleOTPSending(email);
     }
 
-    @Post("/verify-otp")
-    async verifyOtp(@Body() body: { email: string, otp: string }) {
-        const { email, otp } = body;
-        return this.authService.verifyOTP(email, otp);
-    }
+    @Post('verify-otp')
+    async verifyOtp(
+    @Body() body: { email: string; otp: string },
+    ): Promise<DataResponse<null>> {
+    const { email, otp } = body;
 
+    try {
+        const result = await this.authService.verifyOTP(email, otp);
+
+        // Nếu OTP đúng → trả 200
+        if (result.code === rc.SUCCESS) {
+            return result; // { code: rc.SUCCESS, message: "OTP verify successfully!", data: null }
+        }
+
+        // Nếu OTP sai hoặc hết hạn → trả 400 (Bad Request)
+        throw new HttpException(result.message, HttpStatus.BAD_REQUEST);
+    } catch (err: any) {
+        // Server error
+        throw new HttpException(
+        { code: rc.SERVER_ERROR, message: err.message, data: null },
+        HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+    }
+    }
 }

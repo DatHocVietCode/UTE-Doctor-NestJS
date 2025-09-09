@@ -13,6 +13,7 @@ import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { OtpUtils } from 'src/utils/otp/otp-utils';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserDto } from './dto/auth-user.dto';
+import { AccountStatusEnum } from 'src/common/enum/account-status-enum';
 @Injectable()
 export class AuthService {
     constructor(@InjectModel(User.name) private userModel: Model<UserDocument>
@@ -54,7 +55,7 @@ export class AuthService {
     async login(loginUserDto: LoginUserReqDto): Promise<DataResponse<LoginUserResDto>> {
         const user = await this.userModel.findOne({ email: loginUserDto.email }).exec();
         let dataRes: DataResponse<LoginUserResDto> = {
-            code: rc.SERVER_ERROR,
+            code: rc.USER_NOT_FOUND,
             message: "",
             data: { accessToken: "", refreshToken: "" }
         };
@@ -70,12 +71,12 @@ export class AuthService {
             dataRes.code = rc.ERROR;
             return dataRes;
         }
-        if (!user.status)
+        if (user.status === AccountStatusEnum.INACTIVE)
         {
             dataRes.message = "User is not activated! Automatically redirect you to verify OTP page..."
             // Implement check otp and resend if died
             dataRes.code = rc.ERROR;
-            const data = await this.handleOTPSending(loginUserDto.email);
+            await this.handleOTPSending(loginUserDto.email);
             // if (data.data)
             // {
             //     const otpInfo: OtpDTO = data.data;
@@ -94,6 +95,7 @@ export class AuthService {
             // }
             return dataRes;
         }
+        dataRes.code = rc.SUCCESS;
         dataRes.message = "Login Successful";
         const refreshTokenRespone = await this.userService.getUserRefreshToken(user.email); 
         console.log(refreshTokenRespone.data)
