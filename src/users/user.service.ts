@@ -55,32 +55,32 @@ export class UserService {
     }
 
     async activateUserAccount(email: string): Promise<DataResponse<null>> {
-    let dataRes: DataResponse<null> = {
-        code: rc.ERROR,
-        message: "User not found",
-        data: null
-    };
+        let dataRes: DataResponse<null> = {
+            code: rc.ERROR,
+            message: "User not found",
+            data: null
+        };
 
-    
-    try {
-        const user = await this.userModel.findOne({ email }).exec();
-        if (!user) {
-        dataRes.message = "User not found!";
-        dataRes.code = rc.USER_NOT_FOUND;
-        return dataRes;
+        
+        try {
+            const user = await this.userModel.findOne({ email }).exec();
+            if (!user) {
+            dataRes.message = "User not found!";
+            dataRes.code = rc.USER_NOT_FOUND;
+            return dataRes;
+            }
+
+            user.status = AccountStatusEnum.ACTIVE; // kích hoạt tài khoản
+            await user.save();
+
+            dataRes.code = rc.SUCCESS;
+            dataRes.message = "User activated successfully!";
+            return dataRes;
+        } catch (error) {
+            dataRes.code = rc.SERVER_ERROR;
+            dataRes.message = error.message;
+            return dataRes;
         }
-
-        user.status = AccountStatusEnum.ACTIVE; // kích hoạt tài khoản
-        await user.save();
-
-        dataRes.code = rc.SUCCESS;
-        dataRes.message = "User activated successfully!";
-        return dataRes;
-    } catch (error) {
-        dataRes.code = rc.SERVER_ERROR;
-        dataRes.message = error.message;
-        return dataRes;
-    }
     }
 
     
@@ -179,7 +179,7 @@ export class UserService {
     /**
      * 
      * @param email input user's email
-     * @returns DataResponse<OtpDTP>, include otp, created and expired time.
+     * @returns DataResponse<OtpDTO>, include otp, created and expired time.
      */
     async getUserOTPInfor(email: string) : Promise<DataResponse<OtpDTO | null>> {
         let dataRes: DataResponse<OtpDTO | null> = 
