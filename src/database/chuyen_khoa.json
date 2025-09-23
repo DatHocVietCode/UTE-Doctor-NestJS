@@ -1,0 +1,184 @@
+[
+    {
+        "id": "001",
+        "name": "Trung tâm hỗ trợ sinh sản"
+    },
+    {
+        "id": "002",
+        "name": "Trung tâm mắt công nghệ cao"
+    },
+    {
+        "id": "003",
+        "name": "Trung tâm nội soi và phẫu thuật, nội soi tiêu hóa"
+    },
+    {
+        "id": "004",
+        "name": "Khoa tiêu hóa gan - mật - tụy"
+    },
+    {
+        "id": "005",
+        "name": "Khoa ngoại tổng hợp"
+    },
+    {
+        "id": "006",
+        "name": "Trung tâm khoa học thần kinh"
+    },
+    {
+        "id": "007",
+        "name": "Trung tâm chấn thương chỉnh hình"
+    },
+    {
+        "id": "008",
+        "name": "Khoa cơ xương khớp"
+    },
+    {
+        "id": "009",
+        "name": "Khoa ngoại nhi"
+    },
+    {
+        "id": "010",
+        "name": "Trung tâm gan và gan nhiễm mỡ"
+    },
+    {
+        "id": "011",
+        "name": "Kiểm soát cân nặng và điều trị béo phì"
+    },
+    {
+        "id": "012",
+        "name": "Khoa ngoại thần kinh cột sống"
+    },
+    {
+        "id": "013",
+        "name": "Trung tâm tim mạch"
+    },
+    {
+        "id": "014",
+        "name": "Trung tâm tim mạch can thiệp"
+    },
+    {
+        "id": "015",
+        "name": "Khoa ngoại lồng ngực, mạch máu"
+    },
+    {
+        "id": "016",
+        "name": "Trung tâm sản phụ khoa"
+    },
+    {
+        "id": "017",
+        "name": "Trung tâm y học bào thai"
+    },
+    {
+        "id": "018",
+        "name": "Trung tâm tiết niệu, thận học, nam khoa"
+    },
+    {
+        "id": "019",
+        "name": "Khoa miễn dịch lâm sàng"
+    },
+    {
+        "id": "020",
+        "name": "Khoa tiết niệu - nam học"
+    },
+    {
+        "id": "021",
+        "name": "Khoa nội tổng hợp"
+    }
+    ,
+    {
+        "id": "022",
+        "name": "Khoa da liễu - thẩm mỹ da"
+    }
+    ,
+    {
+        "id": "023",
+        "name": "Khoa ngoại vú - đầu mặt cổ"
+    },
+    {
+        "id": "024",
+        "name": "Khoa ngoại tiết - đái tháo đường"
+    },
+    {
+        "id": "025",
+        "name": "Trung tâm chẩn đoán hình ảnh - Điện quang can thiệp"
+    },
+    {
+        "id": "026",
+        "name": "Trung tâm tai mũi họng"
+    },
+    {
+        "id": "027",
+        "name": "Khoa ung bướu"
+    },
+    {
+        "id": "028",
+        "name": "Khoa nhi"
+    },
+    {
+        "id": "029",
+        "name": "Trung tâm sơ sinh"
+    },
+    {
+        "id": "030",
+        "name": "Khoa răng hàm mặt"
+    },
+    {
+        "id": "031",
+        "name": "Khoa hô hấp"
+    },
+    {
+        "id": "032",
+        "name": "Trung tâm xét nghiệm"
+    },
+    {
+        "id": "033",
+        "name": "Khoa dinh dưỡng tiết chế"
+    },
+    {
+        "id": "034",
+        "name": "Trung tâm tế bào gốc"
+    },
+    {
+        "id": "035",
+        "name": "Khoa dược"
+    },
+    {
+        "id": "036",
+        "name": "Trung tâm đào tạo và nghiên cứu khoa học"
+    },
+    {
+        "id": "037",
+        "name": "Khoa phục hồi chức năng"
+    },
+    {
+        "id": "038",
+        "name": "Khoa cấp cứu tổng hợp"
+    },
+    {
+        "id": "039",
+        "name": "Khoa phẫu thuật khớp và nội soi"
+    },
+    {
+        "id": "040",
+        "name": "Khoa hồi sức cấp cứu (ICU)"
+    },
+    {
+        "id": "041",
+        "name": "Khoa khám bệnh"
+    },
+    {
+        "id": "042",
+        "name": "Khoa kiểm soát nhiễm khuẩn"
+    },
+    {
+        "id": "043",
+        "name": "Khoa giải phẩu bệnh và tế bào"
+    },
+    {
+        "id": "044",
+        "name": "Trung tâm gây mê hồi sức, điều trị đau và chăm sóc giảm nhẹ"
+    },
+    {
+        "id": "045",
+        "name": "Trung tâm tiêm chủng BVDK Tâm Anh"
+    }
+]
