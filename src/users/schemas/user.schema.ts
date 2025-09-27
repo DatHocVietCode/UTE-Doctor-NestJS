@@ -1,9 +1,46 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import mongoose, { HydratedDocument, Types } from 'mongoose';
-import { AccountStatusEnum } from 'src/common/enum/account-status-enum';
-import { GenderEnum } from 'src/common/enum/gender-enum';
-export type UserDocument = HydratedDocument<User>;
+import mongoose, { HydratedDocument } from 'mongoose';
+import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
+import { GenderEnum } from 'src/common/enum/gender.enum';
+import { BloodType } from 'src/common/enum/blood-type.enum';
+export type MedicalRecordDocument = HydratedDocument<MedicalRecord>;
+@Schema()
+export class MedicalRecord {
+  @Prop()
+  height: number; // cm
 
+  @Prop()
+  weight: number; // kg
+
+  @Prop({ enum: BloodType })
+  bloodType: BloodType;
+
+  @Prop()
+  medicalHistory: MedicalRecordDescription[];
+
+  @Prop()
+  drugAllergies: MedicalRecordDescription[];
+
+  @Prop()
+  foodAllergies: MedicalRecordDescription[];
+}
+export const MedicalRecordSchema = SchemaFactory.createForClass(MedicalRecord);
+
+export type MedicalRecordDescriptionDocument = HydratedDocument<MedicalRecordDescription>;
+@Schema()
+export class MedicalRecordDescription {
+  @Prop()
+  name: string;
+
+  @Prop()
+  descrition: string;
+
+  @Prop()
+  dateRecord: Date;
+}
+export const MedicalRecordDescriptionSchema = SchemaFactory.createForClass(MedicalRecordDescription)
+
+export type UserDocument = HydratedDocument<User>;
 @Schema({ timestamps: true})
 export class User {
 
@@ -63,6 +100,8 @@ export class User {
   @Prop({ default: null})
   otpExpiredAt: Date;
 
+  @Prop()
+  medicalRecord: MedicalRecord;
 }
-
 export const UserSchema = SchemaFactory.createForClass(User);
+

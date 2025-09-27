@@ -5,32 +5,15 @@ import * as jwt from "jsonwebtoken";
 import { Model } from 'mongoose';
 import { AuthService } from 'src/auth/auth.service';
 import { DataResponse } from 'src/common/dto/data-respone';
-import { ResponseCode as rc } from 'src/common/enum/reponse-code-enum';
+import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
+import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
-import { CreateUserDto, UserProfileDTO } from './dto/create-user.dto';
+import { UserProfileDTO } from './dto/user.dto';
 import { User, UserDocument } from './schemas/user.schema';
-import { AccountStatusEnum } from 'src/common/enum/account-status-enum';
 @Injectable()
 export class UserService {
     constructor(@InjectModel(User.name) private userModel: Model<UserDocument>
                 , private readonly authService: AuthService) {}
-
-    async create(createUserDto: CreateUserDto): Promise<string> {
-        const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
-        const createdUser = new this.userModel({
-            email: createUserDto.email,
-            password: hashedPassword,
-        });
-        try
-        {
-            await createdUser.save();
-            return "User created successfully";
-        }
-        catch (error)
-        {
-            return "Error creating user: " + error.message;
-        }
-    }
 
     async findAll(): Promise<User[]> {
         return this.userModel.find().exec();
@@ -214,7 +197,7 @@ export class UserService {
         return dataRes;
     }
     async getUserByEmail(email: string): Promise<DataResponse<UserProfileDTO | null>> {
-        let dataRes: DataResponse<UserProfileDTO | null> = 
+        let dataRes: DataResponse<UserProfileDTO | null> =
         {
             message: "",
             code: rc.ERROR,
@@ -240,6 +223,7 @@ export class UserService {
                     status: user.status,
                     address: user.address,
                     avatarUrl: user.avatarUrl,
+                    medicalRecord: null
                 };
                 dataRes.message = "User received successfully",
                 dataRes.code = rc.SUCCESS, 

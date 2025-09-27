@@ -1,16 +1,15 @@
 import { Body, Controller, HttpException, HttpStatus, Post } from "@nestjs/common";
 import { DataResponse } from "src/common/dto/data-respone";
-import { ResponseCode as rc } from "src/common/enum/reponse-code-enum";
+import { ResponseCode as rc } from "src/common/enum/reponse-code.enum";
 import { AuthService } from "./auth.service";
-import { LoginUserReqDto, RegisterUserDto } from "./dto/auth-user.dto";
-import e from "express";
+import { LoginUserReqDto, RegisterUserReqDto } from "./dto/auth-user.dto";
 
 @Controller("auth")
 export class AuthController
 {
     constructor(private readonly authService: AuthService) {}
     @Post("/register")
-    async createNewUser(@Body() registerUserDTO: RegisterUserDto)
+    async createNewUser(@Body() registerUserDTO: RegisterUserReqDto)
     {
         console.log('Got register request:', registerUserDTO);
         return this.authService.register(registerUserDTO);
@@ -44,7 +43,7 @@ export class AuthController
         return this.authService.handleOTPSending(email);
     }
 
-    @Post('verify-otp')
+    @Post('/verify-otp')
     async verifyOtp(
     @Body() body: { email: string; otp: string },
     ): Promise<DataResponse<null>> {

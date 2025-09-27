@@ -1,4 +1,4 @@
-import {  ResponseCode } from "../enum/reponse-code-enum";
+import { ResponseCode } from "../enum/reponse-code.enum";
 export interface DataResponse<T = any>
 {
     code: ResponseCode,

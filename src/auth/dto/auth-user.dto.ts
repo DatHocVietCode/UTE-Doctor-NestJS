@@ -1,12 +1,9 @@
-import { GenderEnum } from "src/common/enum/gender-enum";
+import { MedicalRecord } from "src/users/schemas/user.schema";
 
-export class RegisterUserDto {
+export class RegisterUserReqDto {
     email: string;
     password: string;
-    fullName: string;
-    dob: Date;
-    phoneNumber: string;
-    gender: GenderEnum;
+    medicalRecord: MedicalRecord | null;
 }
 
 export class LoginUserReqDto {

@@ -6,14 +6,14 @@ import * as bcrypt from 'bcrypt';
 import { console } from 'inspector';
 import { Model } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
-import { ResponseCode as rc } from 'src/common/enum/reponse-code-enum';
+import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
+import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { MailService } from 'src/mail/mail.service';
 import { UserService } from 'src/users/user.service';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { OtpUtils } from 'src/utils/otp/otp-utils';
 import { User, UserDocument } from '../users/schemas/user.schema';
-import { LoginUserReqDto, LoginUserResDto, RegisterUserDto } from './dto/auth-user.dto';
-import { AccountStatusEnum } from 'src/common/enum/account-status-enum';
+import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
 @Injectable()
 export class AuthService {
     constructor(@InjectModel(User.name) private userModel: Model<UserDocument>
@@ -23,14 +23,12 @@ export class AuthService {
                 , private mailService: MailService
                 , private otpUtils: OtpUtils) {}
 
-    async register(registerUserDto: RegisterUserDto): Promise<string> {
+    async register(registerUserDto: RegisterUserReqDto): Promise<string> {
         const hashedPassword = await bcrypt.hash(registerUserDto.password, 10);
         const createdUser = new this.userModel({
             email: registerUserDto.email,
             password: hashedPassword,
-            fullName: registerUserDto.fullName,
-            dob: new Date(registerUserDto.dob),
-            phoneNumber: registerUserDto.phoneNumber,
+            medicalRecord: registerUserDto.medicalRecord
         });
         try
         {
