@@ -223,10 +223,10 @@ export class UserService {
                     status: user.status,
                     address: user.address,
                     avatarUrl: user.avatarUrl,
-                    medicalRecord: null
+                    medicalRecord: user.medicalRecord || null
                 };
                 dataRes.message = "User received successfully",
-                dataRes.code = rc.SUCCESS, 
+                dataRes.code = rc.SUCCESS,
                 dataRes.data = userProfile;
             }
         } catch (error) {

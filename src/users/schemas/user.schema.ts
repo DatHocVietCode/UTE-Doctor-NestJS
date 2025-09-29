@@ -3,6 +3,22 @@ import mongoose, { HydratedDocument } from 'mongoose';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { GenderEnum } from 'src/common/enum/gender.enum';
 import { BloodType } from 'src/common/enum/blood-type.enum';
+
+export type VitalSignRecordDocument = HydratedDocument<VitalSignRecord>;
+@Schema()
+export class VitalSignRecord {
+  @Prop({ type: Number, required: false })
+  value?: number; // dùng cho nhịp tim
+
+  @Prop({ type: Object, required: false })
+  bloodPressure?: { systolic: number; diastolic: number }; // dùng cho huyết áp
+
+  @Prop({ type: Date, required: true })
+  dateRecord: Date;
+}
+export const VitalSignRecordSchema = SchemaFactory.createForClass(VitalSignRecord);
+
+
 export type MedicalRecordDocument = HydratedDocument<MedicalRecord>;
 @Schema()
 export class MedicalRecord {
@@ -23,6 +39,12 @@ export class MedicalRecord {
 
   @Prop()
   foodAllergies: MedicalRecordDescription[];
+
+  @Prop({ type: [VitalSignRecordSchema], default: [] })
+  bloodPressure: VitalSignRecord[];
+
+  @Prop({ type: [VitalSignRecordSchema], default: [] })
+  heartRate: VitalSignRecord[];
 }
 export const MedicalRecordSchema = SchemaFactory.createForClass(MedicalRecord);
 
