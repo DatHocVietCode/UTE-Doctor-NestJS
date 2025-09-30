@@ -1,3 +1,4 @@
+export const chuyenKhoaSeed = 
 [
   {
     "name": "Trung tâm hỗ trợ sinh sản",

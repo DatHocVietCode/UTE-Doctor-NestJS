@@ -5,6 +5,8 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -18,6 +20,7 @@ import { LoggerMiddleware } from './common/middleware/logger.middleware';
       }),
     }),
     UsersModule,
+    ChuyenKhoaModule,
   ],
   controllers: [AppController],
   providers: [AppService],
