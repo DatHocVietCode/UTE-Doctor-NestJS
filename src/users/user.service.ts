@@ -223,7 +223,16 @@ export class UserService {
                     status: user.status,
                     address: user.address,
                     avatarUrl: user.avatarUrl,
-                    medicalRecord: user.medicalRecord || null
+                    medicalRecord: user.medicalRecord
+                        ? {
+                            ...user.medicalRecord,
+                            bloodPressure: user.medicalRecord.bloodPressure
+                                .sort((a, b) => b.dateRecord.getTime() - a.dateRecord.getTime()) // sort mới nhất trước
+                                .slice(0, 5), // lấy tối đa 5 bản ghi
+                            heartRate: user.medicalRecord.heartRate
+                                .sort((a, b) => b.dateRecord.getTime() - a.dateRecord.getTime())
+                                .slice(0, 5),
+                        } : null,
                 };
                 dataRes.message = "User received successfully",
                 dataRes.code = rc.SUCCESS,
