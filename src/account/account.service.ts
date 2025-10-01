@@ -1,19 +1,19 @@
-import { Injectable } from '@nestjs/common';
+import { forwardRef, Inject, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
 import * as jwt from "jsonwebtoken";
 import { Model } from 'mongoose';
+import { AuthService } from 'src/auth/auth.service';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
-import { AuthService } from 'src/xac-thuc/xac-thuc.service';
 import { AccountProfileDTO } from './dto/account.dto';
 import { Account, AccountDocument } from './schemas/account.schema';
 @Injectable()
 export class AccountService {
     constructor(@InjectModel(Account.name) private AccountModel: Model<AccountDocument>
-                , private readonly authService: AuthService) {}
+                ,@Inject(forwardRef(() => AuthService)) private readonly authService: AuthService) {}
 
     async findAll(): Promise<Account[]> {
         return this.AccountModel.find().exec();

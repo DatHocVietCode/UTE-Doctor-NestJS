@@ -14,6 +14,7 @@ import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { OtpUtils } from 'src/utils/otp/otp-utils';
 import { Account } from '../account/schemas/account.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
+
 @Injectable()
 export class AuthService {
     constructor(@InjectModel(Account.name) private userModel: Model<Account>

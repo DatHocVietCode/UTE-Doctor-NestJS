@@ -2,7 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
-import { UsersModule } from './account/account.module';
+import { AccountModule } from './account/account.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
@@ -19,7 +19,7 @@ import { LoggerMiddleware } from './common/middleware/logger.middleware';
         uri: config.get<string>('MONGO_DB_URI'),
       }),
     }),
-    UsersModule,
+    AccountModule,
     ChuyenKhoaModule,
   ],
   controllers: [AppController],
