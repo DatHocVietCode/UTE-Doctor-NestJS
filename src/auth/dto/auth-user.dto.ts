@@ -4,7 +4,7 @@ import { MedicalRecord } from "src/patient/schema/medical-record.schema";
 export class RegisterUserReqDto {
     email: string;
     password: string;
-    medicalRecord: MedicalRecord | null;
+    medicalRecord: MedicalRecord;
 }
 
 export class LoginUserReqDto {

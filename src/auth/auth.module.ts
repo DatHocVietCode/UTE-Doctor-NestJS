@@ -7,6 +7,7 @@ import { MailModule } from "src/mail/mail.module";
 import { OtpModule } from "src/utils/otp/otp.module";
 import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
+import { PatientModule } from "src/patient/patient.module";
 
 @Module({
   imports: [
@@ -17,7 +18,8 @@ import { AuthController } from "./auth.controller";
     }),
     MongooseModule.forFeature([{ name: Account.name, schema: AccountSchema }]),
     MailModule,
-    OtpModule
+    OtpModule,
+    PatientModule
   ],
   controllers: [AuthController],
   providers: [AuthService],

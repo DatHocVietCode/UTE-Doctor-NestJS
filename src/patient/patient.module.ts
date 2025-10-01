@@ -1,0 +1,13 @@
+import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { PatientController } from './patient.controller';
+import { PatientService } from './patient.service';
+import { Patient, PatientSchema } from './schema/patient.schema';
+
+@Module({
+  imports: [MongooseModule.forFeature([{ name: Patient.name, schema: PatientSchema }])],
+  providers: [PatientService],
+  controllers: [PatientController],
+  exports: [PatientService], // để chỗ khác (User/AccountService) dùng được
+})
+export class PatientModule {}

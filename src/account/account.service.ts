@@ -10,10 +10,12 @@ import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { AccountProfileDTO } from './dto/account.dto';
 import { Account, AccountDocument } from './schemas/account.schema';
+import { PatientService } from 'src/patient/patient.service';
 @Injectable()
 export class AccountService {
     constructor(@InjectModel(Account.name) private AccountModel: Model<AccountDocument>
-                ,@Inject(forwardRef(() => AuthService)) private readonly authService: AuthService) {}
+                ,@Inject(forwardRef(() => AuthService)) private readonly authService: AuthService
+            ) {}
 
     async findAll(): Promise<Account[]> {
         return this.AccountModel.find().exec();

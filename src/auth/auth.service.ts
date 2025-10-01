@@ -14,6 +14,7 @@ import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { OtpUtils } from 'src/utils/otp/otp-utils';
 import { Account } from '../account/schemas/account.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
+import { PatientService } from 'src/patient/patient.service';
 
 @Injectable()
 export class AuthService {
@@ -22,7 +23,8 @@ export class AuthService {
                 ,@Inject(forwardRef(() => AccountService)) private userService: AccountService
                 , private configService: ConfigService
                 , private mailService: MailService
-                , private otpUtils: OtpUtils) {}
+                , private otpUtils: OtpUtils
+                , private readonly patientService: PatientService) {}
 
     async register(registerUserDto: RegisterUserReqDto): Promise<string> {
         const hashedPassword = await bcrypt.hash(registerUserDto.password, 10);
@@ -42,6 +44,16 @@ export class AuthService {
             this.mailService.sendOTP(createdUser.email, createdUser.otp);
 
             await createdUser.save();
+
+             if (createdUser.role === "PATIENT") {
+                await this.patientService.create({
+                    accountId: createdUser._id.toString(),
+                    height: registerUserDto.medicalRecord?.height,
+                    weight: registerUserDto.medicalRecord?.weight,
+                    bloodType: registerUserDto.medicalRecord?.bloodType,
+                    medicalRecord: registerUserDto.medicalRecord,
+                });
+            }
 
             return "User registered successfully. Please verify your OTP to activate your account!";
         }
