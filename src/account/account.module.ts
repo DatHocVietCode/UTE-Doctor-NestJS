@@ -1,13 +1,13 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { User, UserSchema } from './schemas/user.schema';
-import { UserService } from './user.service';
-import { UsersController } from './users.controller';
-import { AuthModule } from 'src/auth/auth.module';
+import { AuthModule } from 'src/xac-thuc/auth.module';
+import { UsersController } from './account.controller';
+import { UserService } from './account.service';
+import { Account, AccountSchema } from './schemas/account.schema';
 
 @Module({
   imports: [
-    MongooseModule.forFeature([{ name: User.name, schema: UserSchema }]),
+    MongooseModule.forFeature([{ name: Account.name, schema: AccountSchema }]),
     forwardRef(() => AuthModule), // dùng forwardRef để tránh circular dependency
   ],
   controllers: [UsersController],

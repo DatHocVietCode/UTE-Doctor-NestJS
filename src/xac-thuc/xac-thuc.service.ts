@@ -5,14 +5,14 @@ import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
 import { console } from 'inspector';
 import { Model } from 'mongoose';
+import { UserService } from 'src/account/account.service';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { MailService } from 'src/mail/mail.service';
-import { UserService } from 'src/users/user.service';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { OtpUtils } from 'src/utils/otp/otp-utils';
-import { User, UserDocument } from '../users/schemas/user.schema';
+import { User, UserDocument } from '../account/schemas/account.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
 @Injectable()
 export class AuthService {

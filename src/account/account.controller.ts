@@ -1,14 +1,14 @@
 import { Body, Controller, Delete, Get, Param, Patch, Query } from '@nestjs/common';
-import { User } from './schemas/user.schema';
-import { UserService } from './user.service';
+import { AccountService } from './account.service';
+import { Account } from './schemas/account.schema';
 
 @Controller('users')
 export class UsersController {
-    constructor(private readonly userService: UserService) {}
+    constructor(private readonly accountService: AccountService) {}
 
     @Get('by-email')
     findByEmail(@Query('email') email: string) {
-        return this.userService.getUserByEmail(email);
+        return this.accountService.getUserByEmail(email);
     }
 
     @Get()

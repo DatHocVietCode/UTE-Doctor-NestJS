@@ -1,4 +1,4 @@
-import { MedicalRecord } from "src/users/schemas/user.schema";
+import { MedicalRecord } from "src/account/schemas/account.schema";
 
 export class RegisterUserReqDto {
     email: string;

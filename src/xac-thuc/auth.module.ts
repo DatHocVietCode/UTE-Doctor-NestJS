@@ -1,13 +1,12 @@
 import { Module, forwardRef } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { MongooseModule } from "@nestjs/mongoose";
+import { UsersModule } from "src/account/account.module";
+import { User, UserSchema } from "src/account/schemas/account.schema";
 import { MailModule } from "src/mail/mail.module";
-import { User, UserSchema } from "src/users/schemas/user.schema";
-import { UsersModule } from "src/users/users.module";
-import { OtpUtils } from "src/utils/otp/otp-utils";
-import { AuthController } from "./auth.controller";
-import { AuthService } from "./auth.service";
 import { OtpModule } from "src/utils/otp/otp.module";
+import { AuthController } from "./xac-thuc.controller";
+import { AuthService } from "./xac-thuc.service";
 
 @Module({
   imports: [

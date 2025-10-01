@@ -1,8 +1,8 @@
 import { Body, Controller, HttpException, HttpStatus, Post } from "@nestjs/common";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode as rc } from "src/common/enum/reponse-code.enum";
-import { AuthService } from "./auth.service";
 import { LoginUserReqDto, RegisterUserReqDto } from "./dto/auth-user.dto";
+import { AuthService } from "./xac-thuc.service";
 
 @Controller("auth")
 export class AuthController
