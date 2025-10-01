@@ -8,8 +8,8 @@ import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { AuthService } from 'src/xac-thuc/xac-thuc.service';
-import { Account, AccountDocument } from './schemas/account.schema';
 import { AccountProfileDTO } from './dto/account.dto';
+import { Account, AccountDocument } from './schemas/account.schema';
 @Injectable()
 export class AccountService {
     constructor(@InjectModel(Account.name) private AccountModel: Model<AccountDocument>
@@ -37,7 +37,7 @@ export class AccountService {
             .exec();
     }
 
-    async activateAccountAccount(email: string): Promise<DataResponse<null>> {
+    async activateAccount(email: string): Promise<DataResponse<null>> {
         let dataRes: DataResponse<null> = {
             code: rc.ERROR,
             message: "Account not found",
@@ -197,44 +197,45 @@ export class AccountService {
         return dataRes;
     }
     // account.service.ts
-async getAccountByEmail(email: string): Promise<DataResponse<AccountProfileDTO | null>> {
-  let dataRes: DataResponse<AccountProfileDTO | null> = {
-    message: "",
-    code: rc.ERROR,
-    data: null
-  };
-
-  try {
-    const account = await this.findByEmail(email);
-    if (!account) {
-      dataRes.message = "Account not found!";
-      dataRes.code = rc.ACCOUNT_NOT_FOUND;
-      return dataRes;
+    async getUserByEmail(email: string): Promise<DataResponse<AccountProfileDTO | null>> {
+        let dataRes: DataResponse<AccountProfileDTO | null> =
+        {
+            message: "",
+            code: rc.ERROR,
+            data: null
+        };
+        try {
+            const user = await this.findByEmail(email);
+            if (!user)
+            {
+                dataRes.message = "User not found!",
+                dataRes.code =  rc.ACCOUNT_NOT_FOUND
+            }
+            else
+            {
+                let userProfile: AccountProfileDTO = {
+                    id: user._id?.toString(),
+                    name: user.fullName,
+                    email: user.email,
+                    dateOfBirth: user.dob,
+                    phoneNumber: user.phoneNumber,
+                    createdAt: user.createdAt,
+                    updatedAt: user.updatedAt,
+                    status: user.status,
+                    address: user.address,
+                    avatarUrl: user.avatarUrl,
+                    
+                };
+                dataRes.message = "User received successfully",
+                dataRes.code = rc.SUCCESS,
+                dataRes.data = userProfile;
+            }
+        } catch (error) {
+            console.log("Server error:" + error);
+            dataRes.code = rc.SERVER_ERROR;
+            dataRes.message = error;
+            dataRes.data = null;
+        }
+        return dataRes;
     }
-
-    // build profile chỉ với account info cơ bản
-    const accountProfile: AccountProfileDTO = {
-      id: account._id?.toString(),
-      name: account.fullName,
-      email: account.email,
-      phoneNumber: account.,
-      createdAt: account.createdAt,
-      updatedAt: account.updatedAt,
-      status: account.status,
-      address: account.address,
-      avatarUrl: account.avatarUrl,
-    };
-
-    dataRes.message = "Account received successfully";
-    dataRes.code = rc.SUCCESS;
-    dataRes.data = accountProfile;
-
-  } catch (error) {
-    console.error("Server error:", error);
-    dataRes.code = rc.SERVER_ERROR;
-    dataRes.message = error.message || "Unexpected error";
-    dataRes.data = null;
-  }
-
-  return dataRes;
 }
