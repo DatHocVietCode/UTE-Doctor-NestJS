@@ -6,6 +6,8 @@ import { AccountModule } from './account/account.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { DoctorModule } from 'src/doctor/doctor.module';
+import { PatientModule } from 'src/patient/patient.module';
 
 @Module({
   imports: [
@@ -21,6 +23,8 @@ import { LoggerMiddleware } from './common/middleware/logger.middleware';
     }),
     AccountModule,
     ChuyenKhoaModule,
+    DoctorModule,
+    PatientModule
   ],
   controllers: [AppController],
   providers: [AppService],

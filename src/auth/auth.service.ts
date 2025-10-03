@@ -15,12 +15,14 @@ import { OtpUtils } from 'src/utils/otp/otp-utils';
 import { Account } from '../account/schemas/account.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
 import { PatientService } from 'src/patient/patient.service';
+import { DoctorService } from 'src/doctor/doctor.service';
 
 @Injectable()
 export class AuthService {
     constructor(@InjectModel(Account.name) private userModel: Model<Account>
                 , private jwtService: JwtService
                 ,@Inject(forwardRef(() => AccountService)) private userService: AccountService
+                ,@Inject(forwardRef(() => DoctorService)) private doctorService: DoctorService
                 , private configService: ConfigService
                 , private mailService: MailService
                 , private otpUtils: OtpUtils
@@ -31,21 +33,19 @@ export class AuthService {
         const createdUser = new this.userModel({
             email: registerUserDto.email,
             password: hashedPassword,
-            medicalRecord: registerUserDto.medicalRecord
+            role: registerUserDto.role,
         });
-        try
-        {
+
+        try {
             const otpInfo = this.otpUtils.generateOTP();
-          
             createdUser.otp = otpInfo.otp;
             createdUser.otpCreatedAt = otpInfo.otpCreatedAt;
             createdUser.otpExpiredAt = otpInfo.otpExpiredAt;
-
             this.mailService.sendOTP(createdUser.email, createdUser.otp);
-
             await createdUser.save();
 
-             if (createdUser.role === "PATIENT") {
+            // Nếu là bệnh nhân → tạo Patient
+            if (createdUser.role === "PATIENT") {
                 await this.patientService.create({
                     accountId: createdUser._id.toString(),
                     height: registerUserDto.medicalRecord?.height,
@@ -55,21 +55,31 @@ export class AuthService {
                 });
             }
 
+            // Nếu là bác sĩ → tạo Doctor
+            if (createdUser.role === "DOCTOR") {
+                await this.doctorService.create({
+                    accountId: createdUser._id.toString(),
+                    chuyenKhoaId: registerUserDto.chuyenKhoaId,
+                    degree: registerUserDto.degree,
+                    yearsOfExperience: registerUserDto.yearsOfExperience,
+                });
+            }
+
             return "User registered successfully. Please verify your OTP to activate your account!";
-        }
-        catch (error)
-        {
+        } catch (error) {
             return "Error registering user: " + error.message;
         }
     }
+
 
     async login(loginUserDto: LoginUserReqDto): Promise<DataResponse<LoginUserResDto>> {
         const user = await this.userModel.findOne({ email: loginUserDto.email }).exec();
         let dataRes: DataResponse<LoginUserResDto> = {
             code: rc.ACCOUNT_NOT_FOUND,
             message: "",
-            data: { accessToken: "", refreshToken: "" }
+            data: { accessToken: "", refreshToken: "", role: "", id: "" }
         };
+
         if (!user) {
             dataRes.message = "User not found";
             dataRes.code = rc.ACCOUNT_NOT_FOUND;
@@ -82,46 +92,31 @@ export class AuthService {
             dataRes.code = rc.ERROR;
             return dataRes;
         }
-        if (user.status === AccountStatusEnum.INACTIVE)
-        {
-            dataRes.message = "User is not activated! Automatically redirect you to verify OTP page..."
-            // Implement check otp and resend if died
+
+        if (user.status === AccountStatusEnum.INACTIVE) {
+            dataRes.message = "User is not activated! Automatically redirect you to verify OTP page...";
             dataRes.code = rc.ERROR;
             await this.handleOTPSending(loginUserDto.email);
-            // if (data.data)
-            // {
-            //     const otpInfo: OtpDTO = data.data;
-            //     const isValid: boolean = this.otpUtils.isOTPValid(otpInfo);
-            //     // if invalid, create a new one, else send it to user'email
-            //     if (isValid)
-            //     {
-            //         this.mailService.sendOTP(loginUserDto.email, otpInfo.otp);
-            //     }
-            //     else
-            //     {
-            //         const newOTP = this.otpUtils.generateOTP();
-            //         const dataRes = await this.userService.updateOTPByEmail(loginUserDto.email, newOTP);
-            //         console.log((await dataRes).message)
-            //     }
-            // }
             return dataRes;
         }
+
+        // Login thành công
         dataRes.code = rc.SUCCESS;
         dataRes.message = "Login Successful";
+
         const refreshTokenRespone = await this.userService.getAccountRefreshToken(user.email); 
-        console.log(refreshTokenRespone.data)
-        const accessToken = await this.createAccessToken(loginUserDto.email);
-        if (dataRes.data)
-        {
+        const accessToken = this.createAccessToken(user.email, user.role, user._id.toString());
+
+        if (dataRes.data) {
             dataRes.data.accessToken = accessToken;
-            if (refreshTokenRespone)
-            {
-                if (refreshTokenRespone.data)
-                    dataRes.data.refreshToken = refreshTokenRespone.data;
-            }
+            dataRes.data.refreshToken = refreshTokenRespone?.data ?? "";
+            dataRes.data.role = user.role;
+            dataRes.data.id = user._id.toString();
         }
+
         return dataRes;
-    }
+        }
+
 
 
 
@@ -195,9 +190,9 @@ export class AuthService {
         return dataRes;
     }
 
-    createAccessToken(email: string): string {
+    createAccessToken(email: string, role: string, id: string): string {
         // Implement JWT token creation logic here
-        const payload = { sub: email };
+        const payload = { sub: email, role, id };
         console.log("Creating access token with payload:", payload);
         const token = this.jwtService.sign(payload, 
             {
