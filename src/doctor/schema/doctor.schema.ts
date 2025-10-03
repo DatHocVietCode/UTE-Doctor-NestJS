@@ -13,8 +13,9 @@ export class Doctor {
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: ChuyenKhoa.name, required: true })
   chuyenKhoaId: mongoose.Types.ObjectId;   // liên kết tới chuyên khoa
 
-  @Prop()
-  degree: string;
+  @Prop({ type: [String], default: [] })
+  degree: string[];
+
 
   @Prop()
   yearsOfExperience: number;
