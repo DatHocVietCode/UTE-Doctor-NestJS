@@ -8,6 +8,8 @@ import { AppService } from './app.service';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import { DoctorModule } from 'src/doctor/doctor.module';
 import { PatientModule } from 'src/patient/patient.module';
+import { Profile } from 'src/profile/schema/profile.schema';
+import { ProfileModule } from 'src/profile/profile.module';
 
 @Module({
   imports: [
@@ -24,7 +26,8 @@ import { PatientModule } from 'src/patient/patient.module';
     AccountModule,
     ChuyenKhoaModule,
     DoctorModule,
-    PatientModule
+    PatientModule,
+    ProfileModule,
   ],
   controllers: [AppController],
   providers: [AppService],
