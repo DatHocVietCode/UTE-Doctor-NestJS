@@ -6,6 +6,7 @@ import { AccountModule } from './account/account.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { LoggerMiddleware } from './common/middleware/logger.middleware';
         uri: config.get<string>('MONGO_DB_URI'),
       }),
     }),
+    EventEmitterModule.forRoot(),
     AccountModule,
     ChuyenKhoaModule,
   ],

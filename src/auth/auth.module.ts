@@ -8,6 +8,7 @@ import { OtpModule } from "src/utils/otp/otp.module";
 import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
 import { PatientModule } from "src/patient/patient.module";
+import { AuthSaga } from "./saga/auth.saga";
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { PatientModule } from "src/patient/patient.module";
     PatientModule
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, AuthSaga],
   exports: [AuthService]
 })
 export class AuthModule {}

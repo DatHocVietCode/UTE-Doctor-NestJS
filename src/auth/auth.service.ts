@@ -15,6 +15,8 @@ import { OtpUtils } from 'src/utils/otp/otp-utils';
 import { Account } from '../account/schemas/account.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
 import { PatientService } from 'src/patient/patient.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -24,43 +26,26 @@ export class AuthService {
                 , private configService: ConfigService
                 , private mailService: MailService
                 , private otpUtils: OtpUtils
-                , private readonly patientService: PatientService) {}
+                , private readonly patientService: PatientService
+                , private readonly eventEmitter: EventEmitter2) {}
 
-    async register(registerUserDto: RegisterUserReqDto): Promise<string> {
-        const hashedPassword = await bcrypt.hash(registerUserDto.password, 10);
-        const createdUser = new this.userModel({
-            email: registerUserDto.email,
-            password: hashedPassword,
-            medicalRecord: registerUserDto.medicalRecord
+    // 
+    
+    async register(dto: RegisterUserReqDto) {
+        const requestId = randomUUID();
+
+        // bắn event "đăng ký yêu cầu"
+        this.eventEmitter.emitAsync('user.register.requested', {
+        requestId,
+        dto,
         });
-        try
-        {
-            const otpInfo = this.otpUtils.generateOTP();
-          
-            createdUser.otp = otpInfo.otp;
-            createdUser.otpCreatedAt = otpInfo.otpCreatedAt;
-            createdUser.otpExpiredAt = otpInfo.otpExpiredAt;
-
-            this.mailService.sendOTP(createdUser.email, createdUser.otp);
-
-            await createdUser.save();
-
-             if (createdUser.role === "PATIENT") {
-                await this.patientService.create({
-                    accountId: createdUser._id.toString(),
-                    height: registerUserDto.medicalRecord?.height,
-                    weight: registerUserDto.medicalRecord?.weight,
-                    bloodType: registerUserDto.medicalRecord?.bloodType,
-                    medicalRecord: registerUserDto.medicalRecord,
-                });
-            }
-
-            return "User registered successfully. Please verify your OTP to activate your account!";
+        const responseData : DataResponse = {
+            code: rc.ERROR,
+            message: "Received user register request",
+            data: null
         }
-        catch (error)
-        {
-            return "Error registering user: " + error.message;
-        }
+        // trả requestId ngay cho client
+        return responseData;
     }
 
     async login(loginUserDto: LoginUserReqDto): Promise<DataResponse<LoginUserResDto>> {

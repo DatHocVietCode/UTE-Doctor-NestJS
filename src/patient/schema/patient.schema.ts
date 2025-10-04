@@ -10,15 +10,6 @@ export class Patient {
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Account.name, required: true })
   accountId: mongoose.Types.ObjectId;
 
-  @Prop()
-  height: number;
-
-  @Prop()
-  weight: number;
-
-  @Prop({ enum: BloodType })
-  bloodType: BloodType;
-
   @Prop({ type: MedicalRecordSchema })
   medicalRecord: MedicalRecord;
 }
