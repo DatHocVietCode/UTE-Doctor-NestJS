@@ -1,65 +1,60 @@
 import { forwardRef, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { console } from 'inspector';
 import { Model } from 'mongoose';
+import { AccountService } from 'src/account/account.service';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { MailService } from 'src/mail/mail.service';
-import { UserService } from 'src/users/user.service';
+import { PatientService } from 'src/patient/patient.service';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { OtpUtils } from 'src/utils/otp/otp-utils';
-import { User, UserDocument } from '../users/schemas/user.schema';
+import { Account } from '../account/schemas/account.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
+
 @Injectable()
 export class AuthService {
-    constructor(@InjectModel(User.name) private userModel: Model<UserDocument>
+    constructor(@InjectModel(Account.name) private userModel: Model<Account>
                 , private jwtService: JwtService
-                ,@Inject(forwardRef(() => UserService)) private userService: UserService
+                ,@Inject(forwardRef(() => AccountService)) private userService: AccountService
                 , private configService: ConfigService
                 , private mailService: MailService
-                , private otpUtils: OtpUtils) {}
+                , private otpUtils: OtpUtils
+                , private readonly eventEmitter: EventEmitter2) {}
+    
+    async register(registerUser: RegisterUserReqDto) {
+        const requestId = randomUUID(); // Unique Id for socket
 
-    async register(registerUserDto: RegisterUserReqDto): Promise<string> {
-        const hashedPassword = await bcrypt.hash(registerUserDto.password, 10);
-        const createdUser = new this.userModel({
-            email: registerUserDto.email,
-            password: hashedPassword,
-            medicalRecord: registerUserDto.medicalRecord
+        // bắn event "đăng ký yêu cầu"
+        this.eventEmitter.emitAsync('user.register.requested', {
+        requestId,
+        registerUser: registerUser,
         });
-        try
-        {
-            const otpInfo = this.otpUtils.generateOTP();
-          
-            createdUser.otp = otpInfo.otp;
-            createdUser.otpCreatedAt = otpInfo.otpCreatedAt;
-            createdUser.otpExpiredAt = otpInfo.otpExpiredAt;
-
-            this.mailService.sendOTP(createdUser.email, createdUser.otp);
-
-            await createdUser.save();
-
-            return "User registered successfully. Please verify your OTP to activate your account!";
+        const responseData : DataResponse = {
+            code: rc.PENDING,
+            message: "Received user register request",
+            data: null
         }
-        catch (error)
-        {
-            return "Error registering user: " + error.message;
-        }
+        // trả requestId ngay cho client
+        return responseData;
     }
 
     async login(loginUserDto: LoginUserReqDto): Promise<DataResponse<LoginUserResDto>> {
         const user = await this.userModel.findOne({ email: loginUserDto.email }).exec();
         let dataRes: DataResponse<LoginUserResDto> = {
-            code: rc.USER_NOT_FOUND,
+            code: rc.ACCOUNT_NOT_FOUND,
             message: "",
             data: { accessToken: "", refreshToken: "" }
         };
         if (!user) {
             dataRes.message = "User not found";
-            dataRes.code = rc.USER_NOT_FOUND;
+            dataRes.code = rc.ACCOUNT_NOT_FOUND;
             return dataRes;
         }
         
@@ -95,7 +90,7 @@ export class AuthService {
         }
         dataRes.code = rc.SUCCESS;
         dataRes.message = "Login Successful";
-        const refreshTokenRespone = await this.userService.getUserRefreshToken(user.email); 
+        const refreshTokenRespone = await this.userService.getAccountRefreshToken(user.email); 
         console.log(refreshTokenRespone.data)
         const accessToken = await this.createAccessToken(loginUserDto.email);
         if (dataRes.data)
@@ -111,7 +106,7 @@ export class AuthService {
     }
 
 
-
+    @OnEvent('otp.send')
     async handleOTPSending(email: string) : Promise<DataResponse<OtpDTO | null>>
     {
         let DataResponse: DataResponse = {
@@ -119,7 +114,7 @@ export class AuthService {
             message: "Server Error",
             data : null
         }
-        const data = await this.userService.getUserOTPInfor(email);
+        const data = await this.userService.getAccountOTPInfor(email);
             if (data.data)
             {
                 const otpInfo: OtpDTO = data.data;
@@ -134,12 +129,14 @@ export class AuthService {
                 }
                 else
                 {
-                    const newOTP = this.otpUtils.generateOTP();
+                    const newOTP: OtpDTO = this.otpUtils.generateOTP();
                     const dataRes = await this.userService.updateOTPByEmail(email, newOTP);
                     console.log(dataRes.message)
                     DataResponse.code = rc.SUCCESS;
                     DataResponse.message = "Sucessfully sent new otp!";
                     DataResponse.data = newOTP;
+
+                    this.mailService.sendOTP(email, newOTP.otp); // ✅ thêm dòng này
                 }
             }
         return DataResponse;
@@ -153,7 +150,7 @@ export class AuthService {
             message: "OTP invalid or not exist!",
             data: null
         }
-        const otpInfo = await this.userService.getUserOTPInfor(email);
+        const otpInfo = await this.userService.getAccountOTPInfor(email);
         if (otpInfo)
         {
             let isOtpMatched: Boolean = false;
@@ -167,8 +164,8 @@ export class AuthService {
                 const isOTPAlive = this.otpUtils.isOTPAlive(otpInfo.data);
                 if (isOTPAlive && isOtpMatched)
                 {
-                    await this.userService.activateUserAccount(email);
-                    await this.userService.clearUserOTP(email);
+                    await this.userService.activateAccount(email);
+                    await this.userService.clearAccountOTP(email);
                     dataRes.code = rc.SUCCESS;
                     dataRes.message = "OTP verify successfully!";
                 }

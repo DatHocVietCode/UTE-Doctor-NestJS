@@ -1,16 +1,16 @@
 import { AccountStatusEnum } from "src/common/enum/account-status.enum";
 import { GenderEnum } from "src/common/enum/gender.enum";
+import { MedicalRecord } from "src/patient/schema/medical-record.schema";
 
-import { MedicalRecord } from "../schemas/user.schema";
 
-export interface updateUserDto {
+export interface updateUAccountDto {
     fullName?: string;
     email?: string;
     password?: string;
     role?: string;
 }
 
-export interface UserProfileDTO {
+export interface AccountProfileDTO {
   id?: string;
   name: string;
   email: string;
@@ -22,5 +22,4 @@ export interface UserProfileDTO {
   status: AccountStatusEnum;
   createdAt: Date;
   updatedAt: Date;
-  medicalRecord: MedicalRecord | null;
 }
