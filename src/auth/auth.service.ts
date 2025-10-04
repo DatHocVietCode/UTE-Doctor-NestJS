@@ -1,8 +1,10 @@
 import { forwardRef, Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
 import { console } from 'inspector';
 import { Model } from 'mongoose';
 import { AccountService } from 'src/account/account.service';
@@ -10,13 +12,11 @@ import { DataResponse } from 'src/common/dto/data-respone';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { MailService } from 'src/mail/mail.service';
+import { PatientService } from 'src/patient/patient.service';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { OtpUtils } from 'src/utils/otp/otp-utils';
 import { Account } from '../account/schemas/account.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
-import { PatientService } from 'src/patient/patient.service';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { randomUUID } from 'crypto';
 
 @Injectable()
 export class AuthService {
@@ -26,21 +26,18 @@ export class AuthService {
                 , private configService: ConfigService
                 , private mailService: MailService
                 , private otpUtils: OtpUtils
-                , private readonly patientService: PatientService
                 , private readonly eventEmitter: EventEmitter2) {}
-
-    // 
     
-    async register(dto: RegisterUserReqDto) {
-        const requestId = randomUUID();
+    async register(registerUser: RegisterUserReqDto) {
+        const requestId = randomUUID(); // Unique Id for socket
 
         // bắn event "đăng ký yêu cầu"
         this.eventEmitter.emitAsync('user.register.requested', {
         requestId,
-        dto,
+        registerUser: registerUser,
         });
         const responseData : DataResponse = {
-            code: rc.ERROR,
+            code: rc.PENDING,
             message: "Received user register request",
             data: null
         }
@@ -109,7 +106,7 @@ export class AuthService {
     }
 
 
-
+    @OnEvent('otp.send')
     async handleOTPSending(email: string) : Promise<DataResponse<OtpDTO | null>>
     {
         let DataResponse: DataResponse = {
@@ -132,12 +129,14 @@ export class AuthService {
                 }
                 else
                 {
-                    const newOTP = this.otpUtils.generateOTP();
+                    const newOTP: OtpDTO = this.otpUtils.generateOTP();
                     const dataRes = await this.userService.updateOTPByEmail(email, newOTP);
                     console.log(dataRes.message)
                     DataResponse.code = rc.SUCCESS;
                     DataResponse.message = "Sucessfully sent new otp!";
                     DataResponse.data = newOTP;
+
+                    this.mailService.sendOTP(email, newOTP.otp); // ✅ thêm dòng này
                 }
             }
         return DataResponse;

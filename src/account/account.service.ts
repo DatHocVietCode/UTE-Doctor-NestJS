@@ -11,11 +11,46 @@ import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { AccountProfileDTO } from './dto/account.dto';
 import { Account, AccountDocument } from './schemas/account.schema';
 import { PatientService } from 'src/patient/patient.service';
+import { RegisterUserReqDto } from 'src/auth/dto/auth-user.dto';
+import { OnEvent } from '@nestjs/event-emitter';
 @Injectable()
 export class AccountService {
     constructor(@InjectModel(Account.name) private AccountModel: Model<AccountDocument>
                 ,@Inject(forwardRef(() => AuthService)) private readonly authService: AuthService
             ) {}
+
+    @OnEvent('account.createAccount')
+    async createAccount(registerUser: RegisterUserReqDto
+    ): Promise<DataResponse<Account>> {
+        let dataRes: DataResponse =
+        {
+            code: rc.PENDING,
+            message: "",
+            data: null
+        }
+        // Kiểm tra email đã tồn tại chưa
+        const existing = await this.AccountModel.findOne({ email: registerUser.email });
+        if (existing) {
+            dataRes.code = rc.ERROR;
+            dataRes.message = "Email existed when creating account!"
+            dataRes.data = null
+            return dataRes;
+        }
+
+        // Hash password
+        const hashedPassword = await bcrypt.hash(registerUser.password, 10);
+
+        // Tạo document mới
+        const newAccount = new this.AccountModel({
+            email: registerUser.email,
+            password: hashedPassword,
+        });
+        newAccount.save();
+        dataRes.code = rc.SUCCESS,
+        dataRes.message = "Account created successfully!"
+        dataRes.data = newAccount;
+        return dataRes;
+    }
 
     async findAll(): Promise<Account[]> {
         return this.AccountModel.find().exec();

@@ -1,12 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { CreatePatientDto } from './dto/create-patient.dto';
-import { Patient, PatientDocument } from './schema/patient.schema';
-import { DataResponse } from 'src/common/dto/data-respone';
-import { PatientProfileDTO } from './dto/patient.dto';
 import { AccountService } from 'src/account/account.service';
+import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
+import { CreatePatientDto } from './dto/create-patient.dto';
+import { PatientProfileDTO } from './dto/patient.dto';
+import { Patient, PatientDocument } from './schema/patient.schema';
+import { OnEvent } from '@nestjs/event-emitter';
 
 @Injectable()
 export class PatientService {
@@ -15,9 +16,29 @@ export class PatientService {
     private readonly accountService: AccountService
   ) {}
 
-  async createPatient(createPatientDto: CreatePatientDto): Promise<Patient> {
+  @OnEvent('patient.createPatient')
+  async createPatient(createPatientDto: CreatePatientDto): Promise<DataResponse<Patient>> {
+    console.log("Heard createPatient event")
+    let dataRes: DataResponse<Patient> = {
+      code: rc.PENDING,
+      message: "",
+      data: null
+    }
+    const existPatient = await this.patientModel.findOne({id: createPatientDto.accountId});
+    if (existPatient)
+    {
+      dataRes.code = rc.ERROR,
+      dataRes.message = "Patient existed!"
+      dataRes.data = null
+      return dataRes;
+    }
     const newPatient = new this.patientModel(createPatientDto);
-    return newPatient.save();
+    const savedPatient = await newPatient.save();
+
+    dataRes.code = rc.SUCCESS;
+    dataRes.message = "Patient created successfully!";
+    dataRes.data = savedPatient;
+    return dataRes;
   }
 
   async getPatientByEmail(email: string): Promise<DataResponse<PatientProfileDTO | null>> {
