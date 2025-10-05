@@ -7,78 +7,92 @@ import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { Account } from 'src/account/schemas/account.schema';
 import { Patient } from 'src/patient/schema/patient.schema';
+import { CreateDoctorDto } from 'src/doctor/dto/create-doctor.dto';
+import { Doctor } from 'src/doctor/schema/doctor.schema';
+import { RoleEnum } from 'src/common/enum/role.enum';
 
 @Injectable()
 export class AuthSaga {
 
   constructor(private readonly eventEmitter: EventEmitter2,
   ) {}
+
   // nghe event từ AuthService
   @OnEvent('user.register.requested')
   async handleRegister(payload: any) {
     const { requestId, registerUser } = payload;
 
-    console.log('Saga start for:', registerUser.email);
+    console.log('[Saga]: Start registration for', registerUser.email);
 
-    //const createdAccountRes = await this.accountService.createAccount(registerUser);
-    // Emit event async, đợi listener xử lý xong
+    // 1️⃣ Tạo Account
     const createdAccountResults = await this.eventEmitter.emitAsync('account.createAccount', registerUser);
-
-    // Lấy kết quả từ listener đầu tiên (nếu chỉ có 1 listener)
     const createdAccountRes = createdAccountResults[0] as DataResponse<Account>;
 
     if (createdAccountRes.code === rc.ERROR) {
-      // Nếu tạo account lỗi, emit event failed
       this.eventEmitter.emit('user.register.failed', {
         requestId,
         dto: registerUser,
-        dataRespone: createdAccountRes,
+        dataResponse: createdAccountRes,
       });
-      console.log("[Saga]: ", createdAccountRes.message);
+      console.log('[Saga]: Account creation failed →', createdAccountRes.message);
       return;
     }
 
-    console.log("[Saga]: ", createdAccountRes.message, createdAccountRes.data?._id);
-
-    // 2. Lấy accountId và chuẩn bị DTO patient
     const newAccountId = createdAccountRes.data!._id.toString();
-    const createdPatientDto: CreatePatientDto = {
-      accountId: newAccountId,
-      // các trường patient khác nếu cần
-    };
+    console.log('[Saga]: Account created successfully →', newAccountId);
 
-    // 3. Tạo Patient thông qua event
-    const createdPatientResults = await this.eventEmitter.emitAsync('patient.createPatient', createdPatientDto);
+    // 2️⃣ Tạo thực thể phụ thuộc (Patient / Doctor)
+    let childEntityResult: DataResponse<any> | undefined;
 
-    // Lấy kết quả từ listener đầu tiên (nếu chỉ có 1 listener)
-    const createdPatientRes = createdPatientResults[0] as DataResponse<Patient>;
-    console.log(createdPatientRes)
+    if (registerUser.role === RoleEnum.PATIENT) {
+      const createdPatientDto: CreatePatientDto = {
+        accountId: newAccountId,
+        height: registerUser.medicalRecord?.height,
+        weight: registerUser.medicalRecord?.weight,
+        bloodType: registerUser.medicalRecord?.bloodType,
+        medicalRecord: registerUser.medicalRecord,
+      };
 
-    if (createdPatientRes.code === rc.ERROR) {
-      // rollback Account
+      const createdPatientResults = await this.eventEmitter.emitAsync('patient.createPatient', createdPatientDto);
+      childEntityResult = createdPatientResults[0] as DataResponse<Patient>;
+
+    } else if (registerUser.role === RoleEnum.DOCTOR) {
+      const createdDoctorDto: CreateDoctorDto = {
+        accountId: newAccountId,
+        chuyenKhoaId: registerUser.chuyenKhoaId,
+        degree: registerUser.degree,
+        yearsOfExperience: registerUser.yearsOfExperience,
+      };
+
+      const createdDoctorResults = await this.eventEmitter.emitAsync('doctor.createDoctor', createdDoctorDto);
+      childEntityResult = createdDoctorResults[0] as DataResponse<Doctor>;
+    }
+
+    // 3️⃣ Check lỗi khi tạo Doctor/Patient
+    if (!childEntityResult || childEntityResult.code === rc.ERROR) {
+      console.log('[Saga]: Failed to create child entity, rolling back...');
       await this.eventEmitter.emitAsync('account.deleteAccount', registerUser.email);
 
-      // Nếu tạo patient lỗi, emit event failed
       this.eventEmitter.emit('user.register.failed', {
         requestId,
         dto: registerUser,
-        error: createdPatientRes.message,
+        error: childEntityResult?.message || 'Unknown error creating child entity',
       });
-      console.log("[Saga]: ", createdPatientRes.message);
       return;
     }
 
-    console.log("[Saga]:", createdPatientRes.message);
+    console.log('[Saga]: Child entity created successfully');
 
-    // 5. Thành công, emit success
+    // 4️⃣ Thành công → gửi event success
     this.eventEmitter.emit('user.register.success', {
-      requestId: requestId,
-      registerUser: registerUser,
+      requestId,
+      registerUser,
       account: { id: newAccountId, email: registerUser.email },
     });
 
-    // Send otp
+    // 5️⃣ Gửi OTP xác thực
     this.eventEmitter.emit('otp.send', registerUser.email);
-    console.log("Saga: Created userSuccessfully")
+    console.log('[Saga]: Registration completed successfully');
   }
+
 }

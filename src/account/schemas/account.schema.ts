@@ -33,7 +33,6 @@ export class Account {
   @Prop()
   phoneNumber: string;
   
-  // 👇 role dùng như "cache" phân quyền nhanh
   @Prop({
     required: true,
     type: String,

@@ -4,7 +4,13 @@ import { MedicalRecord } from "src/patient/schema/medical-record.schema";
 export class RegisterUserReqDto {
     email: string;
     password: string;
-    medicalRecord: MedicalRecord;
+    role: "PATIENT" | "DOCTOR";
+
+    medicalRecord?: MedicalRecord;
+
+    chuyenKhoaId: string;
+    degree?: string;
+    yearsOfExperience?: number;
 }
 
 export class LoginUserReqDto {
@@ -13,6 +19,8 @@ export class LoginUserReqDto {
 }
 
 export class LoginUserResDto {
-    accessToken: string;
-    refreshToken: string;
+  accessToken: string;
+  refreshToken: string;
+  role: string;
+  id: string;
 }
