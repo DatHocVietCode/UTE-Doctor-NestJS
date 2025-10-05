@@ -12,6 +12,6 @@ import { Account, AccountSchema } from './schemas/account.schema';
   ],
   controllers: [AccountController],
   providers: [AccountService],
-  exports: [AccountService]  // export UserService cho AuthModule inject
+  exports: [AccountService]
 })
 export class AccountModule {}

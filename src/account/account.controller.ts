@@ -6,10 +6,10 @@ import { Account } from './schemas/account.schema';
 export class AccountController {
     constructor(private readonly accountService: AccountService) {}
 
-    @Get('by-email')
-    findByEmail(@Query('email') email: string) {
-        return this.accountService.getUserByEmail(email);
-    }
+    // @Get('by-email')
+    // findByEmail(@Query('email') email: string) {
+    //     return this.accountService.getUserByEmail(email);
+    // }
 
     @Get()
     findAll() {
