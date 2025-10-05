@@ -21,8 +21,6 @@ import { AuthSaga } from "./saga/auth.saga";
     MongooseModule.forFeature([{ name: Account.name, schema: AccountSchema }]),
     MailModule,
     OtpModule,
-    PatientModule,
-    DoctorModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, AuthSaga],

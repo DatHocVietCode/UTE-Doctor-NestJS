@@ -13,8 +13,6 @@ import { AccountModule } from 'src/account/account.module';
       { name: Profile.name, schema: ProfileSchema },
     ]),
   ],
-  imports: [MongooseModule.forFeature([{ name: Patient.name, schema: PatientSchema }]),
-  forwardRef(() => AccountModule)],
   providers: [PatientService],
   controllers: [PatientController],
   exports: [PatientService],

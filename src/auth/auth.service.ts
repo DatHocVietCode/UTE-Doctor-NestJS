@@ -24,18 +24,13 @@ export class AuthService {
     constructor(@InjectModel(Account.name) private userModel: Model<Account>
                 , private jwtService: JwtService
                 ,@Inject(forwardRef(() => AccountService)) private userService: AccountService
-                ,@Inject(forwardRef(() => DoctorService)) private doctorService: DoctorService
-                , private configService: ConfigService
                 , private mailService: MailService
                 , private otpUtils: OtpUtils
                 , private readonly eventEmitter: EventEmitter2) {}
 
     async register(registerUser: RegisterUserReqDto) {
-        const requestId = randomUUID(); // Unique Id for socket
-
         // bắn event "đăng ký yêu cầu"
         this.eventEmitter.emitAsync('user.register.requested', {
-            requestId,
             registerUser: registerUser,
         });
         const responseData : DataResponse = {

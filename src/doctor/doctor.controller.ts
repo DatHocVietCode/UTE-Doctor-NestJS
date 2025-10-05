@@ -7,10 +7,10 @@ import { Doctor } from './schema/doctor.schema';
 export class DoctorController {
   constructor(private readonly doctorService: DoctorService) {}
 
-  @Post()
-  async create(@Body() createDoctorDto: CreateDoctorDto): Promise<Doctor> {
-    return this.doctorService.create(createDoctorDto);
-  }
+  // @Post()
+  // async create(@Body() createDoctorDto: CreateDoctorDto): Promise<Doctor> {
+  //   return this.doctorService.create(createDoctorDto);
+  // }
 
   @Get()
   async findAll(): Promise<Doctor[]> {

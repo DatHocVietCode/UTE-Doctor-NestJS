@@ -1,10 +1,16 @@
+import { IsOptional, IsString } from 'class-validator';
+
 export class CreateDoctorDto {
+  @IsString()
+  profileId: string; // Link to profile
 
-  accountId: string;   // liên kết tới Account
-
+  @IsString()
   chuyenKhoaId: string; // liên kết tới chuyên khoa
 
+  @IsOptional()
+  @IsString()
   degree?: string;
 
+  @IsOptional()
   yearsOfExperience?: number;
 }

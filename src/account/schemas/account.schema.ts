@@ -3,14 +3,23 @@ import mongoose, { HydratedDocument } from 'mongoose';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { GenderEnum } from 'src/common/enum/gender.enum';
 import { RoleEnum } from 'src/common/enum/role.enum';
+import { Profile } from 'src/profile/schema/profile.schema';
 
 export type AccountDocument = HydratedDocument<Account>;
 @Schema({ timestamps: true })
 export class Account {
   _id: mongoose.Types.ObjectId;
   
-  @Prop()
-  fullName: string;
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Profile.name, default: null }) // Link profile
+  profileId: mongoose.Types.ObjectId | null;
+
+  @Prop({
+    required: true,
+    type: String,
+    enum: RoleEnum,
+    default: RoleEnum.PATIENT,
+    })
+  role: RoleEnum;
 
   @Prop({ required: true, unique: true })
   email: string;
@@ -32,14 +41,6 @@ export class Account {
 
   @Prop()
   phoneNumber: string;
-  
-  @Prop({
-    required: true,
-    type: String,
-    enum: RoleEnum,
-    default: RoleEnum.PATIENT,
-  })
-  role: RoleEnum;
 
   @Prop({ default: Date.now })
   createdAt: Date;

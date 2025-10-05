@@ -14,8 +14,6 @@ import { Patient, PatientDocument } from './schema/patient.schema';
 export class PatientService {
   constructor(
     @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
-    @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
-	  private readonly accountService: AccountService
   ) {}
 
   	//  async create(createPatientDto: CreatePatientDto): Promise<Patient> {
@@ -32,61 +30,56 @@ export class PatientService {
 
 	@OnEvent('patient.createPatient')
   async createPatient(createPatientDto: CreatePatientDto): Promise<DataResponse<Patient>> {
+    console.log("In create patient")
     let dataRes: DataResponse<Patient> = {
       code: rc.PENDING,
       message: "",
       data: null
     }
-    const existPatient = await this.patientModel.findOne({id: createPatientDto.accountId});
-    if (existPatient)
-    {
-      dataRes.code = rc.ERROR,
-      dataRes.message = "Patient existed!"
-      dataRes.data = null
-      return dataRes;
-    }
-
+    
     const newPatient = new this.patientModel(createPatientDto);
     const savedPatient = await newPatient.save();
 
     dataRes.code = rc.SUCCESS;
     dataRes.message = "Patient created successfully!";
     dataRes.data = savedPatient;
+
+    console.log(dataRes.message)
     return dataRes;
   }
 
-  async getPatientByEmail(email: string): Promise<DataResponse<PatientProfileDTO | null>> {
-    // G?i sang AccountService
-    const accountRes = await this.accountService.getUserByEmail(email);
+  // async getPatientByEmail(email: string): Promise<DataResponse<PatientProfileDTO | null>> {
+  //   // G?i sang AccountService
+  //   const accountRes = await this.accountService.getUserByEmail(email);
 
-    if (accountRes.code !== rc.SUCCESS || !accountRes.data) {
-      return {
-        ...accountRes, // gi? nguy�n code + message t? account
-        data: null,
-      };
-    }
+  //   if (accountRes.code !== rc.SUCCESS || !accountRes.data) {
+  //     return {
+  //       ...accountRes, // gi? nguy�n code + message t? account
+  //       data: null,
+  //     };
+  //   }
 
-    // T�m Patient g?n v?i account
-    const patient = await this.patientModel.findOne({ accountId: accountRes.data.id }).lean();
+  //   // T�m Patient g?n v?i account
+  //   const patient = await this.patientModel.findOne({ accountId: accountRes.data.id }).lean();
 
-    if (!patient) {
-      return {
-        message: "Patient not found!",
-        code: rc.ACCOUNT_NOT_FOUND,
-        data: null,
-      };
-    }
+  //   if (!patient) {
+  //     return {
+  //       message: "Patient not found!",
+  //       code: rc.ACCOUNT_NOT_FOUND,
+  //       data: null,
+  //     };
+  //   }
 
-    const patientProfile: PatientProfileDTO = {
-      ...accountRes.data,
-      medicalRecord: patient.medicalRecord || null,
-    };
+  //   const patientProfile: PatientProfileDTO = {
+  //     ...accountRes.data,
+  //     medicalRecord: patient.medicalRecord || null,
+  //   };
 
-    return {
-      message: "Patient profile received successfully",
-      code: rc.SUCCESS,
-      data: patientProfile,
-    };
-  }
+  //   return {
+  //     message: "Patient profile received successfully",
+  //     code: rc.SUCCESS,
+  //     data: patientProfile,
+  //   };
+  // }
 
 }

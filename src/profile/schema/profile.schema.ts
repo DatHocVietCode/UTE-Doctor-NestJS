@@ -1,13 +1,15 @@
 // profile.schema.ts
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import mongoose, { HydratedDocument } from 'mongoose';
+
 
 export type ProfileDocument = HydratedDocument<Profile>;
 
 @Schema({ timestamps: true })
 export class Profile {
+  _id: mongoose.Types.ObjectId;
 
-@Prop({ default: '' })
+  @Prop({ default: '' })
   name: string;
 
   @Prop({ default: '' })

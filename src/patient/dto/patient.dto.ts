@@ -1,6 +1,6 @@
-import { AccountProfileDTO } from "src/account/dto/account.dto";
+import { AccountProfileDto } from "src/account/dto/account.dto";
 import { MedicalRecord } from "../schema/medical-record.schema";
 
-export interface PatientProfileDTO extends AccountProfileDTO {
+export interface PatientProfileDTO extends AccountProfileDto {
     medicalRecord: MedicalRecord | null
 }

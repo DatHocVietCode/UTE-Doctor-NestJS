@@ -8,9 +8,6 @@ export type DoctorDocument = HydratedDocument<Doctor>;
 
 @Schema({ timestamps: true })
 export class Doctor {
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Account.name, required: true })
-  accountId: mongoose.Types.ObjectId;
-
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Profile.name, required: true})
   profileId: mongoose.Types.ObjectId;
 

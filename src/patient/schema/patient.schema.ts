@@ -8,9 +8,6 @@ import { Profile } from "src/profile/schema/profile.schema";
 export type PatientDocument = HydratedDocument<Patient>;
 @Schema()
 export class Patient {
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Account.name, required: true })
-  accountId: mongoose.Types.ObjectId;
-
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Profile.name, required: true})
   profileId: mongoose.Types.ObjectId;
 
