@@ -65,6 +65,20 @@ export class AccountService {
         return this.AccountModel.findOne({ email: email }).lean().exec();
     }
 
+    @OnEvent('account.deleteAccount')
+    async deleteByEmail(email: string): Promise<Account | null> {
+    // Tìm account trước
+    const account = await this.AccountModel.findOne({ email });
+    if (!account) return null;
+
+    // Xóa account
+    await this.AccountModel.deleteOne({ email });
+    console.log("[AccountService]: Deleted account with email:", email);
+
+    // Trả về account đã xóa (nếu cần)
+    return account;
+    }
+
     async update(id: string, updateAccountDto: Partial<Account>): Promise<Account | null> {
         if (updateAccountDto.password) {
             updateAccountDto.password = await bcrypt.hash(updateAccountDto.password, 10);

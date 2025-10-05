@@ -7,6 +7,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { EventsModule } from './events/event.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     EventEmitterModule.forRoot(),
     AccountModule,
     ChuyenKhoaModule,
+    EventsModule, 
   ],
   controllers: [AppController],
   providers: [AppService],

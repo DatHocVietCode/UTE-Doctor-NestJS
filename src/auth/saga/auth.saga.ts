@@ -32,7 +32,7 @@ export class AuthSaga {
       this.eventEmitter.emit('user.register.failed', {
         requestId,
         dto: registerUser,
-        error: createdAccountRes.message,
+        dataRespone: createdAccountRes,
       });
       console.log("[Saga]: ", createdAccountRes.message);
       return;
@@ -55,6 +55,9 @@ export class AuthSaga {
     console.log(createdPatientRes)
 
     if (createdPatientRes.code === rc.ERROR) {
+      // rollback Account
+      await this.eventEmitter.emitAsync('account.deleteAccount', registerUser.email);
+
       // Nếu tạo patient lỗi, emit event failed
       this.eventEmitter.emit('user.register.failed', {
         requestId,

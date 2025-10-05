@@ -3,6 +3,7 @@ import {
   WebSocketServer,
   SubscribeMessage,
   ConnectedSocket,
+  MessageBody,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -16,9 +17,10 @@ export class EventsGateway {
 
   // client sẽ join room theo email hoặc requestId
   @SubscribeMessage('join')
-  handleJoin(@ConnectedSocket() client: Socket, payload: { userId: string }) {
-    client.join(payload.userId);
-    console.log(`Client joined room: ${payload.userId}`);
+  handleJoin(@ConnectedSocket() client: Socket, @MessageBody() payload: { userEmail: string }) {
+    console.log("Received join event, payload:", payload);
+    client.join(payload.userEmail);
+    console.log(`Client joined room: ${payload.userEmail}`);
   }
 
   @OnEvent('user.register.success')
@@ -29,15 +31,16 @@ export class EventsGateway {
         data: payload.email
     }
     this.server
-      .to(payload.dto.email)
+      .to(payload.registerUser.email)
       .emit('registerStatus', dataRes);
+    console.log("[Socket] Push register user to server")
   }
 
   @OnEvent('user.register.failed')
   handleFailed(payload: any) {
     const dataRes: DataResponse = {
         code: ResponseCode.ERROR,
-        message: "Error when registering user!",
+        message: payload.dataRespone.message,
         data: null
     }
     this.server
