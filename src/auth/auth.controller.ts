@@ -8,6 +8,7 @@ import { LoginUserReqDto, RegisterUserReqDto } from "./dto/auth-user.dto";
 export class AuthController
 {
     constructor(private readonly authService: AuthService) {}
+    
     @Post("/register")
     async createNewUser(@Body() registerUserDTO: RegisterUserReqDto)
     {
