@@ -41,7 +41,7 @@ export class EventsGateway {
   handleFailed(payload: any) {
     const dataRes: DataResponse = {
         code: ResponseCode.ERROR,
-        message: payload.dataRespone.message,
+        message: payload.dataResponse.message,
         data: null
     }
     this.server

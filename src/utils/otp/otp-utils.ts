@@ -1,11 +1,14 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { OtpDTO } from "./otp-dto";
+import type { OtpDTO } from './otp-dto';
+import { OnEvent } from "@nestjs/event-emitter";
 
 @Injectable()
 export class OtpUtils {
     constructor(private configService: ConfigService) {}
-    generateOTP(length: number = 6): OtpDTO{
+
+    @OnEvent('otp.generateOtp')
+    generateOTP(length: number = 6): OtpDTO {
         let otp = '';
         for (let i = 0; i < length; i++)
         {
@@ -27,6 +30,7 @@ export class OtpUtils {
         return otpInfo;
     }
 
+    @OnEvent('otp.is-Otp-alive')
     isOTPAlive(otpDTO: OtpDTO) : boolean
     {
         const currentTime = new Date(Date.now());

@@ -3,12 +3,9 @@ import { JwtModule } from "@nestjs/jwt";
 import { MongooseModule } from "@nestjs/mongoose";
 import { AccountModule } from "src/account/account.module";
 import { Account, AccountSchema } from "src/account/schemas/account.schema";
-import { MailModule } from "src/mail/mail.module";
 import { OtpModule } from "src/utils/otp/otp.module";
 import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
-import { PatientModule } from "src/patient/patient.module";
-import { DoctorModule } from "src/doctor/doctor.module";
 import { AuthSaga } from "./saga/auth.saga";
 
 @Module({
@@ -19,7 +16,6 @@ import { AuthSaga } from "./saga/auth.saga";
       signOptions: { expiresIn: process.env.JWT_EXPIRES_IN }
     }),
     MongooseModule.forFeature([{ name: Account.name, schema: AccountSchema }]),
-    MailModule,
     OtpModule,
   ],
   controllers: [AuthController],

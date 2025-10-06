@@ -3,8 +3,6 @@ import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { RoleEnum } from 'src/common/enum/role.enum';
-import { Account } from 'src/account/schemas/account.schema';
-import { Profile } from 'src/profile/schema/profile.schema';
 import { Patient } from 'src/patient/schema/patient.schema';
 import { Doctor } from 'src/doctor/schema/doctor.schema';
 import { CreatePatientDto } from 'src/patient/dto/create-patient.dto';
@@ -118,7 +116,7 @@ export class AuthSaga {
       profile: { id: profileId },
     });
 
-    this.eventEmitter.emit('otp.send', registerUser.email);
+    this.eventEmitter.emit('handle-otp.send', registerUser.email);
     console.log('[Saga]: 🎉 Registration completed successfully');
   }
 }

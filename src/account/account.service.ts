@@ -9,7 +9,6 @@ import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { Account, AccountDocument } from './schemas/account.schema';
-import { PatientService } from 'src/patient/patient.service';
 import { RegisterUserReqDto } from 'src/auth/dto/auth-user.dto';
 import { OnEvent } from '@nestjs/event-emitter';
 @Injectable()
@@ -132,7 +131,6 @@ export class AccountService {
             message: "Account not found",
             data: null
         };
-
         
         try {
             const Account = await this.accountModel.findOne({ email }).exec();
