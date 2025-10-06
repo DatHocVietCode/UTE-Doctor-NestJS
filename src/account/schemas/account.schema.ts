@@ -27,21 +27,6 @@ export class Account {
   @Prop({ required: true })
   password: string;
 
-  @Prop({ default: GenderEnum.OTHER, type: String, enum: GenderEnum})
-  gender: GenderEnum;
-
-  @Prop()
-  dob: Date;
-
-  @Prop()
-  address: string;
-
-  @Prop()
-  avatarUrl?: string;
-
-  @Prop()
-  phoneNumber: string;
-
   @Prop({ default: Date.now })
   createdAt: Date;
 
