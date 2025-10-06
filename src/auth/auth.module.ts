@@ -10,13 +10,11 @@ import { AuthSaga } from "./saga/auth.saga";
 
 @Module({
   imports: [
-    forwardRef(() => AccountModule), // dùng forwardRef để tránh circular dependency
     JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: process.env.JWT_EXPIRES_IN }
     }),
     MongooseModule.forFeature([{ name: Account.name, schema: AccountSchema }]),
-    OtpModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, AuthSaga],

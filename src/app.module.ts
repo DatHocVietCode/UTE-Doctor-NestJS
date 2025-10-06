@@ -14,6 +14,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { EventsModule } from './events/event.module';
 import { OtpModule } from './utils/otp/otp.module';
 import { MailModule } from './mail/mail.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { MailModule } from './mail/mail.module';
     }),
     EventEmitterModule.forRoot(),
     AccountModule,
+    AuthModule,
     ChuyenKhoaModule,
     DoctorModule,
     PatientModule,
