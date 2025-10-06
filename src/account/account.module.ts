@@ -8,7 +8,6 @@ import { Account, AccountSchema } from './schemas/account.schema';
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: Account.name, schema: AccountSchema }]),
-    forwardRef(() => AuthModule), // dùng forwardRef để tránh circular dependency
   ],
   controllers: [AccountController],
   providers: [AccountService],

@@ -12,6 +12,9 @@ import { Profile } from 'src/profile/schema/profile.schema';
 import { ProfileModule } from 'src/profile/profile.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { EventsModule } from './events/event.module';
+import { OtpModule } from './utils/otp/otp.module';
+import { MailModule } from './mail/mail.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -27,11 +30,14 @@ import { EventsModule } from './events/event.module';
     }),
     EventEmitterModule.forRoot(),
     AccountModule,
+    AuthModule,
     ChuyenKhoaModule,
     DoctorModule,
     PatientModule,
     ProfileModule,
     EventsModule, 
+    OtpModule,
+    MailModule
   ],
   controllers: [AppController],
   providers: [AppService],

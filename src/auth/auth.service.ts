@@ -1,33 +1,28 @@
 import { forwardRef, Inject, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
-import { randomUUID } from 'crypto';
 import { console } from 'inspector';
 import { Model } from 'mongoose';
 import { AccountService } from 'src/account/account.service';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
-import { MailService } from 'src/mail/mail.service';
-import { PatientService } from 'src/patient/patient.service';
+import * as jwt from "jsonwebtoken";
 import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { OtpUtils } from 'src/utils/otp/otp-utils';
-import { Account } from '../account/schemas/account.schema';
+import { Account, AccountDocument } from '../account/schemas/account.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
-import { DoctorService } from 'src/doctor/doctor.service';
+import { emitTyped } from 'src/utils/helpers/event.helper';
+
 
 @Injectable()
 export class AuthService {
-    constructor(@InjectModel(Account.name) private userModel: Model<Account>
+    constructor(@InjectModel(Account.name) private accountModel: Model<Account>
                 , private jwtService: JwtService
-                ,@Inject(forwardRef(() => AccountService)) private userService: AccountService
-                , private mailService: MailService
-                , private otpUtils: OtpUtils
                 , private readonly eventEmitter: EventEmitter2) {}
-
+    
     async register(registerUser: RegisterUserReqDto) {
         // bắn event "đăng ký yêu cầu"
         this.eventEmitter.emitAsync('user.register.requested', {
@@ -41,54 +36,9 @@ export class AuthService {
         // trả requestId ngay cho client
         return responseData;
     }
-
-    // async register(registerUserDto: RegisterUserReqDto): Promise<string> {
-    //     const hashedPassword = await bcrypt.hash(registerUserDto.password, 10);
-
-    //     const createdUser = new this.userModel({
-    //         email: registerUserDto.email,
-    //         password: hashedPassword,
-    //         role: registerUserDto.role,
-    //     });
-
-    //     try {
-    //         const otpInfo = this.otpUtils.generateOTP();
-    //         createdUser.otp = otpInfo.otp;
-    //         createdUser.otpCreatedAt = otpInfo.otpCreatedAt;
-    //         createdUser.otpExpiredAt = otpInfo.otpExpiredAt;
-    //         this.mailService.sendOTP(createdUser.email, createdUser.otp);
-    //         await createdUser.save();
-
-    //         // Nếu là bệnh nhân → tạo Patient
-    //         if (createdUser.role === "PATIENT") {
-    //             await this.patientService.create({
-    //                 accountId: createdUser._id.toString(),
-    //                 height: registerUserDto.medicalRecord?.height,
-    //                 weight: registerUserDto.medicalRecord?.weight,
-    //                 bloodType: registerUserDto.medicalRecord?.bloodType,
-    //                 medicalRecord: registerUserDto.medicalRecord,
-    //             });
-    //         }
-
-    //         // Nếu là bác sĩ → tạo Doctor
-    //         if (createdUser.role === "DOCTOR") {
-    //             await this.doctorService.create({
-    //                 accountId: createdUser._id.toString(),
-    //                 chuyenKhoaId: registerUserDto.chuyenKhoaId,
-    //                 degree: registerUserDto.degree,
-    //                 yearsOfExperience: registerUserDto.yearsOfExperience,
-    //             });
-    //         }
-
-    //         return "User registered successfully. Please verify your OTP to activate your account!";
-    //     } catch (error) {
-    //         return "Error registering user: " + error.message;
-    //     }
-    // }
-
     
     async login(loginUserDto: LoginUserReqDto): Promise<DataResponse<LoginUserResDto>> {
-        const user = await this.userModel.findOne({ email: loginUserDto.email }).exec();
+        const user = await this.accountModel.findOne({ email: loginUserDto.email }).exec();
         let dataRes: DataResponse<LoginUserResDto> = {
             code: rc.ACCOUNT_NOT_FOUND,
             message: "",
@@ -119,7 +69,7 @@ export class AuthService {
         dataRes.code = rc.SUCCESS;
         dataRes.message = "Login Successful";
 
-        const refreshTokenRespone = await this.userService.getAccountRefreshToken(user.email); 
+        const refreshTokenRespone = await this.getAccountRefreshToken(user.email); 
         const accessToken = this.createAccessToken(user.email, user.role, user._id.toString());
 
         if (dataRes.data) {
@@ -130,10 +80,46 @@ export class AuthService {
         }
 
         return dataRes;
+    }
+
+    async getAccountOTPInfor(email: string) : Promise<DataResponse<OtpDTO | null>> {
+        let dataRes: DataResponse<OtpDTO | null> = 
+        {
+            message: "",
+            code: rc.ERROR,
+            data: null
+        };
+        try {
+            const account = await emitTyped<{ email: string }, Account | null>(
+            this.eventEmitter,
+            'account.find.by.email',
+            { email }
+            );
+            if (!account)
+            {
+                dataRes.message = "Account not found!",
+                dataRes.code =  rc.ACCOUNT_NOT_FOUND
+            }
+            else
+            {
+                dataRes.message = "OTP received successfully",
+                dataRes.code = rc.SUCCESS,
+                dataRes.data = {
+                    otp: account.otp,
+                    otpCreatedAt: account.otpCreatedAt,
+                    otpExpiredAt: account.otpExpiredAt
+                }
+            }
+        } catch (error) {
+            console.log("Server error:" + error);
+            dataRes.code = rc.SERVER_ERROR;
+            dataRes.message = error;
+            dataRes.data = null;
         }
+        return dataRes;
+    }
 
-
-    @OnEvent('otp.send')
+    @OnEvent('handle-otp.send')
     async handleOTPSending(email: string) : Promise<DataResponse<OtpDTO | null>>
     {
         let DataResponse: DataResponse = {
@@ -141,29 +127,32 @@ export class AuthService {
             message: "Server Error",
             data : null
         }
-        const data = await this.userService.getAccountOTPInfor(email);
+        const data = await this.getAccountOTPInfor(email);
             if (data.data)
             {
                 const otpInfo: OtpDTO = data.data;
-                const isValid: boolean = this.otpUtils.isOTPAlive(otpInfo);
+                const [isValid] = await this.eventEmitter.emitAsync('otp.is-Otp-alive', {otpInfo});
+
                 // if invalid, create a new one, else send it to user'email
                 if (isValid)
                 {
                     DataResponse.data = otpInfo;
                     DataResponse.message = "Succesfully resent otp!";
                     DataResponse.code = rc.SUCCESS;
-                    this.mailService.sendOTP(email, otpInfo.otp);
+                    this.eventEmitter.emit('mail.otp.send', {toEmail: email, otp: otpInfo.otp});
                 }
                 else
                 {
-                    const newOTP: OtpDTO = this.otpUtils.generateOTP();
-                    const dataRes = await this.userService.updateOTPByEmail(email, newOTP);
+                    //const newOTP: OtpDTO = this.otpUtils.generateOTP();
+                    const [newOTP] = await this.eventEmitter.emitAsync('otp.generateOtp') as [OtpDTO];
+                    const dataRes = await this.updateOTPByEmail(email, newOTP);
                     console.log(dataRes.message)
                     DataResponse.code = rc.SUCCESS;
                     DataResponse.message = "Sucessfully sent new otp!";
                     DataResponse.data = newOTP;
 
-                    this.mailService.sendOTP(email, newOTP.otp); // ✅ thêm dòng này
+                    //this.mailService.sendOTP(email, newOTP.otp);
+                    this.eventEmitter.emit('mail.otp.send', {toEmail: email, otp: newOTP.otp});
                 }
             }
         return DataResponse;
@@ -177,7 +166,7 @@ export class AuthService {
             message: "OTP invalid or not exist!",
             data: null
         }
-        const otpInfo = await this.userService.getAccountOTPInfor(email);
+        const otpInfo = await this.getAccountOTPInfor(email);
         if (otpInfo)
         {
             let isOtpMatched: Boolean = false;
@@ -188,11 +177,15 @@ export class AuthService {
             }
             if (otpInfo.data)
             {
-                const isOTPAlive = this.otpUtils.isOTPAlive(otpInfo.data);
+                const isOTPAlive = await emitTyped<OtpDTO, boolean>(
+                this.eventEmitter,
+                'otp.is-Otp-alive',
+                otpInfo.data
+                );
                 if (isOTPAlive && isOtpMatched)
                 {
-                    await this.userService.activateAccount(email);
-                    await this.userService.clearAccountOTP(email);
+                    await this.activateAccount(email);
+                    await this.clearAccountOTP(email);
                     dataRes.code = rc.SUCCESS;
                     dataRes.message = "OTP verify successfully!";
                 }
@@ -230,5 +223,121 @@ export class AuthService {
             }
         );
         return refreshToken;
+    }
+
+    async activateAccount(email: string): Promise<DataResponse<null>> {
+        let dataRes: DataResponse<null> = {
+            code: rc.ERROR,
+            message: "Account not found",
+            data: null
+        };
+        
+        try {
+            const account = await this.accountModel.findOne({ email }).exec();
+            if (!account) {
+            dataRes.message = "Account not found!";
+            dataRes.code = rc.ACCOUNT_NOT_FOUND;
+            return dataRes;
+            }
+
+            account.status = AccountStatusEnum.ACTIVE; // kích hoạt tài khoản
+            await account.save();
+
+            dataRes.code = rc.SUCCESS;
+            dataRes.message = "Account activated successfully!";
+            return dataRes;
+        } catch (error) {
+            dataRes.code = rc.SERVER_ERROR;
+            dataRes.message = error.message;
+            return dataRes;
+        }
+    }
+
+    
+    async clearAccountOTP(email: string): Promise<Account | null> {
+        return this.accountModel
+            .findOneAndUpdate(
+                { email },
+                { otp: null, otpCreatedAt: null, otpExpiredAt: null },
+                { new: true }
+            )
+            .exec();
+    }
+
+    async updateOTPByEmail(email: string, otpDTO: OtpDTO): Promise<DataResponse<null>>
+    {
+        let data: DataResponse = {
+            message: "Updated otp failed for Account with email: " + email,
+            code: rc.ERROR,
+            data: null
+        }
+        const updatedAccount = await this.accountModel.findOneAndUpdate({email: email}, otpDTO, {new: true}).exec();
+        if (updatedAccount)
+        {
+
+            data.message = "OTP updated for Account with email: " + email;
+            data.code = rc.SUCCESS;
+            console.log(updatedAccount);
+        }
+        return data;
+    }
+
+    async getAccountRefreshToken(email: string) : Promise<DataResponse<string>>
+    {
+        const account = await this.accountModel.findOne({email});
+        const dataRes: DataResponse= {
+            message: "",
+            code: rc.SERVER_ERROR,
+            data: ""
+        }
+        if (!account)
+        {
+            dataRes.code = rc.ACCOUNT_NOT_FOUND;
+            dataRes.message = "Account not found";
+        }
+        else
+        {
+            if (account.refreshToken)
+            {
+                if (this.isTokenAlive(account.refreshToken))
+                {
+                    dataRes.code = rc.SUCCESS;
+                    dataRes.message = "Successfully get refresh token";
+                    dataRes.data = account.refreshToken;
+                }
+            }
+            else
+            {
+                const newRefreshToken = this.createRefreshToken(email);
+                account.refreshToken = newRefreshToken;
+                await account.save();
+                dataRes.code = rc.SUCCESS;
+                dataRes.message = "Successfully create new refresh token";
+                dataRes.data = newRefreshToken;
+            }
+        }
+        return dataRes;
+    }
+
+    isTokenAlive(token: string) : boolean
+    {
+        try
+        {
+            const decode = jwt.decode(token) as { exp?: number } | null;
+            if (!decode || !decode.exp)
+            {
+                return false;
+            }
+            else
+            {
+                const currentTime = Math.floor(Date.now() / 1000);
+                return decode.exp > currentTime;
+            }
+        }
+        catch (error)
+        {
+            console.log("Error while checking token life time: " + error);
+            return false;
+        }
     }
 }
