@@ -1,11 +1,20 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
+import { AccountModule } from './account/account.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { UsersModule } from './users/users.module';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
-import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
+import { DoctorModule } from 'src/doctor/doctor.module';
+import { PatientModule } from 'src/patient/patient.module';
+import { Profile } from 'src/profile/schema/profile.schema';
+import { ProfileModule } from 'src/profile/profile.module';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { EventsModule } from './events/event.module';
+import { OtpModule } from './utils/otp/otp.module';
+import { MailModule } from './mail/mail.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -19,8 +28,16 @@ import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
         uri: config.get<string>('MONGO_DB_URI'),
       }),
     }),
-    UsersModule,
+    EventEmitterModule.forRoot(),
+    AccountModule,
+    AuthModule,
     ChuyenKhoaModule,
+    DoctorModule,
+    PatientModule,
+    ProfileModule,
+    EventsModule, 
+    OtpModule,
+    MailModule
   ],
   controllers: [AppController],
   providers: [AppService],

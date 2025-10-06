@@ -1,0 +1,27 @@
+updated - 4/10/2025:
+Ý tưởng về việc thay đổi kiến trúc hệ thống:
+- Thay vì để các module chồng chéo lẫn nhau (flow: auth - account - patient), chúng ta dùng event emitter
+- Event emitter có thể "lỏng lẻo hóa" sự phụ thuộc của các module, ví dụ:
+    + Thay vì Auth biết tới account, auth biết patient và account biết patient để làm việc, điều này sẽ khiến hệ thống ngày càng khó trong
+    trong việc debug, maintain, extend (các module quá phụ thuộc nhau).
+    + Event Emiiter giải quyết nó bằng cách chuyển phương thức mà các module xử lý: Thay vì auth biết và dùng account service để tạo tài khoản,
+    nó chỉ cần raise 1 event, ví dụ: "Có một user muốn đăng ký acc, đây là thông tin, ai xử lý di"
+    Lúc này, account service và cả patient đều sẽ lắng nghe event này, tự xử lý => cả 3 thằng đều ko biết gì về nhau, nó giúp
+    minh bạch giữa các module, ai làm việc nấy.
+    + Vấn đề phát sinh lúc này, giả sử ở auth, thứ duy nhất nó làm là raise event và trả về cho client dto dạng:
+    {
+        code: pending
+        message: "Server received user register request"
+        data: nul;
+    }
+    Thế thì nếu một trong 3 khâu: auth, account, patient lỗi, ví dụ: Account tạo dc, nhưng patient ko dc vì lý do nào đó thì sao?
+    lúc này chúng ta có 1 khái niệm mới: saga/ Orchestrator Pattern, hay NHẠC TRƯỞNG.
+    Như tên gọi, nhạc trưởng đóng vai trò như một người điều phối. Cụ thể ở đây, nó lắng nghe event, và diều phối các service đi làm việc,
+    có lỗi thì nó tự fallback
+    + Về fallback, client ko thể lúc nào cũng gửi request kiểu "tôi đã gửi yêu cầu register, bây giờ nó thế nào rồi?" vì register endpoint trả
+    về status là pending. Lúc này, socket giải quyết vấn đề này. Nó thiết lập 1 connection sống liên tục trong phiên, và server sẽ tự push notify
+    về cho client => giải quyết dc vấn đề của eventSubmitter.
+    Tóm gọn:
+    + eventSubmitter để lỏng lẻo hóa mối quan hệ giữa các đối tưởng, giúp code dễ maintain, extend
+    + Saga - nhạc trưởng chịu trách nhiệm điều phối, cụ thể là fallback khi có lỗi trong 1 dây chuyền
+    + Socket: connection sống trong suốt phiên, dùng push noti, sau này có thể áp dụng cho cả realtime chat.
