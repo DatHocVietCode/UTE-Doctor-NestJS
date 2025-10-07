@@ -1,9 +1,7 @@
 import { Module, forwardRef } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { MongooseModule } from "@nestjs/mongoose";
-import { AccountModule } from "src/account/account.module";
 import { Account, AccountSchema } from "src/account/schemas/account.schema";
-import { OtpModule } from "src/utils/otp/otp.module";
 import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
 import { AuthSaga } from "./saga/auth.saga";
