@@ -2,7 +2,7 @@ import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { emitTyped } from "src/utils/helpers/event.helper";
 
 
-export class BookingAppointmentSubmit {
+export class BookingAppointmentSubmitSaga {
     constructor (private readonly eventEmitter: EventEmitter2) {}
 
     @OnEvent('appointment.received') // received through http post
