@@ -1,20 +1,20 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
+import { DoctorModule } from 'src/doctor/doctor.module';
+import { PatientModule } from 'src/patient/patient.module';
+import { ProfileModule } from 'src/profile/profile.module';
 import { AccountModule } from './account/account.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { LoggerMiddleware } from './common/middleware/logger.middleware';
-import { DoctorModule } from 'src/doctor/doctor.module';
-import { PatientModule } from 'src/patient/patient.module';
-import { Profile } from 'src/profile/schema/profile.schema';
-import { ProfileModule } from 'src/profile/profile.module';
-import { EventEmitterModule } from '@nestjs/event-emitter';
-import { EventsModule } from './events/event.module';
-import { OtpModule } from './utils/otp/otp.module';
-import { MailModule } from './mail/mail.module';
 import { AuthModule } from './auth/auth.module';
+import { LoggerMiddleware } from './common/middleware/logger.middleware';
+import { EventsModule } from './events/event.module';
+import { MailModule } from './mail/mail.module';
+import { OrchestrationModule } from './orchestration/orchestration.module';
+import { OtpModule } from './utils/otp/otp.module';
 
 @Module({
   imports: [
@@ -37,7 +37,8 @@ import { AuthModule } from './auth/auth.module';
     ProfileModule,
     EventsModule, 
     OtpModule,
-    MailModule
+    MailModule,
+    OrchestrationModule
   ],
   controllers: [AppController],
   providers: [AppService],
