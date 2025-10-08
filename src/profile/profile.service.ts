@@ -59,17 +59,24 @@ export class ProfileService {
     return updated;
   }
 
-  @OnEvent('profile.deleteProfile')
-  async deleteProfileById(profileId: string): Promise<Profile | null> {
-    // Tìm profile trước khi xóa
-    const profile = await this.profileModel.findById(profileId);
+  async findByEmail(email: string) : Promise<Profile | null> {
+    const profile = await this.profileModel.findOne({email: email});
+    return profile;
+  }
+
+  @OnEvent('profile.getProfile')
+  async handleGetProfile(payload: { email: string }) {
+    const profile = await this.findByEmail(payload.email);
     if (!profile) return null;
 
-    // Xóa profile
-    await this.profileModel.deleteOne({ _id: profileId });
-    console.log('[ProfileService]: Deleted profile with id:', profileId);
+    console.log('[ProfileService]: Fetch profile: ', profile)
 
-    // Trả về profile đã xóa (nếu cần)
-    return profile;
+    return {
+      id: profile._id.toString(),
+      email: profile.email,
+      name: profile.name,
+      gender: profile.gender,
+      phoneNumber: profile.phone,
+    };
   }
 }

@@ -10,6 +10,7 @@ import { Server, Socket } from 'socket.io';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode } from 'src/common/enum/reponse-code.enum';
 import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
+import { PatientProfileDTO } from 'src/patient/dto/patient.dto';
 
 @WebSocketGateway({ cors: true }) // tạm thời cho cors để tránh lỗi nhãm về resouce, sau có endpoint thì sửa
 export class EventsGateway {
@@ -47,5 +48,27 @@ export class EventsGateway {
     this.server
       .to(payload.dto.email)
       .emit(SocketEventsEnum.REGISTER_STATUS, dataRes);
+  }
+
+  // --- New: Push patient profile ---
+  @OnEvent('socket.push.patient-profile')
+  handlePushPatientProfile(payload: { patientProfile: PatientProfileDTO; roomEmail: string }) {
+    if (!payload?.patientProfile || !payload?.roomEmail) {
+      console.warn('[Socket] Invalid patient profile payload');
+      return;
+    }
+
+    const dataRes: DataResponse<PatientProfileDTO> = {
+      code: ResponseCode.SUCCESS,
+      message: 'Patient profile received successfully',
+      data: payload.patientProfile,
+    };
+
+    this.server
+      .to(payload.roomEmail)
+      .emit(SocketEventsEnum.PATIENT_PROFILE, dataRes);
+
+    console.log('[Socket] Patient profile pushed to room:', payload.roomEmail);
+    console.log('[Socket] Data pushed', dataRes)
   }
 }

@@ -22,9 +22,8 @@ export class UpdateAccountDto {
 }
 
 export class AccountProfileDto {
-  @IsOptional()
   @IsString()
-  id?: string;
+  id: string;
 
   @IsString()
   name: string;
