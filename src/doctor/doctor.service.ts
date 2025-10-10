@@ -12,7 +12,6 @@ import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 export class DoctorService {
   constructor(
     @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
-    @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
   ) {}
 
   @OnEvent('doctor.createDoctor')
@@ -40,6 +39,24 @@ export class DoctorService {
     }
 
     return dataRes;
+  }
+
+  @OnEvent('doctor.check.exist', { async: true })
+  async handleDoctorExist(payload: { doctorId: string }): Promise<boolean> {
+    try {
+      const exists = await this.doctorModel.exists({ _id: payload.doctorId });
+      console.log(
+        `[DoctorService]: Kiểm tra tồn tại bác sĩ ${payload.doctorId} →`,
+        !!exists,
+      );
+      return !!exists;
+    } catch (error) {
+      console.error(
+        '[DoctorService]: Lỗi khi kiểm tra tồn tại bác sĩ →',
+        error.message,
+      );
+      return false;
+    }
   }
 
   async findAll(): Promise<Doctor[]> {
