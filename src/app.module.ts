@@ -15,6 +15,8 @@ import { EventsModule } from './events/event.module';
 import { MailModule } from './mail/mail.module';
 import { OrchestrationModule } from './orchestration/orchestration.module';
 import { OtpModule } from './utils/otp/otp.module';
+import { AppointmentModule } from './appointment/appointment.module';
+import { PaymentModule } from './payment/payment.module';
 
 @Module({
   imports: [
@@ -38,7 +40,9 @@ import { OtpModule } from './utils/otp/otp.module';
     EventsModule, 
     OtpModule,
     MailModule,
-    OrchestrationModule
+    OrchestrationModule,
+    AppointmentModule,
+    PaymentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsEnum, IsOptional, IsString, ValidateNested } from "class-validator";
+import { IsDecimal, IsEnum, IsOptional, IsString, ValidateNested } from "class-validator";
 import { DichVuKham } from "src/common/enum/dich-vu-kham.enum";
 import { HinhThucThanhToan } from "src/common/enum/hinh-thuc-thanh-toan.enum";
 import { KhungGio } from "src/common/enum/khung-gio.enum";
@@ -26,6 +26,10 @@ export class AppointmentBookingDto {
 
     @IsEnum(HinhThucThanhToan)
     hinhThucThanhToan: HinhThucThanhToan
+
+    @IsOptional()
+    @IsDecimal()
+    amount?: number;
 }
 
 export class BacSiDto {
