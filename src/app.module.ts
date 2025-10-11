@@ -17,6 +17,7 @@ import { OtpModule } from './utils/otp/otp.module';
 import { AppointmentModule } from './appointment/appointment.module';
 import { PaymentModule } from './payment/payment.module';
 import { SocketModule } from './socket/socket.module';
+import { NotificationModule } from './notification/notification.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { SocketModule } from './socket/socket.module';
     OrchestrationModule,
     AppointmentModule,
     PaymentModule,
+    NotificationModule
   ],
   controllers: [AppController],
   providers: [AppService],

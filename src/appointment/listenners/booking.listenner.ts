@@ -6,13 +6,13 @@ import { AppointmentBookingDto } from "../dto/appointment-booking.dto";
 export class BookingListener {
     constructor(private readonly eventEmitter: EventEmitter2) {}
 
-    @OnEvent('appointment.booking.completed')
+    @OnEvent('appointment.booking.success')
     handleBookingCompleted(payload: AppointmentBookingDto) {
         // emit tiếp các side-effect
-        this.eventEmitter.emit('patient.notify', payload.patientEmail);
-        this.eventEmitter.emit('doctor.notify', payload.bacSi?.id);
-        this.eventEmitter.emit('appointment.socket.notify.success', payload);
-        this.eventEmitter.emit('doctor.update-schedule', { doctor: payload.bacSi, payload });
+        this.eventEmitter.emit('notify.patient.booking.success', payload);
+        this.eventEmitter.emit('notify.doctor.booking.success', payload);
+        this.eventEmitter.emit('socket.appointment.success', payload);
+        this.eventEmitter.emit('doctor.update-schedule', { doctor: payload.bacSi, payload }); // Notify doctor module to update schedule
     }
 
     @OnEvent('appointment.booking.pending')

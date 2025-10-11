@@ -1,12 +1,56 @@
 import { Injectable } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
+import { NotificationDocument, Notification } from "./schemas/notification.schema";
+import { Model } from "mongoose";
+import { InjectModel } from "@nestjs/mongoose";
+import { AppointmentBookingDto } from "src/appointment/dto/appointment-booking.dto";
 
 @Injectable()
 export class NotificationService {
-    @OnEvent('patient.notify')
-    pushPatientNotification(email: string) { } // TODO: implement later
+    constructor(@InjectModel(Notification.name) private notificationModel: Model<NotificationDocument>) {}
 
-    @OnEvent('doctor.notify')
-    pushDoctorNotification(doctorId: string) { } // TODO: implement later
+    async storeNewNotification(notification: Partial<NotificationDocument>) {
+        const newNoti = new this.notificationModel(notification);
+        return await newNoti.save();
+    }
+
+    async createPatientAppointmentNotification(payload: AppointmentBookingDto) {
+        const body = {
+            title: 'Đặt lịch khám thành công',
+            message: `Bạn đã đặt lịch khám thành công vào ngày ${payload.khungGio} tại ${payload.tenBenhvien}.`,
+            details: {
+                bacSi: payload.bacSi?.name || 'Chưa chọn',
+                dichVu: payload.dichVuKham,
+                hinhThucThanhToan: payload.hinhThucThanhToan,
+                amount: payload.amount,
+            },
+        };
+
+        // Use notiService to st
+        await this.storeNewNotification({
+            receiverEmail: [payload.patientEmail],
+            ...body
+        });
+    }
+
+    async createDoctorAppointmentNotification(payload: AppointmentBookingDto) {
+        const body = {
+            title: 'Đặt lịch khám thành công',
+            message: `Bạn đã được thêm mới lịch khám vào ngày: ${payload.khungGio} tại ${payload.tenBenhvien}.`,
+            details: {
+                bacSi: payload.bacSi?.name || 'Chưa chọn',
+                dichVu: payload.dichVuKham,
+                hinhThucThanhToan: payload.hinhThucThanhToan,
+                amount: payload.amount,
+            },
+        };
+
+        // Use notiService to st
+        await this.storeNewNotification({
+            receiverEmail: [payload.bacSi!.email!], // chắc chắn có email bác sĩ
+            ...body
+        });
+    }
+
 }
 

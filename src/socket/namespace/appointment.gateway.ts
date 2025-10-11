@@ -14,7 +14,7 @@ export class AppointmentGateway extends BaseGateway {
         super(socketRoomService);
     }
 
-  @OnEvent('appointment.socket.notify.success')
+  @OnEvent('socket.appointment.success')
   handleCompleted(payload: AppointmentBookingDto) {
     const res: DataResponse = {
       code: ResponseCode.SUCCESS,
@@ -22,7 +22,9 @@ export class AppointmentGateway extends BaseGateway {
       data: payload,
     };
     console.log('[Socket][Appointment] Push COMPLETED to doctor');
-    this.emitToRoom(payload.bacSi!.email, SocketEventsEnum.APPOINTMENT_COMPLETED, res);
+    this.emitToRoom(payload.bacSi!.email, SocketEventsEnum.APPOINTMENT_COMPLETED, res); // Emit to doctor
+    console.log('[Socket][Appointment] Push COMPLETED to patient');
+    this.emitToRoom(payload.patientEmail, SocketEventsEnum.APPOINTMENT_COMPLETED, res); // Emit to patient
   }
 
   @OnEvent('appointment.socket.notify.pending')
