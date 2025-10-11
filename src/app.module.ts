@@ -18,7 +18,8 @@ import { AppointmentModule } from './appointment/appointment.module';
 import { PaymentModule } from './payment/payment.module';
 import { SocketModule } from './socket/socket.module';
 import { NotificationModule } from './notification/notification.module';
-
+import { Shift } from 'src/shift/schema/shift.schema';
+import { ShiftModule } from 'src/shift/shift.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -42,6 +43,7 @@ import { NotificationModule } from './notification/notification.module';
     OtpModule,
     MailModule,
     OrchestrationModule,
+	  ShiftModule,
     AppointmentModule,
     PaymentModule,
     NotificationModule
