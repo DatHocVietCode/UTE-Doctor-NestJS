@@ -10,8 +10,8 @@ export class Shift {
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Doctor.name, required: true })
   doctorId: mongoose.Types.ObjectId;
 
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Patient.name, required: true })
-  patientId: mongoose.Types.ObjectId;
+  // @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Patient.name, required: false, default: null })
+  // patientId: mongoose.Types.ObjectId;
 
   @Prop({ required: true })
   date: string; // "2025-10-05" (YYYY-MM-DD)
@@ -24,3 +24,4 @@ export class Shift {
 }
 
 export const ShiftSchema = SchemaFactory.createForClass(Shift);
+ 

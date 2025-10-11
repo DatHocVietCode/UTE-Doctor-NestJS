@@ -41,7 +41,7 @@ export class DoctorService {
     return dataRes;
   }
 
-  @OnEvent('doctor.check.exist', { async: true })
+  @OnEvent('doctor.check.exist')
   async handleDoctorExist(payload: { doctorId: string }): Promise<boolean> {
     try {
       const exists = await this.doctorModel.exists({ _id: payload.doctorId });
