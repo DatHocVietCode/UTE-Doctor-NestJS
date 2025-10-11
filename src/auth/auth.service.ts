@@ -1,20 +1,18 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
 import { console } from 'inspector';
+import * as jwt from "jsonwebtoken";
 import { Model } from 'mongoose';
-import { AccountService } from 'src/account/account.service';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
-import * as jwt from "jsonwebtoken";
-import { OtpDTO } from 'src/utils/otp/otp-dto';
-import { OtpUtils } from 'src/utils/otp/otp-utils';
-import { Account, AccountDocument } from '../account/schemas/account.schema';
-import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
 import { emitTyped } from 'src/utils/helpers/event.helper';
+import { OtpDTO } from 'src/utils/otp/otp-dto';
+import { Account } from '../account/schemas/account.schema';
+import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
 
 
 @Injectable()
@@ -28,6 +26,7 @@ export class AuthService {
         this.eventEmitter.emitAsync('user.register.requested', {
             registerUser: registerUser,
         });
+        console.log('Emitted user.register.requested event for:', registerUser.email);
         const responseData : DataResponse = {
             code: rc.PENDING,
             message: "Received user register request",

@@ -24,6 +24,7 @@ export class AuthSaga {
     );
     if (createdAccountRes.code === rc.ERROR) {
       this.eventEmitter.emit('user.register.failed', { dto: registerUser, dataResponse: createdAccountRes });
+      console.log('[Saga]: ❌ Account creation failed');
       return;
     }
 
