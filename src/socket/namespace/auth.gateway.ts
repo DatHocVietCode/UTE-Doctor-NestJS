@@ -12,15 +12,15 @@ export class AuthGateway extends BaseGateway {
     constructor(socketRoomService: SocketRoomService) {
        super(socketRoomService);
     }
-    @SubscribeMessage(SocketEventsEnum.REGISTER_JOIN_ROOM)
-    handleJoinRoom(
-        @ConnectedSocket() client: Socket,
-        @MessageBody() payload: { userEmail: string },
-    ) {
-        if (!payload?.userEmail) return;
-        this.joinRoom(client, payload.userEmail);
-        console.log(`[Socket][${client.nsp.name}] Connected: ${client.id}`);
-    }
+    // @SubscribeMessage(SocketEventsEnum.REGISTER_JOIN_ROOM)
+    // handleJoinRoom(
+    //     @ConnectedSocket() client: Socket,
+    //     @MessageBody() payload: { userEmail: string },
+    // ) {
+    //     if (!payload?.userEmail) return;
+    //     this.joinRoom(client, payload.userEmail);
+    //     console.log(`[Socket][${client.nsp.name}] Connected: ${client.id}`);
+    // }
         
     @OnEvent('user.register.success')
     handleRegisterSuccess(payload: any) {
