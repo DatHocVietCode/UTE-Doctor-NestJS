@@ -11,12 +11,12 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
-import { EventsModule } from './events/event.module';
 import { MailModule } from './mail/mail.module';
 import { OrchestrationModule } from './orchestration/orchestration.module';
 import { OtpModule } from './utils/otp/otp.module';
 import { AppointmentModule } from './appointment/appointment.module';
 import { PaymentModule } from './payment/payment.module';
+import { SocketModule } from './socket/socket.module';
 
 @Module({
   imports: [
@@ -37,7 +37,7 @@ import { PaymentModule } from './payment/payment.module';
     DoctorModule,
     PatientModule,
     ProfileModule,
-    EventsModule, 
+    SocketModule,
     OtpModule,
     MailModule,
     OrchestrationModule,
