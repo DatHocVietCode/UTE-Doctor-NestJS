@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsDecimal, IsEnum, IsOptional, IsString, ValidateNested } from "class-validator";
+import { IsDecimal, IsEmail, IsEnum, IsOptional, IsString, ValidateNested } from "class-validator";
 import { DichVuKham } from "src/common/enum/dich-vu-kham.enum";
 import { HinhThucThanhToan } from "src/common/enum/hinh-thuc-thanh-toan.enum";
 import { KhungGio } from "src/common/enum/khung-gio.enum";
@@ -30,6 +30,9 @@ export class AppointmentBookingDto {
     @IsOptional()
     @IsDecimal()
     amount?: number;
+
+    @IsEmail()
+    patientEmail: string;
 }
 
 export class BacSiDto {
@@ -38,4 +41,7 @@ export class BacSiDto {
 
     @IsString()
     name: string
+
+    @IsEmail()
+    email: string;
 }
