@@ -7,10 +7,13 @@ import { emitTyped } from "src/utils/helpers/event.helper";
 @Injectable()
 export class BookingAppointmentSubmitSaga {
     constructor (private readonly eventEmitter: EventEmitter2) {}
-
+    // Impl happy case first, then add more complex logic later
+    // 1. Check payment method
+    // 2. If online, emit event to payment service to handle payment
     @OnEvent('appointment.booked') // received through http post
     async handleBookingAppointment(payload: AppointmentBookingDto) {;
         let isPaymentSuccess: boolean = false;
+
         // First, check the payment method, check whether payment method is online or offline
        if (payload.hinhThucThanhToan === HinhThucThanhToan.ONLINE) {
         const amount = payload.amount ?? 0; // nếu undefined thì thành 0
@@ -30,15 +33,14 @@ export class BookingAppointmentSubmitSaga {
             }
         }
 
-        // Third, check if all fields in dto, include optional field is (un)completed,  push pending / success status to client
         if (this.isBookingInformationEnough(payload) && isPaymentSuccess)
         {
-            this.eventEmitter.emit('appointment.booking.completed'); // Noti to receptionst, and patient
+            this.eventEmitter.emit('appointment.booking.success', payload); // Noti to receptionst, and patient
             console.log('Booking completed');
         }
         else
         {
-            this.eventEmitter.emit('appointment.booking.pending'); // Noti to receptionist, doctor and patient
+            this.eventEmitter.emit('appointment.booking.pending', payload); // Noti to receptionist, doctor and patient
             console.log('Booking pending');
         }
         

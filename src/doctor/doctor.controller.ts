@@ -21,4 +21,6 @@ export class DoctorController {
   async findById(@Param('id') id: string): Promise<Doctor | null> {
     return this.doctorService.findById(id);
   }
+
+  
 }

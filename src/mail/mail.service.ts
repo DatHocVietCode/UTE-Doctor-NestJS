@@ -26,4 +26,12 @@ export class MailService {
         return otp;
     }
 
+    @OnEvent('patient.notify')
+    sendPatientMail(email: string) { 
+
+    } 
+
+    @OnEvent('doctor.notify')
+    sendDoctorMail(doctorId: string) {  } // TODO: implement later
+
 }
