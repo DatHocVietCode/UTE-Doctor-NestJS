@@ -162,7 +162,7 @@ export class ShiftService {
       const shifts = await this.shiftModel
         .find(filter)
         .sort({ date: 1, shift: 1 }) // Sắp xếp theo ngày và ca
-        .populate('patientId', 'name phone email') // Populate thông tin bệnh nhân
+        // .populate('patientId', 'name phone email') // Populate thông tin bệnh nhân
         .lean() // Convert sang plain object
         .exec();
 

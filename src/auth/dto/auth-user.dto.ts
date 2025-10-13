@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsOptional, IsString } from "class-validator";
+import { IsEmail, IsEnum, IsNumber, IsOptional, IsString } from "class-validator";
 import { RoleEnum } from "src/common/enum/role.enum";
 
 export class RegisterUserReqDto {
@@ -10,7 +10,17 @@ export class RegisterUserReqDto {
 
     @IsEnum(RoleEnum)
     @IsOptional()
-    role: RoleEnum = RoleEnum.PATIENT;
+    role: RoleEnum;
+
+    @IsString()
+    chuyenKhoaId: string;
+
+    @IsString()
+    degree: string;
+
+    @IsNumber()
+    yearsOfExperience: string;
+    
 }
 
 export class LoginUserReqDto {

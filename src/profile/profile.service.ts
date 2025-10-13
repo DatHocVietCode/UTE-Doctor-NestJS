@@ -7,6 +7,8 @@ import { DataResponse } from 'src/common/dto/data-respone';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { OnEvent } from '@nestjs/event-emitter';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
+import mongoose from 'mongoose';
+
 
 @Injectable()
 export class ProfileService {
@@ -45,9 +47,16 @@ export class ProfileService {
     }
   }
 
-  async findByAccountId(accountId: string): Promise<Profile> {
-    const profile = await this.profileModel.findOne({ accountId }).exec();
-    if (!profile) throw new NotFoundException('Profile not found');
+  async findById(id: string): Promise<Profile> {
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new NotFoundException('Invalid profile ID format');
+    }
+
+    const profile = await this.profileModel.findById(id).exec();
+    if (!profile) {
+      throw new NotFoundException('Profile not found');
+    }
     return profile;
   }
 
