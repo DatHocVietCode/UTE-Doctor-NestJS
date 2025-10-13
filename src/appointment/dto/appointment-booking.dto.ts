@@ -16,6 +16,9 @@ export class AppointmentBookingDto {
   @IsString()
   hospitalName: string;
 
+   @IsString()
+   date: Date;
+
   @IsOptional()
   @IsString()
   specialty?: string;
