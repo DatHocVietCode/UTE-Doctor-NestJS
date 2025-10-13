@@ -17,9 +17,6 @@ export class Notification {
   @Prop({ default: false })
   isRead: boolean;
 
-  @Prop({ required: false })
-  senderEmail?: string;
-
   // receiver có thể là nhiều người
   @Prop({ type: [String], required: false })
   receiverEmail?: string[];

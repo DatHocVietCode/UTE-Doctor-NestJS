@@ -22,7 +22,7 @@ export class AppointmentGateway extends BaseGateway {
       data: payload,
     };
     console.log('[Socket][Appointment] Push COMPLETED to doctor');
-    this.emitToRoom(payload.bacSi!.email, SocketEventsEnum.APPOINTMENT_COMPLETED, res); // Emit to doctor
+    this.emitToRoom(payload.doctor!.email, SocketEventsEnum.APPOINTMENT_COMPLETED, res); // Emit to doctor
     console.log('[Socket][Appointment] Push COMPLETED to patient');
     this.emitToRoom(payload.patientEmail, SocketEventsEnum.APPOINTMENT_COMPLETED, res); // Emit to patient
   }

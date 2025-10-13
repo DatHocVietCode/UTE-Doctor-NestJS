@@ -12,7 +12,7 @@ export class BookingListener {
         this.eventEmitter.emit('notify.patient.booking.success', payload);
         this.eventEmitter.emit('notify.doctor.booking.success', payload);
         this.eventEmitter.emit('socket.appointment.success', payload);
-        this.eventEmitter.emit('doctor.update-schedule', { doctor: payload.bacSi, payload }); // Notify doctor module to update schedule
+        this.eventEmitter.emit('doctor.update-schedule', { doctor: payload.doctor, payload }); // Notify doctor module to update schedule
     }
 
     @OnEvent('appointment.booking.pending')
