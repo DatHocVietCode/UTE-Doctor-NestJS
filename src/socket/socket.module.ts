@@ -4,10 +4,11 @@ import { AppointmentGateway } from './namespace/appointment/appointment-result.g
 import { AuthGateway } from './namespace/auth.gateway';
 import { PatientProfileGateway } from './namespace/patient.profile.gateway';
 import { SocketRoomService } from './socket.service';
+import { AppointmentBookingGateway } from './namespace/appointment/appointment-book.gateway';
 
 @Module({
   providers: [SocketRoomService, BaseGateway, 
-    AppointmentGateway, AuthGateway, PatientProfileGateway],
+    AppointmentGateway, AuthGateway, PatientProfileGateway, AppointmentBookingGateway],
   exports: [SocketRoomService],
 })
 export class SocketModule {}

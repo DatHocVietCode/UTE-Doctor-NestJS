@@ -6,13 +6,14 @@ import { ChuyenKhoaController } from './chuyenkhoa.controller';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { chuyenKhoaSeed } from './chuyenkhoa.seed';
+import { ChuyenKhoaListener } from './chuyenkhoa.listener';
 
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: ChuyenKhoa.name, schema: ChuyenKhoaSchema }]),
   ],
   controllers: [ChuyenKhoaController],
-  providers: [ChuyenKhoaService],
+  providers: [ChuyenKhoaService, ChuyenKhoaListener],
   exports: [ChuyenKhoaService],
 })
 export class ChuyenKhoaModule implements OnModuleInit {

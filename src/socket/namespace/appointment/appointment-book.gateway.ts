@@ -1,5 +1,5 @@
 // appointment-booking.gateway.ts
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import {
     ConnectedSocket,
     MessageBody,
@@ -9,20 +9,22 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { DoctorDto } from 'src/appointment/dto/appointment-booking.dto';
-import { DoctorService } from 'src/doctor/doctor.service';
+import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
+import { BaseGateway } from 'src/socket/base/base.gateway';
+import { SocketRoomService } from 'src/socket/socket.service';
 import { emitTyped } from 'src/utils/helpers/event.helper';
-import { EventEmitter } from 'stream';
-
 
 @WebSocketGateway({
-  namespace: '/appointment/booking',
+  namespace: '/appointment/fields-data',
   cors: true,
 })
-export class AppointmentBookingGateway {
-  @WebSocketServer() server: Server;
-
-  constructor(private readonly eventEmitter: EventEmitter2
-  ) {}
+export class AppointmentBookingGateway extends BaseGateway {
+ 
+  constructor(private readonly eventEmitter: EventEmitter2,
+            socketRoomService: SocketRoomService
+  ) {
+    super(socketRoomService);
+  }
 
   // Khi FE chọn chuyên khoa
   @SubscribeMessage('get_doctors_by_specialty')
@@ -46,5 +48,11 @@ export class AppointmentBookingGateway {
   ) {
     // const timeslots = await this.timeSlotService.findByDoctor(data.doctorId);
     // client.emit('timeslot_list', timeslots);
+  }
+
+  @OnEvent('appointment.hospitals-specialties.fetched')
+  async handleFieldsDataFetched(payload: { hospitals: string[]; specialties: { id: string; name: string }[], email: string }) {
+    this.emitToRoom(payload.email, SocketEventsEnum.HOSPITAL_SPECIALTIES_FETCHED, { hospitals: payload.hospitals, specialties: payload.specialties });
+    console.log(`[Socket][Appointment] Sent fields data to ${payload.email}`);
   }
 }

@@ -8,4 +8,5 @@ export enum SocketEventsEnum {
   APPOINTMENT_PENDING = "APPOINTMENT_PENDING",
   JOIN_ROOM = "JOIN_ROOM",
   ROOM_JOINED = "ROOM_JOINED",
+  HOSPITAL_SPECIALTIES_FETCHED = 'hospital-specialties.fetched'
 }

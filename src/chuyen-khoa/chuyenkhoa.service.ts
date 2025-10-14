@@ -11,7 +11,9 @@ export class ChuyenKhoaService {
   ) {}
 
   async findAll(): Promise<ChuyenKhoa[]> {
-    return this.chuyenKhoaModel.find().exec();
+    const all = await this.chuyenKhoaModel.find().lean().exec();
+    console.log('All specialties:', all);
+    return all;
   }
 
   async findOne(id: string): Promise<ChuyenKhoa | null> {
