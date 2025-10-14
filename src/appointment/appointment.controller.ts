@@ -11,10 +11,4 @@ export class AppointmentController {
         console.log('Received appointment booking:', bookingAppointment);
         return await this.appointmentService.bookAppointment(bookingAppointment);
     }
-
-    @Get('/fields-data')
-    async getFieldsData(@Query('email') email: string) {
-        console.log('[Controller] Get fields data');
-        return await this.appointmentService.getFieldsData(email);
-    }
 }

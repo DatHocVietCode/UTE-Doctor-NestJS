@@ -10,15 +10,15 @@ export class BookingAppointmentFieldSaga {
 
   private email: string;
 
-  @OnEvent('appointment.get-hospitals-specialties')
-  async handleGetFieldsData(email: string) {
-    this.email = email; // Store email for socket emission later
-    const specialties = await this.fetchSpecialties();
-    const hospitals = ["Hospital A", "Hospital B", "Hospital C"]; // Placeholder data
-    //const hospitals = await this.fetchHospitals(); // placeholder
-    this.eventEmitter.emit('appointment.hospitals-specialties.fetched', { hospitals, specialties, email });
-    console.log('[Saga] Emited event to push data to socket');
-  }
+//   @OnEvent('appointment.get-hospitals-specialties')
+//   async handleGetFieldsData(email: string) {
+//     this.email = email; // Store email for socket emission later
+//     const specialties = await this.fetchSpecialties();
+//     const hospitals = ["Hospital A", "Hospital B", "Hospital C"]; // Placeholder data
+//     //const hospitals = await this.fetchHospitals(); // placeholder
+//     this.eventEmitter.emit('appointment.hospitals-specialties.fetched', { hospitals, specialties, email });
+//     console.log('[Saga] Emited event to push data to socket');
+//   }
 
   @OnEvent('doctor.get-by-specialty')
   async handleGetDoctorsBySpecialty(payload: { specialtyId: string }) {

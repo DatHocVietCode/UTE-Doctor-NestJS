@@ -27,18 +27,19 @@ export class AppointmentBookingGateway extends BaseGateway {
   }
 
   // Khi FE chọn chuyên khoa
-  @SubscribeMessage('get_doctors_by_specialty')
-  async handleGetDoctors(
-    @MessageBody() data: { specialtyId: string },
-    @ConnectedSocket() client: Socket,
-  ) {
-    const doctors = await emitTyped<{ specialtyId: string }, DoctorDto[]>(
-      this.eventEmitter,
-      'doctor.update-list-by-specialty',
-      { specialtyId: data.specialtyId }
-    );
-    client.emit('doctor_list', doctors);
-  }
+  // @SubscribeMessage(SocketEventsEnum.GET_DOCTOR_BY_SPECIALTY)
+  // async handleGetDoctors(
+  //   @MessageBody() data: { specialtyId: string },
+  //   @ConnectedSocket() client: Socket,
+  // ) {
+  //   const doctors = await emitTyped<{ specialtyId: string }, DoctorDto[]>(
+  //     this.eventEmitter,
+  //     'doctor.update-list-by-specialty',
+  //     { specialtyId: data.specialtyId }
+  //   );
+  //   this.emitToRoom(client.id, SocketEventsEnum.DOCTOR_LIST_FETCHED, doctors);
+  //   console.log(`[Socket][Appointment] Sent doctors list to ${client.id}`);
+  // }
 
   // Khi FE chọn bác sĩ
   @SubscribeMessage('get_timeslots_by_doctor')
@@ -54,5 +55,12 @@ export class AppointmentBookingGateway extends BaseGateway {
   async handleFieldsDataFetched(payload: { hospitals: string[]; specialties: { id: string; name: string }[], email: string }) {
     this.emitToRoom(payload.email, SocketEventsEnum.HOSPITAL_SPECIALTIES_FETCHED, { hospitals: payload.hospitals, specialties: payload.specialties });
     console.log(`[Socket][Appointment] Sent fields data to ${payload.email}`);
+  }
+
+  @OnEvent('doctor.list.fetched')
+  async handleDoctorListFetched(payload: {doctors: any[], email: string}) {
+    // Emit to all clients in the room
+    this.emitToRoom(payload.email, SocketEventsEnum.DOCTOR_LIST_FETCHED, payload.doctors);
+    console.log(`[Socket][Appointment] Sent doctors list to room appointment`);
   }
 }

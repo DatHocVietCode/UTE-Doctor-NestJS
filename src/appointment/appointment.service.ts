@@ -19,15 +19,4 @@ export class AppointmentService {
         return dataResponse;
     }
 
-    async getFieldsData(email: string) {
-
-        this.eventEmitter.emit('appointment.get-hospitals-specialties', email);
-        const dataResponse : DataResponse = {
-            code: ResponseCode.SUCCESS, 
-            message: 'Server received the request for fields data',
-            data: null
-        }
-        return dataResponse;
-    }
-
 }
