@@ -20,6 +20,7 @@ import { SocketModule } from './socket/socket.module';
 import { NotificationModule } from './notification/notification.module';
 import { Shift } from 'src/shift/schema/shift.schema';
 import { ShiftModule } from 'src/shift/shift.module';
+import { TimeSlot } from './timeslot/timeslot.schema';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -46,7 +47,8 @@ import { ShiftModule } from 'src/shift/shift.module';
 	  ShiftModule,
     AppointmentModule,
     PaymentModule,
-    NotificationModule
+    NotificationModule,
+    TimeSlot
   ],
   controllers: [AppController],
   providers: [AppService],

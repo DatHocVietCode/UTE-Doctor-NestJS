@@ -17,11 +17,11 @@ export class NotificationService {
     async createPatientAppointmentNotification(payload: AppointmentBookingDto) {
         const body = {
             title: 'Đặt lịch khám thành công',
-            message: `Bạn đã đặt lịch khám thành công vào ngày ${payload.khungGio} tại ${payload.tenBenhvien}.`,
+            message: `Bạn đã đặt lịch khám thành công vào ngày ${payload.timeSlotId} tại ${payload.hospitalName}.`,
             details: {
-                bacSi: payload.bacSi?.name || 'Chưa chọn',
-                dichVu: payload.dichVuKham,
-                hinhThucThanhToan: payload.hinhThucThanhToan,
+                bacSi: payload.doctor?.name || 'Chưa chọn',
+                dichVu: payload.serviceType,
+                hinhThucThanhToan: payload.paymentMethod,
                 amount: payload.amount,
             },
         };
@@ -36,18 +36,18 @@ export class NotificationService {
     async createDoctorAppointmentNotification(payload: AppointmentBookingDto) {
         const body = {
             title: 'Đặt lịch khám thành công',
-            message: `Bạn đã được thêm mới lịch khám vào ngày: ${payload.khungGio} tại ${payload.tenBenhvien}.`,
+            message: `Bạn đã được thêm mới lịch khám vào ngày: ${payload.timeSlotId} tại ${payload.hospitalName}.`,
             details: {
-                bacSi: payload.bacSi?.name || 'Chưa chọn',
-                dichVu: payload.dichVuKham,
-                hinhThucThanhToan: payload.hinhThucThanhToan,
+                bacSi: payload.doctor?.name || 'Chưa chọn',
+                dichVu: payload.paymentMethod,
+                hinhThucThanhToan: payload.paymentMethod,
                 amount: payload.amount,
             },
         };
 
         // Use notiService to st
         await this.storeNewNotification({
-            receiverEmail: [payload.bacSi!.email!], // chắc chắn có email bác sĩ
+            receiverEmail: [payload.doctor!.email!], // chắc chắn có email bác sĩ
             ...body
         });
     }

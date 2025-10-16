@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { AppointmentBookingDto } from "src/appointment/dto/appointment-booking.dto";
-import { HinhThucThanhToan } from "src/common/enum/hinh-thuc-thanh-toan.enum";
+import { PaymentMethod } from "src/common/enum/paymentMethod.enum";
 import { emitTyped } from "src/utils/helpers/event.helper";
 
 @Injectable()
@@ -15,7 +15,7 @@ export class BookingAppointmentSubmitSaga {
         let isPaymentSuccess: boolean = false;
 
         // First, check the payment method, check whether payment method is online or offline
-       if (payload.hinhThucThanhToan === HinhThucThanhToan.ONLINE) {
+       if (payload.paymentMethod === PaymentMethod.ONLINE) {
         const amount = payload.amount ?? 0; // nếu undefined thì thành 0
 
             if (amount > 0) {
@@ -48,25 +48,25 @@ export class BookingAppointmentSubmitSaga {
 
     isBookingInformationEnough(dto: AppointmentBookingDto) {
         // Kiểm tra tên bệnh viện
-        if (!dto.tenBenhvien || dto.tenBenhvien.trim() === '') return false;
+        if (!dto.hospitalName || dto.hospitalName.trim() === '') return false;
 
         // Kiểm tra khung giờ
-        if (!dto.khungGio) return false;
+        if (!dto.timeSlotId) return false;
 
         // Kiểm tra dịch vụ khám
-        if (!dto.dichVuKham) return false;
+        if (!dto.serviceType) return false;
 
         // Kiểm tra hình thức thanh toán
-        if (!dto.hinhThucThanhToan) return false;
+        if (!dto.paymentMethod) return false;
 
         // Nếu thanh toán online mà không có amount hoặc <= 0 → thiếu thông tin
-        if (dto.hinhThucThanhToan === 'ONLINE' && (!dto.amount || dto.amount <= 0))
+        if (dto.patientEmail === 'ONLINE' && (!dto.amount || dto.amount <= 0))
             return false;
 
         // Nếu có bác sĩ (optional) thì kiểm tra id và name có đầy đủ không
-        if (dto.bacSi) {
-            if (!dto.bacSi.id || dto.bacSi.id.trim() === '') return false;
-            if (!dto.bacSi.name || dto.bacSi.name.trim() === '') return false;
+        if (dto.doctor) {
+            if (!dto.doctor.id || dto.doctor.id.trim() === '') return false;
+            if (!dto.doctor.name || dto.doctor.name.trim() === '') return false;
         }
 
         // Mọi thứ hợp lệ

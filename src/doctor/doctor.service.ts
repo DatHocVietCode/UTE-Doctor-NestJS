@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
@@ -7,11 +7,14 @@ import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { Doctor, DoctorDocument } from './schema/doctor.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
+import Fuse from 'fuse.js';
+
 
 @Injectable()
 export class DoctorService {
   constructor(
     @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
+    private readonly eventEmitter: EventEmitter2
   ) {}
 
   @OnEvent('doctor.createDoctor')
@@ -65,5 +68,78 @@ export class DoctorService {
 
   async findById(id: string): Promise<Doctor | null> {
     return this.doctorModel.findById(id).populate('accountId').populate('chuyenKhoaId').exec();
+  }
+
+
+  async searchDoctors(filter: { specialtyId?: string; keyword?: string }) {
+    const { specialtyId, keyword } = filter;
+    const query: any = {};
+    
+    console.log('Filtering doctors by specialtyId:', specialtyId, 'and keyword:', keyword);
+
+    // Lọc theo chuyên khoa nếu có
+    if (specialtyId) {
+      query.chuyenKhoaId = specialtyId;
+    }
+
+    // Lấy tất cả doctors theo query và populate profile
+    const doctors = await this.doctorModel
+      .find(query)
+      .populate({
+        path: 'profileId',
+        model: Profile.name,
+        select: 'name email',
+      })
+      .lean() // Quan trọng: convert sang plain object để Fuse.js hoạt động tốt
+      .exec();
+
+    // Format data
+    const formattedDoctors = doctors.map((d) => ({
+      id: d._id.toString(),
+      name: d.profileId?.['name'] || 'N/A',
+      email: d.profileId?.['email'] || 'N/A',
+      specialtyId: d.chuyenKhoaId?.toString() || null,
+      // Giữ nguyên object gốc nếu cần thêm thông tin
+      raw: d,
+    }));
+
+    // Nếu KHÔNG có keyword → trả về tất cả
+    if (!keyword) {
+      return {
+        code: rc.SUCCESS,
+        message: 'Fetched doctors successfully',
+        data: formattedDoctors,
+      };
+    }
+
+    // Nếu CÓ keyword → dùng Fuse.js fuzzy search
+    const fuse = new Fuse(formattedDoctors, {
+      keys: [
+        { name: 'name', weight: 0.7 },      // Ưu tiên tìm theo tên
+        { name: 'email', weight: 0.3 },     // Tìm theo email ít quan trọng hơn
+      ],
+      threshold: 0.4,           // 0 = exact match, 1 = match anything
+                                // 0.4 = cho phép sai ~40% (cân bằng)
+      includeScore: true,       // Trả về điểm tương đồng
+      minMatchCharLength: 1,    // Tối thiểu 2 ký tự mới bắt đầu search
+      ignoreLocation: true,     // Không quan tâm vị trí của keyword trong chuỗi
+      findAllMatches: true,     // Tìm tất cả matches, không dừng ở match đầu tiên
+    });
+
+    const searchResults = fuse.search(keyword);
+
+    // Format kết quả
+    const data = searchResults.map((result) => ({
+      ...result.item,
+      matchScore: result.score,  // 0 = perfect match, 1 = worst match
+      // Không cần raw nữa vì đã format
+      raw: undefined,
+    }));
+
+    return {
+      code: rc.SUCCESS,
+      message: `Found ${data.length} doctors matching "${keyword}"`,
+      data,
+    };
   }
 }

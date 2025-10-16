@@ -7,6 +7,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { chuyenKhoaSeed } from './chuyenkhoa.seed';
 
+
 @Module({
   imports: [
     MongooseModule.forFeature([{ name: ChuyenKhoa.name, schema: ChuyenKhoaSchema }]),
