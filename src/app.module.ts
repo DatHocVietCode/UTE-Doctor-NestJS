@@ -18,9 +18,8 @@ import { AppointmentModule } from './appointment/appointment.module';
 import { PaymentModule } from './payment/payment.module';
 import { SocketModule } from './socket/socket.module';
 import { NotificationModule } from './notification/notification.module';
-import { Shift } from 'src/shift/schema/shift.schema';
 import { ShiftModule } from 'src/shift/shift.module';
-import { TimeSlot } from './timeslot/timeslot.schema';
+import { TimeSlotModule } from './timeslot/timeslot.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -48,7 +47,8 @@ import { TimeSlot } from './timeslot/timeslot.schema';
     AppointmentModule,
     PaymentModule,
     NotificationModule,
-    TimeSlot
+    TimeSlotModule,
+    ShiftModule,
   ],
   controllers: [AppController],
   providers: [AppService],
