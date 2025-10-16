@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Query } from "@nestjs/common";
 import { RegisterShiftDto } from "./dto/register-shift.dto";
 import { ShiftService } from "./shift.service";
 
@@ -33,4 +33,11 @@ export class ShiftController {
     
     return await this.shiftService.getShiftsByMonth(doctorId, month, year, status);
   }
+
+  @Delete("/:id")
+  async deleteShift(@Param("id") id: string) {
+    console.log("🔴 [Controller] Yêu cầu xóa ca:", id);
+    return await this.shiftService.deleteShiftById(id);
+  }
+
 }

@@ -206,4 +206,36 @@ export class ShiftService {
       };
     }
   }
+
+  async deleteShiftById(id: string): Promise<DataResponse> {
+    console.log("🗑️ [ShiftService] Yêu cầu xóa ca:", id);
+
+    try {
+      const deleted = await this.shiftModel.findByIdAndDelete(id).exec();
+
+      if (!deleted) {
+        return {
+          code: rc.ERROR,
+          message: "Không tìm thấy ca để xóa.",
+          data: null,
+        };
+      }
+
+      console.log("✅ [ShiftService] Đã xóa ca thành công:", deleted._id.toString());
+
+      return {
+        code: rc.SUCCESS,
+        message: "Xóa ca thành công.",
+        data: deleted.toObject(),
+      };
+    } catch (error) {
+      console.error("❌ [ShiftService] Lỗi khi xóa ca:", error.message);
+      return {
+        code: rc.ERROR,
+        message: error.message || "Lỗi khi xóa ca.",
+        data: null,
+      };
+    }
+  }
+
 }
