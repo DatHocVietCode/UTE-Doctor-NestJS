@@ -1,6 +1,7 @@
-import { Body, Controller, Post } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query } from "@nestjs/common";
 import { AppointmentBookingDto } from "./dto/appointment-booking.dto";
 import { AppointmentService } from "./appointment.service";
+import e from "express";
 
 @Controller('appointment')
 export class AppointmentController {

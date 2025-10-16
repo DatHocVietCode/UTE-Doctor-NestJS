@@ -1,4 +1,4 @@
-export enum HinhThucThanhToan {
+export enum PaymentMethod {
     ONLINE = 'ONLINE',
     OFFLINE = 'OFFLINE'
 }

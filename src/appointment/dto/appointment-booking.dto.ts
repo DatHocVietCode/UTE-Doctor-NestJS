@@ -1,41 +1,57 @@
 import { Type } from "class-transformer";
-import { IsDecimal, IsEnum, IsOptional, IsString, ValidateNested } from "class-validator";
-import { DichVuKham } from "src/common/enum/dich-vu-kham.enum";
-import { HinhThucThanhToan } from "src/common/enum/hinh-thuc-thanh-toan.enum";
-import { KhungGio } from "src/common/enum/khung-gio.enum";
+import {
+    IsDecimal,
+    IsEmail,
+    IsEnum,
+    IsMongoId,
+    IsOptional,
+    IsString,
+    ValidateNested,
+} from "class-validator";
+import { ServiceType } from "src/appointment/enums/service-type.enum";
+import { PaymentMethod } from "src/common/enum/paymentMethod.enum";
+
 
 export class AppointmentBookingDto {
-    
-    @IsString()
-    tenBenhvien: string;
+  @IsString()
+  hospitalName: string;
 
-    @IsOptional()
-    @IsString()
-    chuyenkhoa?: string;
+  @IsString()
+  date: Date;
 
-    @IsEnum(KhungGio)
-    khungGio: KhungGio;
+  @IsOptional()
+  @IsString()
+  specialty?: string;
 
-    @ValidateNested()
-    @Type(()=>BacSiDto)
-    @IsOptional()
-    bacSi: BacSiDto | null;
+  @IsMongoId()
+  timeSlotId: string;
 
-    @IsEnum(DichVuKham)
-    dichVuKham: DichVuKham;
+  @ValidateNested()
+  @Type(() => DoctorDto)
+  @IsOptional()
+  doctor: DoctorDto | null;
 
-    @IsEnum(HinhThucThanhToan)
-    hinhThucThanhToan: HinhThucThanhToan
+  @IsEnum(ServiceType)
+  serviceType: ServiceType;
 
-    @IsOptional()
-    @IsDecimal()
-    amount?: number;
+  @IsEnum(PaymentMethod)
+  paymentMethod: PaymentMethod;
+
+  @IsOptional()
+  @IsDecimal()
+  amount?: number;
+
+  @IsEmail()
+  patientEmail: string;
 }
 
-export class BacSiDto {
-    @IsString()
-    id: string;
+export class DoctorDto {
+  @IsString()
+  id: string;
 
-    @IsString()
-    name: string
+  @IsString()
+  name: string;
+
+  @IsEmail()
+  email: string;
 }

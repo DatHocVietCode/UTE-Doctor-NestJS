@@ -11,7 +11,7 @@ export class Doctor {
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Profile.name, required: true})
   profileId: mongoose.Types.ObjectId;
 
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: ChuyenKhoa.name, required: true })
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: ChuyenKhoa.name, required: false })
   chuyenKhoaId: mongoose.Types.ObjectId;   // liên kết tới chuyên khoa
 
   @Prop({ type: [String], default: [] })

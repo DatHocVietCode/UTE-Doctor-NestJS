@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { DoctorService } from './doctor.service';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { Doctor } from './schema/doctor.schema';
+import { DataResponse } from 'src/common/dto/data-respone';
 
 @Controller('doctors')
 export class DoctorController {
@@ -15,6 +16,15 @@ export class DoctorController {
   @Get()
   async findAll(): Promise<Doctor[]> {
     return this.doctorService.findAll();
+  }
+
+  @Get('/specialty')
+  async getDoctorBySpecialty(
+    @Query('specialtyId') specialtyId?: string,  // dùng Query thay vì Param
+    @Query('keyword') keyword?: string           // nếu sau này muốn thêm tìm kiếm
+  ): Promise<DataResponse<any>> {
+    console.log('Received request to get doctors by specialty:', specialtyId, 'with keyword:', keyword);
+    return this.doctorService.searchDoctors({ specialtyId, keyword });
   }
 
   @Get(':id')

@@ -10,13 +10,13 @@ export class ProfileController {
   constructor(private readonly profileService: ProfileService) {}
 
   // Lấy thông tin profile theo accountId
-  @Get(':accountId')
-  async getProfile(@Param('accountId') accountId: string) {
-    const profile = await this.profileService.findByAccountId(accountId);
+  @Get(':id')
+  async getProfile(@Param('id') id: string) {
+    const profile = await this.profileService.findById(id);
     return {
-        code: rc.SUCCESS,
-        message: 'Get profile successfully!',
-        data: profile,
+      code: rc.SUCCESS,
+      message: 'Get profile successfully!',
+      data: profile,
     } as DataResponse<Profile>;
   }
 
