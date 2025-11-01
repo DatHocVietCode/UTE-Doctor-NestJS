@@ -4,6 +4,7 @@ import {
     IsEmail,
     IsEnum,
     IsMongoId,
+    IsNumber,
     IsOptional,
     IsString,
     ValidateNested,
@@ -38,7 +39,7 @@ export class AppointmentBookingDto {
   paymentMethod: PaymentMethod;
 
   @IsOptional()
-  @IsDecimal()
+  @IsNumber()
   amount?: number;
 
   @IsEmail()
