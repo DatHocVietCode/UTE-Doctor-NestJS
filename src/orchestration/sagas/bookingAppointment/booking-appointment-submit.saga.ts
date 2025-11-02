@@ -21,7 +21,7 @@ export class BookingAppointmentSubmitSaga {
             if (amount > 0) {
                 isPaymentSuccess = await emitTyped<{ amount: number }, boolean>(
                 this.eventEmitter,
-                'appointment.handle.payment',
+                    'appointment.handle.payment',
                 { amount }
                 );
                 if (!isPaymentSuccess) {
@@ -68,9 +68,12 @@ export class BookingAppointmentSubmitSaga {
             if (!dto.doctor.id || dto.doctor.id.trim() === '') return false;
             if (!dto.doctor.name || dto.doctor.name.trim() === '') return false;
         }
+        else
+        {
+            return false; // Bác sĩ là thông tin bắt buộc trong trường hợp này
+        }
 
         // Mọi thứ hợp lệ
         return true;
     }
-
 }

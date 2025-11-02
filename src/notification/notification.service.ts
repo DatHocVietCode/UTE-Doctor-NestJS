@@ -38,9 +38,10 @@ export class NotificationService {
             title: 'Đặt lịch khám thành công',
             message: `Bạn đã được thêm mới lịch khám vào ngày: ${payload.timeSlotId} tại ${payload.hospitalName}.`,
             details: {
-                bacSi: payload.doctor?.name || 'Chưa chọn',
+                bacSi: payload.doctor?.name,
                 dichVu: payload.paymentMethod,
                 hinhThucThanhToan: payload.paymentMethod,
+                thoiGian: "Ngày: " + payload.date + " lúc " +  payload.timeSlotId,
                 amount: payload.amount,
             },
         };

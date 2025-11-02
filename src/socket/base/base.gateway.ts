@@ -19,6 +19,7 @@ export class BaseGateway {
  
   @SubscribeMessage(SocketEventsEnum.JOIN_ROOM)
     handleJoinRoom(client: Socket, payload: { email: string }) {
+      console.log(`[Socket] Client attempting to join room: ${payload.email}`);
       if (!payload?.email) return;
       client.join(payload.email); // client join vào room email của chính mình
       console.log(`[Socket] Client joined room: ${payload.email}`);
