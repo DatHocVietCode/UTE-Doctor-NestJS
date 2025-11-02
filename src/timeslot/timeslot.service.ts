@@ -14,4 +14,13 @@ export class TimeSlotService {
     // Truy vấn tất cả timeslot, sắp xếp theo giờ bắt đầu
     return this.timeSlotModel.find().sort({ start: 1 }).lean();
   }
+
+  async getTimeSlotNameById(id: string) {
+    const timeslot = await this.timeSlotModel.findById(id).lean();
+    let timeSlotName = '';
+    if (timeslot) {
+      timeSlotName = `${timeslot.start} - ${timeslot.end}`;
+    }
+    return timeSlotName;
+  }
 }
