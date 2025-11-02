@@ -11,14 +11,14 @@ export class BookingListener {
         // emit tiếp các side-effect
         this.eventEmitter.emit('notify.patient.booking.success', payload);
         this.eventEmitter.emit('notify.doctor.booking.success', payload);
+        this.eventEmitter.emit('mail.patient.booking.success', payload);
+        this.eventEmitter.emit('mail.doctor.booking.success', payload);
         this.eventEmitter.emit('socket.appointment.success', payload);
         this.eventEmitter.emit('doctor.update-schedule', { doctor: payload.doctor, payload }); // Notify doctor module to update schedule
     }
 
     @OnEvent('appointment.booking.pending')
     handleBookingPending(payload: AppointmentBookingDto) {
-        // thông báo pending cho receptionist & patient
-        this.eventEmitter.emit('patient.notify', payload.patientEmail);
-        this.eventEmitter.emit('receptionist.notify');
+        // Todo: emit tiếp các side-effect
     }
 }

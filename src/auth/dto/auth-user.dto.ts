@@ -10,15 +10,18 @@ export class RegisterUserReqDto {
 
     @IsEnum(RoleEnum)
     @IsOptional()
-    role: RoleEnum;
+    role: RoleEnum = RoleEnum.PATIENT; // Default role is PATIENT
 
     @IsString()
+    @IsOptional()
     chuyenKhoaId: string;
 
     @IsString()
+    @IsOptional()
     degree: string;
 
     @IsNumber()
+    @IsOptional()
     yearsOfExperience: string;
     
 }

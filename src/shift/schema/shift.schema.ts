@@ -16,11 +16,14 @@ export class Shift {
   @Prop({ required: true })
   date: string; // "2025-10-05" (YYYY-MM-DD)
 
-  @Prop({ required: true })
+  @Prop({ type: String, enum: ["morning", "afternoon", "extra"], required: true })
   shift: "morning" | "afternoon" | "extra";
 
-  @Prop({ default: "available" })
-  status: "available" | "hasClient" | "completed";
+  @Prop({ type: String, enum: ["available", "hasClient", "completed", "canceled"], default: "available" })
+  status: "available" | "hasClient" | "completed" | "canceled";
+
+  @Prop({ type: String, default: null })
+  reasonForCancellation?: string | null;
 }
 
 export const ShiftSchema = SchemaFactory.createForClass(Shift);

@@ -26,21 +26,6 @@ export class AppointmentBookingGateway extends BaseGateway {
     super(socketRoomService);
   }
 
-  // Khi FE chọn chuyên khoa
-  // @SubscribeMessage(SocketEventsEnum.GET_DOCTOR_BY_SPECIALTY)
-  // async handleGetDoctors(
-  //   @MessageBody() data: { specialtyId: string },
-  //   @ConnectedSocket() client: Socket,
-  // ) {
-  //   const doctors = await emitTyped<{ specialtyId: string }, DoctorDto[]>(
-  //     this.eventEmitter,
-  //     'doctor.update-list-by-specialty',
-  //     { specialtyId: data.specialtyId }
-  //   );
-  //   this.emitToRoom(client.id, SocketEventsEnum.DOCTOR_LIST_FETCHED, doctors);
-  //   console.log(`[Socket][Appointment] Sent doctors list to ${client.id}`);
-  // }
-
   // Khi FE chọn bác sĩ
   @SubscribeMessage('get_timeslots_by_doctor')
   async handleGetTimeSlots(

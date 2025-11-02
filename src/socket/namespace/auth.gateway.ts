@@ -5,7 +5,6 @@ import { ResponseCode } from 'src/common/enum/reponse-code.enum';
 import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
 import { BaseGateway } from '../base/base.gateway';
 import { SocketRoomService } from '../socket.service';
-import { Socket } from 'socket.io';
 
 @WebSocketGateway({ cors: true, namespace: '/auth' })
 export class AuthGateway extends BaseGateway {
