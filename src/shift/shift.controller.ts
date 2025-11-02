@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Put, Query } from "@nestjs/common";
 import { RegisterShiftDto } from "./dto/register-shift.dto";
 import { ShiftService } from "./shift.service";
 
@@ -38,6 +38,12 @@ export class ShiftController {
   async deleteShift(@Param("id") id: string) {
     console.log("🔴 [Controller] Yêu cầu xóa ca:", id);
     return await this.shiftService.deleteShiftById(id);
+  }
+
+  @Put("/cancel/:id")
+  async cancelShift(@Param("id") id: string, @Body("reason") reason: string) {
+    console.log("🟠 [Controller] Yêu cầu hủy ca:", id, "Lý do:", reason);
+    return await this.shiftService.cancelShiftById(id, reason);
   }
 
 }

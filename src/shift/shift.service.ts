@@ -237,5 +237,46 @@ export class ShiftService {
       };
     }
   }
+  async cancelShiftById(id: string, reason: string): Promise<DataResponse> {
+    console.log("[ShiftService] Yêu cầu hủy ca:", id, "Lý do:", reason);
+    try {
+      const shift = await this.shiftModel.findById(id).exec();
+
+      if (!shift) {
+        return {
+          code: rc.ERROR,
+          message: "Không tìm thấy ca để hủy.",
+          data: null,
+        };
+      }
+
+      if (shift.status !== "hasClient") {
+        return {
+          code: rc.ERROR,
+          message: `Không thể hủy ca. Trạng thái hiện tại là "${shift.status}".`,
+          data: shift.toObject(),
+        };
+      }
+
+      shift.status = "canceled";
+      shift.reasonForCancellation = reason;
+      await shift.save();
+
+      console.log("[ShiftService] Đã hủy ca thành công:", shift._id.toString());
+
+      return {
+        code: rc.SUCCESS,
+        message: "Hủy ca thành công.",
+        data: shift.toObject(),
+      };
+    } catch (error) {
+      console.error("[ShiftService] Lỗi khi hủy ca:", error.message);
+      return {
+        code: rc.ERROR,
+        message: error.message || "Lỗi khi hủy ca.",
+        data: null,
+      };
+    }
+  }
 
 }
