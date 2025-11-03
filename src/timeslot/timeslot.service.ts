@@ -15,9 +15,10 @@ export class TimeSlotService {
     private readonly timeSlotLogModel: Model<TimeSlotLogDocument>,
   ) {}
 
-  async getAllTimeSlots() : Promise<TimeSlotLog[]> {
+  // Get all TimeSlot form TimeSlotData
+  async getAllTimeSlots() : Promise<TimeSlotData[]> {
     // Truy vấn tất cả timeslot, sắp xếp theo giờ bắt đầu
-    return this.timeSlotLogModel.find().sort({ start: 1 }).lean<TimeSlotLog[]>();
+    return this.timeSlotDataModel.find().sort({ start: 1 }).lean<TimeSlotData[]>();
   }
 
   async getTimeSlotNameById(id: string) : Promise<string> {
@@ -28,4 +29,5 @@ export class TimeSlotService {
     }
     return timeSlotName;
   }
+  
 }

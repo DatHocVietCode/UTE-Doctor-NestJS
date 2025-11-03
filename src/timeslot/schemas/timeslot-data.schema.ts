@@ -3,7 +3,7 @@ import mongoose, { HydratedDocument } from 'mongoose';
 
 export type TimeSlotDataDocument = HydratedDocument<TimeSlotData>;
 
-@Schema()
+@Schema({ collection: 'timeslotsdata' })
 export class TimeSlotData {
   _id: mongoose.Types.ObjectId;
   @Prop({ required: true }) start: string; // e.g., "08:00"

@@ -8,6 +8,9 @@ import { Doctor, DoctorDocument } from './schema/doctor.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import Fuse from 'fuse.js';
+import { emitTyped } from 'src/utils/helpers/event.helper';
+import { TimeSlotDto } from 'src/timeslot/dtos/timeslot.dto';
+import { TimeSlotStatusEnum } from 'src/timeslot/enums/timeslot-status.enum';
 
 
 @Injectable()
@@ -143,17 +146,29 @@ export class DoctorService {
     };
   }
 
-   async getTimeSlotsByDoctorAndDate(doctorId: string, date: string) {
+  async getTimeSlotsByDoctorAndDate(
+    doctorId: string,
+    date: string,
+    slotStatus: TimeSlotStatusEnum
+  ): Promise<DataResponse<TimeSlotDto[]>> {
+
     // Emit event thay cho logic trực tiếp
-    const result = await this.eventEmitter.emitAsync(
+    const result = await emitTyped<
+      { doctorId: string; date: string; slotStatus?: TimeSlotStatusEnum },
+      TimeSlotDto[]
+    >(
+      this.eventEmitter,
       "doctor.timeslot.query",
-      { doctorId, date }
+      { doctorId, date, slotStatus } // slotStatus có thể undefined
     );
-    const res : DataResponse = {
+
+    console.log("[DoctorService] Lấy timeSlots cho bác sĩ:", doctorId, "ngày:", date, "với status:", slotStatus, "→", result);
+
+    return {
       code: rc.SUCCESS,
       message: 'Fetched time slots successfully',
-      data: result[0]
+      data: result ?? [],
     };
-    return res;
   }
+
 }

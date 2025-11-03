@@ -2,12 +2,13 @@ import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
-import { RegisterShiftDto } from "./dto/register-shift.dto";
-import { Shift, ShiftDocument } from "./schema/shift.schema";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode as rc } from "src/common/enum/reponse-code.enum";
+import { TimeSlotDto } from "src/timeslot/dtos/timeslot.dto";
+import { TimeSlotStatusEnum } from "src/timeslot/enums/timeslot-status.enum";
 import { emitTyped } from "src/utils/helpers/event.helper";
-import { TimeSlotLog } from "src/timeslot/schemas/timeslot-log.schema";
+import { RegisterShiftDto } from "./dto/register-shift.dto";
+import { Shift } from "./schema/shift.schema";
 
 
 
@@ -283,25 +284,49 @@ export class ShiftService {
     }
   }
 
-  async findShiftsByDoctorAndDate(doctorId: string, date: string): Promise<TimeSlotLog[]> {
-    let res : TimeSlotLog[];
+  async findTimeSlotByDoctorAndDate(doctorId: string, date: string, 
+    status: TimeSlotStatusEnum): Promise<TimeSlotDto[]> {
+    let res : TimeSlotDto[];
     if (!doctorId || doctorId.trim() === "") {
     
       // ✅ Nếu không có doctorId, trả về toàn bộ timeslot
-      res = await emitTyped<{}, TimeSlotLog[]>(
+      res = await emitTyped<{}, TimeSlotDto[]>(
         this.eventEmitter,
         "timeslot.get.all",
         {}
       );
+
     }
     else {
       // ✅ Nếu có doctorId, lấy shift của bác sĩ theo ngày
-      res = await emitTyped<{ doctorId: string; date: string }, TimeSlotLog[]>(
-        this.eventEmitter,
-        "timeslot.get.by.doctor.and.date",
-        { doctorId, date }
-      );
+      res = await this.getTimeSlotsByDoctorAndDate(doctorId, date, status);
     }
      return Array.isArray(res) ? res : [];
+  }
+
+  async getTimeSlotsByDoctorAndDate(
+    doctorId: string, 
+    date: string,
+    status: TimeSlotStatusEnum
+  ) : Promise<TimeSlotDto[]> {
+    const query: any = { doctorId, date };
+    if (status && status != TimeSlotStatusEnum.ALL) query.status = status;
+
+    const shifts = await this.shiftModel
+      .find(query)
+      .populate({
+        path: 'timeSlots',
+        match: status ? { status } : {}, // filter chỉ những timeSlot có status
+      })
+      .exec();
+
+    const slots = shifts.flatMap(s => s.timeSlots).map((slot: any) => ({
+    id: slot._id.toString(),
+    start: slot.start,
+    end: slot.end,
+    label: slot.label,
+  }));
+
+  return slots;
   }
 }

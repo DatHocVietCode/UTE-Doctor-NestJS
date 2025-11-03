@@ -3,7 +3,7 @@ import mongoose, { HydratedDocument } from 'mongoose';
 
 export type TimeSlotLogDocument = HydratedDocument<TimeSlotLog>;
 
-@Schema({ timestamps: true })
+@Schema({ timestamps: true, collection: 'timeslotslog' })
 export class TimeSlotLog {
   _id: mongoose.Types.ObjectId;
 
