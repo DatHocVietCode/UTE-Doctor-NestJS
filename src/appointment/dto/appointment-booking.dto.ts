@@ -44,6 +44,9 @@ export class AppointmentBookingDto {
 
   @IsEmail()
   patientEmail: string;
+
+  @IsMongoId()
+  patientId: string;
 }
 
 export class DoctorDto {
