@@ -3,6 +3,7 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { TimeSlot, TimeSlotDocument } from "./timeslot.schema";
 
+
 @Injectable()
 export class TimeSlotService {
   constructor(
@@ -10,12 +11,12 @@ export class TimeSlotService {
     private readonly timeSlotModel: Model<TimeSlotDocument>,
   ) {}
 
-  async getAllTimeSlots() {
+  async getAllTimeSlots() : Promise<TimeSlot[]> {
     // Truy vấn tất cả timeslot, sắp xếp theo giờ bắt đầu
-    return this.timeSlotModel.find().sort({ start: 1 }).lean();
+    return this.timeSlotModel.find().sort({ start: 1 }).lean<TimeSlot[]>();
   }
 
-  async getTimeSlotNameById(id: string) {
+  async getTimeSlotNameById(id: string) : Promise<string> {
     const timeslot = await this.timeSlotModel.findById(id).lean();
     let timeSlotName = '';
     if (timeslot) {

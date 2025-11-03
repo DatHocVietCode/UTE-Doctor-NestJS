@@ -6,6 +6,9 @@ import { RegisterShiftDto } from "./dto/register-shift.dto";
 import { Shift, ShiftDocument } from "./schema/shift.schema";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode as rc } from "src/common/enum/reponse-code.enum";
+import { emitTyped } from "src/utils/helpers/event.helper";
+import { TimeSlotDto } from "src/timeslot/dtos/timeslot.dto";
+import { TimeSlot } from "src/timeslot/timeslot.schema";
 
 @Injectable()
 export class ShiftService {
@@ -279,10 +282,25 @@ export class ShiftService {
     }
   }
 
-  async findShiftsByDoctorAndDate(doctorId: string, date: string) {
-    return this.shiftModel
-      .find({ doctorId, date })
-      .populate('timeSlotId')
-      .exec();
+  async findShiftsByDoctorAndDate(doctorId: string, date: string): Promise<TimeSlot[]> {
+    let res : TimeSlot[];
+    if (!doctorId || doctorId.trim() === "") {
+    
+      // ✅ Nếu không có doctorId, trả về toàn bộ timeslot
+      res = await emitTyped<{}, TimeSlot[]>(
+        this.eventEmitter,
+        "timeslot.get.all",
+        {}
+      );
+    }
+    else {
+      // ✅ Nếu có doctorId, lấy shift của bác sĩ theo ngày
+      res = await emitTyped<{ doctorId: string; date: string }, TimeSlot[]>(
+        this.eventEmitter,
+        "timeslot.get.by.doctor.and.date",
+        { doctorId, date }
+      );
+    }
+     return Array.isArray(res) ? res : [];
   }
 }

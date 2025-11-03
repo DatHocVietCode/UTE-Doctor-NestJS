@@ -149,8 +149,11 @@ export class DoctorService {
       "doctor.timeslot.query",
       { doctorId, date }
     );
-
-    // emitAsync trả về mảng kết quả từ tất cả listener đang "hứng"
-    return result[0] ?? { data: [] };
+    const res : DataResponse = {
+      code: rc.SUCCESS,
+      message: 'Fetched time slots successfully',
+      data: result[0]
+    };
+    return res;
   }
 }
