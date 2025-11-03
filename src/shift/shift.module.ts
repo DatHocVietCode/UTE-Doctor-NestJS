@@ -3,6 +3,7 @@ import { MongooseModule } from "@nestjs/mongoose";
 import { ShiftController } from "src/shift/shift.controller";
 import { ShiftService } from "src/shift/shift.service";
 import { Shift, ShiftSchema } from "src/shift/schema/shift.schema";
+import { ShiftListener } from "./shift.listenner";
 
 @Module({
   imports: [
@@ -11,8 +12,8 @@ import { Shift, ShiftSchema } from "src/shift/schema/shift.schema";
     ]),
   ],
   controllers: [ShiftController],
-  providers: [ShiftService],
-  exports: [ShiftService, MongooseModule],
+  providers: [ShiftService, ShiftListener],
+  exports: [ShiftService, MongooseModule, ShiftListener],
 })
 export class ShiftModule {
   constructor() {

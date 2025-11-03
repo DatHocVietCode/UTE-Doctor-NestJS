@@ -142,4 +142,15 @@ export class DoctorService {
       data,
     };
   }
+
+   async getTimeSlotsByDoctorAndDate(doctorId: string, date: string) {
+    // Emit event thay cho logic trực tiếp
+    const result = await this.eventEmitter.emitAsync(
+      "doctor.timeslot.query",
+      { doctorId, date }
+    );
+
+    // emitAsync trả về mảng kết quả từ tất cả listener đang "hứng"
+    return result[0] ?? { data: [] };
+  }
 }

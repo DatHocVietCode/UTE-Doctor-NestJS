@@ -31,4 +31,13 @@ export class DoctorController {
   async findById(@Param('id') id: string): Promise<Doctor | null> {
     return this.doctorService.findById(id);
   }
+  
+  @Get('doctor/:doctorId/date/:date')
+  async getTimeSlotsByDoctorAndDate(
+    @Param('doctorId') doctorId: string,
+    @Param('date') date: string,
+  ) {
+    return this.doctorService.getTimeSlotsByDoctorAndDate(doctorId, date);
+  }
+
 }

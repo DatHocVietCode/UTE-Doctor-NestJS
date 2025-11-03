@@ -279,4 +279,10 @@ export class ShiftService {
     }
   }
 
+  async findShiftsByDoctorAndDate(doctorId: string, date: string) {
+    return this.shiftModel
+      .find({ doctorId, date })
+      .populate('timeSlotId')
+      .exec();
+  }
 }
