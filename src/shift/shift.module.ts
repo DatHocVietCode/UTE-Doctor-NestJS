@@ -4,13 +4,14 @@ import { ShiftController } from "src/shift/shift.controller";
 import { ShiftService } from "src/shift/shift.service";
 import { Shift, ShiftSchema } from "src/shift/schema/shift.schema";
 import { ShiftListener } from "./shift.listenner";
-import { TimeSlot, TimeSlotSchema } from "src/timeslot/timeslot.schema";
+import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-log.schema";
+
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Shift.name, schema: ShiftSchema },
-      { name: TimeSlot.name, schema: TimeSlotSchema }
+      { name: TimeSlotLog.name, schema: TimeSlotLogSchema }
     ]),
   ],
   controllers: [ShiftController],

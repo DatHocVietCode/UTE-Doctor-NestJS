@@ -20,7 +20,7 @@ export class Appointment {
     @Prop()
     consultationFee: number;
 
-    @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'TimeSlot', required: true })
+    @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'TimeSlotLog', required: true })
     timeSlot: mongoose.Types.ObjectId;
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true })

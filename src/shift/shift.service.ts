@@ -7,8 +7,9 @@ import { Shift, ShiftDocument } from "./schema/shift.schema";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode as rc } from "src/common/enum/reponse-code.enum";
 import { emitTyped } from "src/utils/helpers/event.helper";
-import { TimeSlotDto } from "src/timeslot/dtos/timeslot.dto";
-import { TimeSlot } from "src/timeslot/timeslot.schema";
+import { TimeSlotLog } from "src/timeslot/schemas/timeslot-log.schema";
+
+
 
 @Injectable()
 export class ShiftService {
@@ -282,12 +283,12 @@ export class ShiftService {
     }
   }
 
-  async findShiftsByDoctorAndDate(doctorId: string, date: string): Promise<TimeSlot[]> {
-    let res : TimeSlot[];
+  async findShiftsByDoctorAndDate(doctorId: string, date: string): Promise<TimeSlotLog[]> {
+    let res : TimeSlotLog[];
     if (!doctorId || doctorId.trim() === "") {
     
       // ✅ Nếu không có doctorId, trả về toàn bộ timeslot
-      res = await emitTyped<{}, TimeSlot[]>(
+      res = await emitTyped<{}, TimeSlotLog[]>(
         this.eventEmitter,
         "timeslot.get.all",
         {}
@@ -295,7 +296,7 @@ export class ShiftService {
     }
     else {
       // ✅ Nếu có doctorId, lấy shift của bác sĩ theo ngày
-      res = await emitTyped<{ doctorId: string; date: string }, TimeSlot[]>(
+      res = await emitTyped<{ doctorId: string; date: string }, TimeSlotLog[]>(
         this.eventEmitter,
         "timeslot.get.by.doctor.and.date",
         { doctorId, date }

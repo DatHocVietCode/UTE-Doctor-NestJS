@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import mongoose, { HydratedDocument } from "mongoose";
 import { Doctor } from "../../doctor/schema/doctor.schema";
-import { TimeSlot } from "src/timeslot/timeslot.schema";
+import { TimeSlotLog } from "src/timeslot/schemas/timeslot-log.schema";
 
 export type ShiftDocument = HydratedDocument<Shift>;
 
@@ -20,7 +20,7 @@ export class Shift {
   status: "available" | "hasClient" | "completed" | "canceled";
 
   @Prop({
-    type: [{ type: mongoose.Schema.Types.ObjectId, ref: TimeSlot.name }],
+    type: [{ type: mongoose.Schema.Types.ObjectId, ref: TimeSlotLog.name }],
     required: true,
     default: [],
   })
