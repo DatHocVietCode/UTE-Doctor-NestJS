@@ -9,6 +9,7 @@ export class TimeSlotData {
   @Prop({ required: true }) start: string; // e.g., "08:00"
   @Prop({ required: true }) end: string;   // e.g., "09:00"
   @Prop() label?: string; // e.g., "Ca sáng - Slot 1"
+  @Prop({ required: true }) shift: 'morning' | 'afternoon' | 'extra';
 }
 
 export const TimeSlotDataSchema = SchemaFactory.createForClass(TimeSlotData);
