@@ -16,7 +16,7 @@ export class TimeSlotListener {
     async handleGetAllTimeSlotsEvent(): Promise<TimeSlotDto[]> {
         const slots = await this.timeSlotService.getAllTimeSlots();
         return slots.map((slot) => ({
-            id: slot._id.toString(),
+            id: slot.id.toString(),
             start: slot.start,
             end: slot.end,
             label: slot.label,

@@ -422,7 +422,7 @@ export class ShiftService {
     {
       let res : TimeSlotDto[];
       if (!doctorId || doctorId.trim() === "") {
-        // ✅ Nếu không có doctorId, trả về toàn bộ timeslot
+        // ✅ Nếu không có doctorId, trả về toàn bộ timeslot từ timeslotData
         res = await emitTyped<{}, TimeSlotDto[]>(
           this.eventEmitter,
           "timeslot.get.all",
@@ -432,7 +432,8 @@ export class ShiftService {
       }
       else
       {
-         // ✅ Nếu có doctorId, lấy shift của bác sĩ theo ngày
+        console.log("[ShiftService] Tìm TimeSlots cho bác sĩ:", doctorId, "ngày:", date, "với status:", status);
+         // ✅ Nếu có doctorId, lấy shift của bác sĩ theo ngày, lấy từ timeslotLog
         res = await this.getTimeSlotsByDoctorAndDate(doctorId, date, status);
       }
       return Array.isArray(res) ? res : [];
@@ -452,27 +453,46 @@ export class ShiftService {
   }
 
   async getTimeSlotsByDoctorAndDate(
-    doctorId: string, 
-    date: string,
-    status: TimeSlotStatusEnum
-  ) : Promise<TimeSlotDto[]> {
-    const query: any = { doctorId, date };
-    if (status && status != TimeSlotStatusEnum.ALL) query.status = status;
+      doctorId: string, 
+      date: string,
+      status: TimeSlotStatusEnum
+    ) : Promise<TimeSlotDto[]> {
+      const query: any = { doctorId, date };
+      if (status && status != TimeSlotStatusEnum.ALL) query.status = status;
 
-    const shifts = await this.shiftModel
-      .find(query)
-      .populate({
-        path: 'timeSlots',
-        match: status ? { status } : {}, // filter chỉ những timeSlot có status
-      })
-      .exec();
+      console.log("[ShiftService] Lấy TimeSlots cho bác sĩ:", doctorId, "ngày:", date, "với filter:", query, "và status:", status);
 
-    const slots = shifts.flatMap(s => s.timeSlots).map((slot: any) => ({
-    id: slot._id.toString(),
-    start: slot.start,
-    end: slot.end,
-    label: slot.label,
-  }));
+      const shifts = await this.shiftModel
+        .find(query)
+        .populate({
+          path: 'timeSlots',
+          match: status ? { status } : {}, // filter chỉ những timeSlot có status
+        })
+        .exec();
 
-  return slots;
-  }}
+      const slots = shifts.flatMap(s => s.timeSlots).map((slot: any) => ({
+        id: slot._id.toString(),
+        start: slot.start,
+        end: slot.end,
+        label: slot.label,
+    }));
+
+    return slots;
+  }
+
+  async updateTimeSlotStatus(timeSlotId: string, status: TimeSlotStatusEnum): Promise<boolean> {
+    try {
+      const result = await this.timeSlotLogModel.updateOne(
+        { _id: timeSlotId },
+        { $set: { status } }
+      ).exec();
+
+      console.log(`[ShiftService] Cập nhật trạng thái TimeSlot ${timeSlotId} thành ${status}:`, result);
+
+      return result.modifiedCount == 1;
+    } catch (error) {
+      console.error("Error updating time slot status:", error);
+      return false;
+    }
+  }
+}
