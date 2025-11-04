@@ -24,7 +24,7 @@ export class ShiftListener {
     @OnEvent("doctor.update-schedule")
     async handleDoctorUpdateSchedule(payload: AppointmentBookingDto) {
         console.log("[ShiftListener] Nhận sự kiện doctor.update-schedule với payload:", payload);
-        const isUpdated: boolean = await this.shiftService.updateTimeSlotStatus(payload.timeSlotId, TimeSlotStatusEnum.BOOKED);
+        const isUpdated: boolean = await this.shiftService.handleDoctorUpdateSchedule(payload);
         if (isUpdated) {
             console.log(`[ShiftListener] Cập nhật trạng thái TimeSlot ${payload.timeSlotId} thành BOOKED thành công.`);
         } else {
