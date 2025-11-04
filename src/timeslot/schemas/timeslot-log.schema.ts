@@ -16,6 +16,9 @@ export class TimeSlotLog {
   @Prop()
   label?: string; // e.g., "Ca sáng - Slot 1"
 
+  @Prop()
+  shift: 'morning' | 'afternoon' | 'extra';
+
   @Prop({
     type: String,
     enum: ['available', 'booked', 'completed', 'canceled'],

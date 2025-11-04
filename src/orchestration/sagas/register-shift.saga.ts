@@ -8,13 +8,43 @@ export class RegisterShiftSaga {
 
   constructor(private readonly eventEmitter: EventEmitter2) {}
 
+  // Helper: normalize emitAsync raw results to a single meaningful value (await Promises)
+  private async resolveResult<T = any>(raw: any): Promise<T | undefined> {
+    if (raw === undefined || raw === null) return undefined;
+
+    // If emitAsync returned an array of listener results, prefer the first non-null/undefined item.
+    if (Array.isArray(raw)) {
+      for (const item of raw) {
+        if (item !== undefined && item !== null) {
+          raw = item;
+          break;
+        }
+      }
+      // if all items were undefined/null, keep raw as array (likely empty) -> return undefined below
+      if (Array.isArray(raw) && raw.length === 0) return undefined;
+    }
+
+    // If the resolved value is a Promise, await it
+    if (raw instanceof Promise) {
+      try {
+        raw = await raw;
+      } catch (err) {
+        this.logger.warn(`[Saga] Warning while awaiting listener promise: ${err?.message || err}`);
+        return undefined;
+      }
+    }
+
+    return raw as T;
+  }
+
   @OnEvent("shift.register.requested")
   async handleRegisterShift(payload: RegisterShiftDto) {
     this.logger.log(`⚙️ [Saga] Xử lý yêu cầu đăng ký ca: ${JSON.stringify(payload)}`);
 
+    let createdTimeSlotIds: string[] = [];
+
     try {
-      // 1️⃣ Kiểm tra bác sĩ tồn tại
-      this.logger.log(`[Saga] 🔍 Gửi request kiểm tra bác sĩ: ${payload.doctorId}`);
+      this.logger.log(`[Saga] 🔍 Bước 1: Kiểm tra bác sĩ: ${payload.doctorId}`);
       
       const doctorExistResults = await this.eventEmitter.emitAsync("doctor.check.exist", {
         doctorId: payload.doctorId,
@@ -22,7 +52,6 @@ export class RegisterShiftSaga {
 
       this.logger.log(`[Saga] 📦 Raw doctor check results:`, doctorExistResults);
 
-      // Chờ và resolve Promise nếu cần
       let isDoctorExist = doctorExistResults?.[0];
       if (isDoctorExist instanceof Promise) {
         isDoctorExist = await isDoctorExist;
@@ -39,13 +68,12 @@ export class RegisterShiftSaga {
         });
         return {
           code: "FAILED",
-          message: "Doctor not found",
+          message: "Bác sĩ không tồn tại",
           data: null,
         };
       }
 
-      // 2️⃣ Kiểm tra ca trùng
-      this.logger.log(`[Saga] 🔍 Gửi request kiểm tra trùng ca`);
+      this.logger.log(`[Saga] 🔍 Bước 2: Kiểm tra trùng ca`);
       
       const duplicateResults = await this.eventEmitter.emitAsync("shift.check.duplicate", {
         doctorId: payload.doctorId,
@@ -55,7 +83,6 @@ export class RegisterShiftSaga {
 
       this.logger.log(`[Saga] 📦 Raw duplicate check results:`, duplicateResults);
 
-      // Chờ và resolve Promise nếu cần
       let isDuplicate = duplicateResults?.[0];
       if (isDuplicate instanceof Promise) {
         isDuplicate = await isDuplicate;
@@ -68,33 +95,106 @@ export class RegisterShiftSaga {
         this.logger.warn(`⚠️ Ca bị trùng: ${JSON.stringify(payload)}`);
         await this.eventEmitter.emitAsync("shift.register.failed", {
           dto: payload,
-          reason: "Duplicate shift for this date",
+          reason: "Duplicate shift",
         });
         return {
           code: "FAILED",
-          message: "Duplicate shift for this date",
+          message: "Ca này đã được đăng ký trước đó",
           data: null,
         };
       }
 
-      // 3️⃣ Gửi event yêu cầu tạo ca
-      this.logger.log(`[Saga] 🔍 Gửi request tạo ca`);
+      this.logger.log(`[Saga] 🔍 Bước 3: Lấy TimeSlotData cho shift: ${payload.shift}`);
+      
+      const timeSlotDataResults = await this.eventEmitter.emitAsync("timeslot.data.get.by.shift", {
+        shift: payload.shift,
+      });
+
+      this.logger.log(`[Saga] 📦 Raw TimeSlotData results: ${JSON.stringify(timeSlotDataResults)}`);
+
+      // Normalize result: listener might return array of TimeSlotData, or emitAsync may wrap it.
+      let timeSlotDataList = await this.resolveResult<any[]>(timeSlotDataResults);
+
+      this.logger.log(`[Saga] 📊 TimeSlotData type: ${typeof timeSlotDataList}`);
+      this.logger.log(`[Saga] 📊 TimeSlotData is array: ${Array.isArray(timeSlotDataList)}`);
+      this.logger.log(`[Saga] 📊 TimeSlotData length: ${timeSlotDataList?.length}`);
+
+      if (!timeSlotDataList || !Array.isArray(timeSlotDataList) || timeSlotDataList.length === 0) {
+        this.logger.error(`❌ [Saga] Không tìm thấy TimeSlotData cho shift: ${payload.shift}`);
+        await this.eventEmitter.emitAsync("shift.register.failed", {
+          dto: payload,
+          reason: "No TimeSlotData found",
+        });
+        return {
+          code: "FAILED",
+          message: `Không tìm thấy dữ liệu timeslot cho ca ${payload.shift}`,
+          data: null,
+        };
+      }
+
+      this.logger.log(`[Saga] ✅ Tìm thấy ${timeSlotDataList.length} TimeSlotData`);
+      this.logger.log(`[Saga] 🔍 Bước 4: Tạo TimeSlotLog từ TimeSlotData`);
+      
+      const timeSlotLogResults = await this.eventEmitter.emitAsync("timeslot.log.create.from.data", {
+        timeSlotDataList,
+      });
+
+      this.logger.log(`[Saga] 📦 Raw TimeSlotLog creation results: ${JSON.stringify(timeSlotLogResults)}`);
+
+      let createdTimeSlotLogs = await this.resolveResult<any[]>(timeSlotLogResults);
+
+      this.logger.log(`[Saga] 📊 Created TimeSlotLogs type: ${typeof createdTimeSlotLogs}`);
+      this.logger.log(`[Saga] 📊 Created TimeSlotLogs is array: ${Array.isArray(createdTimeSlotLogs)}`);
+      this.logger.log(`[Saga] 📊 Created TimeSlotLogs length: ${createdTimeSlotLogs?.length}`);
+
+      if (!createdTimeSlotLogs || !Array.isArray(createdTimeSlotLogs) || createdTimeSlotLogs.length === 0) {
+        this.logger.error("❌ [Saga] Không thể tạo TimeSlotLog từ TimeSlotData");
+        await this.eventEmitter.emitAsync("shift.register.failed", {
+          dto: payload,
+          reason: "TimeSlotLog creation failed",
+        });
+        return {
+          code: "FAILED",
+          message: "Không thể tạo timeslot log",
+          data: null,
+        };
+      }
+
+      // Lưu lại IDs để rollback nếu cần
+      createdTimeSlotIds = createdTimeSlotLogs.map((log: any) => log._id?.toString?.() ?? log.id ?? null).filter(Boolean);
+      this.logger.log(`[Saga] ✅ Đã tạo ${createdTimeSlotIds.length} TimeSlotLog`);
+      this.logger.log(`[Saga] 📝 TimeSlot IDs:`, createdTimeSlotIds);
+      this.logger.log(`[Saga] 🔍 Bước 5: Tạo ca làm việc`);
       
       const saveResults = await this.eventEmitter.emitAsync("shift.create.requested", {
         dto: payload,
+        timeSlotIds: createdTimeSlotIds,
       });
+
+      this.logger.log(`[Saga] 📦 Raw shift creation results:`, saveResults);
 
       let savedShift = saveResults?.[0];
       if (savedShift instanceof Promise) {
+        this.logger.log(`[Saga] ⏳ Awaiting shift creation Promise...`);
         savedShift = await savedShift;
       }
 
-      if (!savedShift) {
+      this.logger.log(`[Saga] 📊 Saved shift:`, savedShift);
+
+      if (!savedShift || !savedShift._id) {
         this.logger.error("❌ [Saga] Không thể lưu ca làm việc");
+        
+        // 🔄 Rollback: Xóa TimeSlotLog đã tạo
+        this.logger.log(`🔄 [Saga] Bắt đầu rollback ${createdTimeSlotIds.length} TimeSlotLog`);
+        await this.eventEmitter.emitAsync("shift.rollback.timeslots", {
+          timeSlotIds: createdTimeSlotIds,
+        });
+
         await this.eventEmitter.emitAsync("shift.register.failed", {
           dto: payload,
-          reason: "Không thể lưu ca làm việc",
+          reason: "Failed to save shift",
         });
+        
         return {
           code: "FAILED",
           message: "Không thể lưu ca làm việc",
@@ -102,8 +202,10 @@ export class RegisterShiftSaga {
         };
       }
 
-      // 4️⃣ Đăng ký thành công → emit success
-      this.logger.log(`✅ [Saga] Đăng ký ca thành công: ${savedShift._id || "[Không có ID]"}`);
+      this.logger.log(`✅ [Saga] Đăng ký ca thành công!`);
+      this.logger.log(`✅ [Saga] Shift ID: ${savedShift._id}`);
+      this.logger.log(`✅ [Saga] Đã tạo ${createdTimeSlotIds.length} TimeSlot`);
+      
       await this.eventEmitter.emitAsync("shift.register.success", {
         dto: payload,
         shift: savedShift,
@@ -111,11 +213,31 @@ export class RegisterShiftSaga {
 
       return {
         code: "SUCCESS",
-        message: "Shift registered successfully",
-        data: savedShift,
+        message: "Đăng ký ca thành công",
+        data: {
+          shift: savedShift,
+          totalTimeSlots: createdTimeSlotIds.length,
+          timeSlotIds: createdTimeSlotIds,
+        },
       };
+
     } catch (error) {
       this.logger.error("❌ [Saga] Lỗi khi xử lý đăng ký ca:", error);
+      this.logger.error("❌ [Saga] Error stack:", error.stack);
+
+      // 🔄 Rollback nếu đã tạo TimeSlotLog
+      if (createdTimeSlotIds.length > 0) {
+        this.logger.log(`🔄 [Saga] Rollback ${createdTimeSlotIds.length} TimeSlotLog do lỗi`);
+        try {
+          await this.eventEmitter.emitAsync("shift.rollback.timeslots", {
+            timeSlotIds: createdTimeSlotIds,
+          });
+          this.logger.log(`✅ [Saga] Rollback thành công`);
+        } catch (rollbackError) {
+          this.logger.error(`❌ [Saga] Lỗi khi rollback:`, rollbackError);
+        }
+      }
+
       await this.eventEmitter.emitAsync("shift.register.failed", {
         dto: payload,
         error: error.message,
@@ -123,9 +245,31 @@ export class RegisterShiftSaga {
 
       return {
         code: "ERROR",
-        message: error.message || "Unexpected error",
+        message: error.message || "Lỗi không xác định",
         data: null,
       };
     }
+  }
+
+
+  @OnEvent("shift.register.success")
+  async handleRegisterSuccess(payload: { dto: RegisterShiftDto; shift: any }) {
+    this.logger.log(`🎉 [Saga] Shift đăng ký thành công:`, {
+      shiftId: payload.shift._id,
+      doctorId: payload.dto.doctorId,
+      date: payload.dto.date,
+      shift: payload.dto.shift,
+    });
+  }
+
+  @OnEvent("shift.register.failed")
+  async handleRegisterFailed(payload: { dto: RegisterShiftDto; reason?: string; error?: string }) {
+    this.logger.warn(`⚠️ [Saga] Shift đăng ký thất bại:`, {
+      doctorId: payload.dto.doctorId,
+      date: payload.dto.date,
+      shift: payload.dto.shift,
+      reason: payload.reason,
+      error: payload.error,
+    });
   }
 }
