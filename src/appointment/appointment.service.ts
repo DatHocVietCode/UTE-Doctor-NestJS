@@ -33,6 +33,8 @@ export class AppointmentService {
             timeSlot: payload.timeSlotId,
             patientId: payload.patientId,
             doctorId: payload.doctor?.id ?? undefined, // nếu null thì bỏ qua
+            reasonForAppointment: payload.reasonForAppointment,
+            specialtyId: payload.specialty
         });
 
         console.log('Storing appointment booking information:', appointmentDoc);
