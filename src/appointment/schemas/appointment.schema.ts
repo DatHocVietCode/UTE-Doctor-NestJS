@@ -28,6 +28,9 @@ export class Appointment {
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: true })
     doctorId: mongoose.Types.ObjectId;
+
+    @Prop()
+    reasonForAppointment: string;
 }
 
 export const AppointmentSchema = SchemaFactory.createForClass(Appointment);
