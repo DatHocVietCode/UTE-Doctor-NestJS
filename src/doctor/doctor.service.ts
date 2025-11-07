@@ -149,20 +149,22 @@ export class DoctorService {
   async getTimeSlotsByDoctorAndDate(
     doctorId: string,
     date: string,
-    slotStatus: TimeSlotStatusEnum
+    status: TimeSlotStatusEnum
   ): Promise<DataResponse<TimeSlotDto[]>> {
+
+    console.log("[DoctorService] Yêu cầu lấy timeSlots cho bác sĩ:", doctorId, "ngày:", date, "với status:", status);
 
     // Emit event thay cho logic trực tiếp
     const result = await emitTyped<
-      { doctorId: string; date: string; slotStatus?: TimeSlotStatusEnum },
+      { doctorId: string; date: string; status: TimeSlotStatusEnum },
       TimeSlotDto[]
     >(
       this.eventEmitter,
       "doctor.timeslot.query",
-      { doctorId, date, slotStatus } // slotStatus có thể undefined
+      { doctorId, date, status } // slotStatus có thể undefined
     );
 
-    console.log("[DoctorService] Lấy timeSlots cho bác sĩ:", doctorId, "ngày:", date, "với status:", slotStatus, "→", result);
+    console.log("[DoctorService] Lấy timeSlots cho bác sĩ:", doctorId, "ngày:", date, "với status:", status, "→", result);
 
     return {
       code: rc.SUCCESS,

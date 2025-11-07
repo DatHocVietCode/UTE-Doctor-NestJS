@@ -2,6 +2,7 @@ import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import mongoose, { HydratedDocument } from "mongoose";
 import { Doctor } from "../../doctor/schema/doctor.schema";
 import { TimeSlotLog } from "src/timeslot/schemas/timeslot-log.schema";
+import { ShiftStatusEnum } from "../enums/shift-status.enum";
 
 export type ShiftDocument = HydratedDocument<Shift>;
 
@@ -16,8 +17,8 @@ export class Shift {
   @Prop({ type: String, enum: ["morning", "afternoon", "extra"], required: true })
   shift: "morning" | "afternoon" | "extra";
 
-  @Prop({ type: String, enum: ["available", "hasClient", "completed", "canceled"], default: "available" })
-  status: "available" | "hasClient" | "completed" | "canceled";
+  @Prop({ type: String, enum: ShiftStatusEnum, default: ShiftStatusEnum.AVAILABLE })
+  status: ShiftStatusEnum;
 
   @Prop({
     type: [{ type: mongoose.Schema.Types.ObjectId, ref: TimeSlotLog.name }],

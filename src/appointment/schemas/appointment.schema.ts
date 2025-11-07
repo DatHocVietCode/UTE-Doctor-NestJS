@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
-import mongoose, { HydratedDocument, mongo } from "mongoose";
+import mongoose, { HydratedDocument } from "mongoose";
 import { AppointmentStatus } from "../enums/Appointment-status.enum";
 import { ServiceType } from "../enums/service-type.enum";
 
@@ -26,11 +26,14 @@ export class Appointment {
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true })
     patientId: mongoose.Types.ObjectId;
 
-    @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: true })
+    @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Doctor' })
     doctorId: mongoose.Types.ObjectId;
 
     @Prop()
     reasonForAppointment: string;
+
+    @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'ChuyenKhoa' })
+    specialtyId: string;
 }
 
 export const AppointmentSchema = SchemaFactory.createForClass(Appointment);
