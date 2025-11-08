@@ -43,7 +43,7 @@ export class BookingAppointmentSubmitSaga {
             this.eventEmitter.emit('appointment.booking.pending', payload); // Noti to receptionist, doctor and patient
             console.log('Booking pending');
         }
-        
+        this.eventEmitter.emit('appointment.store.booking', payload); // Store booking info to DB
     }
 
     isBookingInformationEnough(dto: AppointmentBookingDto) {

@@ -3,6 +3,7 @@ import { DoctorService } from './doctor.service';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { Doctor } from './schema/doctor.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
+import { TimeSlotStatusEnum } from 'src/timeslot/enums/timeslot-status.enum';
 
 @Controller('doctors')
 export class DoctorController {
@@ -25,6 +26,21 @@ export class DoctorController {
   ): Promise<DataResponse<any>> {
     console.log('Received request to get doctors by specialty:', specialtyId, 'with keyword:', keyword);
     return this.doctorService.searchDoctors({ specialtyId, keyword });
+  }
+
+  
+  @Get('doctor/:doctorId/date/:date')
+  async getTimeSlotsByDoctorAndDate(
+    @Param('doctorId') doctorId: string,
+    @Param('date') date: string,
+    @Query('status') status?: string // optional từ client
+  ) {
+  const slotStatus: TimeSlotStatusEnum =
+      !status || status.toLowerCase() === 'all'
+        ? TimeSlotStatusEnum.ALL
+        : (status as TimeSlotStatusEnum);
+
+    return this.doctorService.getTimeSlotsByDoctorAndDate(doctorId, date, slotStatus);
   }
 
   @Get(':id')

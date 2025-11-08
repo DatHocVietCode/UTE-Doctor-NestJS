@@ -11,4 +11,10 @@ export class AppointmentController {
         console.log('Received appointment booking:', bookingAppointment);
         return await this.appointmentService.bookAppointment(bookingAppointment);
     }
+
+    @Get('/today')
+    async getTodayAppointments(@Query('doctorId') doctorId: string) {
+        return await this.appointmentService.getTodayAppointments(doctorId);
+    }
+
 }

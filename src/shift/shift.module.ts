@@ -3,16 +3,22 @@ import { MongooseModule } from "@nestjs/mongoose";
 import { ShiftController } from "src/shift/shift.controller";
 import { ShiftService } from "src/shift/shift.service";
 import { Shift, ShiftSchema } from "src/shift/schema/shift.schema";
+import { ShiftListener } from "./shift.listenner";
+import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-log.schema";
+import { TimeSlotData, TimeSlotDataSchema } from "src/timeslot/schemas/timeslot-data.schema";
+
 
 @Module({
   imports: [
     MongooseModule.forFeature([
       { name: Shift.name, schema: ShiftSchema },
+      { name: TimeSlotLog.name, schema: TimeSlotLogSchema },
+      { name: TimeSlotData.name, schema: TimeSlotDataSchema }
     ]),
   ],
   controllers: [ShiftController],
-  providers: [ShiftService],
-  exports: [ShiftService, MongooseModule],
+  providers: [ShiftService, ShiftListener],
+  exports: [ShiftService, MongooseModule, ShiftListener],
 })
 export class ShiftModule {
   constructor() {

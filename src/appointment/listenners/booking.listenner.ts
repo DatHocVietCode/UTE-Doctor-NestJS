@@ -1,10 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { AppointmentBookingDto } from "../dto/appointment-booking.dto";
+import { AppointmentService } from "../appointment.service";
 
 @Injectable()
 export class BookingListener {
-    constructor(private readonly eventEmitter: EventEmitter2) {}
+    constructor(private readonly eventEmitter: EventEmitter2,
+        private readonly appointmentService: AppointmentService
+    ) {}
 
     @OnEvent('appointment.booking.success')
     handleBookingCompleted(payload: AppointmentBookingDto) {
@@ -14,11 +17,17 @@ export class BookingListener {
         this.eventEmitter.emit('mail.patient.booking.success', payload);
         this.eventEmitter.emit('mail.doctor.booking.success', payload);
         this.eventEmitter.emit('socket.appointment.success', payload);
-        this.eventEmitter.emit('doctor.update-schedule', { doctor: payload.doctor, payload }); // Notify doctor module to update schedule
+        this.eventEmitter.emit('doctor.update-schedule', payload); // Notify doctor module to update schedule
     }
 
     @OnEvent('appointment.booking.pending')
     handleBookingPending(payload: AppointmentBookingDto) {
         // Todo: emit tiếp các side-effect
     }
+
+    @OnEvent('appointment.store.booking')
+    handleStoreBooking(payload: AppointmentBookingDto) {
+        this.appointmentService.storeBookingInformation(payload);
+    }
+
 }

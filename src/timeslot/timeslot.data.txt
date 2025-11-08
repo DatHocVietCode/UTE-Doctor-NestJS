@@ -1,16 +1,18 @@
-db.timeslots.insertMany([
+db.timeslotdatas.insertMany([
   // Buổi sáng (07:30–11:30)
-  { start: "07:30", end: "08:30", label: "Ca sáng 1" },
-  { start: "08:30", end: "09:30", label: "Ca sáng 2" },
-  { start: "09:30", end: "10:30", label: "Ca sáng 3" },
-  { start: "10:30", end: "11:30", label: "Ca sáng 4" },
+  { shift: "morning", start: "07:30", end: "08:30", label: "Ca sáng 1" },
+  { shift: "morning", start: "08:30", end: "09:30", label: "Ca sáng 2" },
+  { shift: "morning", start: "09:30", end: "10:30", label: "Ca sáng 3" },
+  { shift: "morning", start: "10:30", end: "11:30", label: "Ca sáng 4" },
 
-  // Buổi trưa (13:30–15:30)
-  { start: "13:30", end: "14:30", label: "Ca trưa 1" },
-  { start: "14:30", end: "15:30", label: "Ca trưa 2" },
+  // Buổi trưa (12:00–15:30)
+  { shift: "afternoon", start: "12:00", end: "13:00", label: "Ca trưa 1" },
+  { shift: "afternoon", start: "13:00", end: "14:00", label: "Ca trưa 2" },
+  { shift: "afternoon", start: "14:00", end: "15:00", label: "Ca trưa 3" },
+  { shift: "afternoon", start: "15:00", end: "15:30", label: "Ca trưa 4" },
 
   // Ngoài giờ (18:00–21:00)
-  { start: "18:00", end: "19:00", label: "Ca ngoài giờ 1" },
-  { start: "19:00", end: "20:00", label: "Ca ngoài giờ 2" },
-  { start: "20:00", end: "21:00", label: "Ca ngoài giờ 3" }
+  { shift: "extra", start: "18:00", end: "19:00", label: "Ca ngoài giờ 1" },
+  { shift: "extra", start: "19:00", end: "20:00", label: "Ca ngoài giờ 2" },
+  { shift: "extra", start: "20:00", end: "21:00", label: "Ca ngoài giờ 3" }
 ]);
