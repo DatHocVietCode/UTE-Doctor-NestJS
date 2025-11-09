@@ -27,7 +27,7 @@ export class BookingListener {
 
     @OnEvent('appointment.store.booking')
     handleStoreBooking(payload: AppointmentBookingDto) {
-        this.appointmentService.storeBookingInformation(payload);
+        return this.appointmentService.storeBookingInformation(payload);
     }
 
 }

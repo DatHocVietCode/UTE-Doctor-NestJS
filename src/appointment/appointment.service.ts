@@ -5,7 +5,7 @@ import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
-import { Appointment } from "./schemas/appointment.schema";
+import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
 import { TimeSlotLog } from "src/timeslot/schemas/timeslot-log.schema";
 
 @Injectable()
@@ -27,7 +27,7 @@ export class AppointmentService {
         return dataResponse;
     }
 
-    async storeBookingInformation(payload: AppointmentBookingDto) {
+    async storeBookingInformation(payload: AppointmentBookingDto): Promise<AppointmentDocument> {
         const appointmentDoc = new this.appointmentModel({
             date: payload.date,
             appointmentStatus: 'PENDING', // default

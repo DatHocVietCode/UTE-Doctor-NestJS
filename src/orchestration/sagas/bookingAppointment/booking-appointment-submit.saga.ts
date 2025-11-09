@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { AppointmentBookingDto } from "src/appointment/dto/appointment-booking.dto";
+import { Appointment, AppointmentDocument } from "src/appointment/schemas/appointment.schema";
 import { PaymentMethod } from "src/common/enum/paymentMethod.enum";
 import { emitTyped } from "src/utils/helpers/event.helper";
 
@@ -8,31 +9,56 @@ import { emitTyped } from "src/utils/helpers/event.helper";
 export class BookingAppointmentSubmitSaga {
     constructor (private readonly eventEmitter: EventEmitter2) {}
     // Impl happy case first, then add more complex logic later
-    // 1. Check payment method
-    // 2. If online, emit event to payment service to handle payment
     @OnEvent('appointment.booked') // received through http post
-    async handleBookingAppointment(payload: AppointmentBookingDto) {;
+    async handleBookingAppointment(payload: AppointmentBookingDto) {
+        const appointment = await emitTyped<AppointmentBookingDto, AppointmentDocument>(
+            this.eventEmitter,
+                'appointment.store.booking',
+                payload
+            );
+        
+        console.log('[Saga] Stored appointment:', appointment);
+
+        const appointmentId = appointment._id.toString();
+
+        console.log('[Saga] Handling booking appointment for appointmentId:', appointmentId);
+
         let isPaymentSuccess: boolean = false;
 
         // First, check the payment method, check whether payment method is online or offline
-       if (payload.paymentMethod === PaymentMethod.ONLINE) {
-        const amount = payload.amount ?? 0; // nếu undefined thì thành 0
+        if (payload.paymentMethod === PaymentMethod.ONLINE) {
+            const amount = payload.amount ?? 0; // nếu undefined thì thành 0
 
             if (amount > 0) {
-                isPaymentSuccess = await emitTyped<{ amount: number }, boolean>(
-                this.eventEmitter,
+                // Emit event tạo payment URL
+                const [paymentUrl] = await emitTyped<
+                    { amount: number; method: string; appointmentId: string },
+                    string
+                >(
+                    this.eventEmitter,
                     'appointment.handle.payment',
-                { amount }
+                    { amount, method: payload.paymentMethod, appointmentId }
                 );
-                if (!isPaymentSuccess) {
-                    // Handle payment failure (e.g., notify user, log error, etc.) and emit event
+
+                if (!paymentUrl) {
+                    // Nếu tạo URL thất bại
                     this.eventEmitter.emit('appointment.payment.failed', { dto: payload });
-                    console.log('Payment failed for appointment booking:', payload);
+                    console.log('Payment URL creation failed for appointment booking:', payload);
                     return;
                 }
+
+                // Emit event hoặc trả URL cho FE để redirect
+                this.eventEmitter.emit('appointment.payment.url.created', {
+                    appointmentId,
+                    paymentUrl,
+                });
+
+                console.log('Payment URL created:', paymentUrl);
+                return paymentUrl; // saga/controller có thể trả cho FE
             }
         }
 
+        // Cân nhắc bỏ, chờ FE thanh toán xong mới book
         if (this.isBookingInformationEnough(payload) && isPaymentSuccess)
         {
             this.eventEmitter.emit('appointment.booking.success', payload); // Noti to receptionst, and patient
@@ -43,7 +69,6 @@ export class BookingAppointmentSubmitSaga {
             this.eventEmitter.emit('appointment.booking.pending', payload); // Noti to receptionist, doctor and patient
             console.log('Booking pending');
         }
-        this.eventEmitter.emit('appointment.store.booking', payload); // Store booking info to DB
     }
 
     isBookingInformationEnough(dto: AppointmentBookingDto) {
