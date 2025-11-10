@@ -12,13 +12,13 @@ export class VnPayPaymentService {
     hashAlgorithm: HashAlgorithm.SHA512,
   });
 
-  createPayment(orderId: string, amount: number, ip: string) {
+  createPayment(orderId: string, amount: number, ip: string) : string {
     const url = this.vnpay.buildPaymentUrl({
       vnp_Amount: amount * 100,
       vnp_IpAddr: ip,
       vnp_TxnRef: orderId,
       vnp_OrderInfo: `Thanh toán đơn hàng ${orderId}`,
-      vnp_ReturnUrl: process.env.VN_PAY_RETURNURL!,
+      vnp_ReturnUrl: process.env.VN_PAY_RETURNURL!, // URL để VnPay redirect về sau khi thanh toán
     });
     return url;
   }

@@ -1,10 +1,11 @@
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { WebSocketGateway } from "@nestjs/websockets";
+import { SocketEventsEnum } from "src/common/enum/socket-events.enum";
 import { BaseGateway } from "src/socket/base/base.gateway";
 import { SocketRoomService } from "src/socket/socket.service";
 
 
-@WebSocketGateway({ namespace: 'payment/vnpay' })
+@WebSocketGateway({ namespace: '/payment/vnpay' })
 export class VnPayGateway extends BaseGateway {
     constructor(
         private readonly eventEmitter: EventEmitter2,
@@ -17,7 +18,7 @@ export class VnPayGateway extends BaseGateway {
     async handleVnPayUrlCreated(payload: { appointmentId: string; paymentUrl: string; email: string }) {
         this.emitToRoom(
             payload.email,
-            'vnpay_payment_url',
+            SocketEventsEnum.PAYMENT_VNPAY_URL_CREATED,
             { appointmentId: payload.appointmentId, paymentUrl: payload.paymentUrl }
         );
         console.log(`[Socket][Payment][VnPay] Sent payment URL to ${payload.email}`);

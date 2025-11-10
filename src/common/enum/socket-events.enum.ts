@@ -11,4 +11,5 @@ export enum SocketEventsEnum {
   HOSPITAL_SPECIALTIES_FETCHED = 'hospital-specialties.fetched',
   DOCTOR_LIST_FETCHED = "DOCTOR_LIST_FETCHED",
   GET_DOCTOR_BY_SPECIALTY = "get_doctor_by_specialty",
+  PAYMENT_VNPAY_URL_CREATED = "PAYMENT_VNPAY_URL_CREATED",
 }

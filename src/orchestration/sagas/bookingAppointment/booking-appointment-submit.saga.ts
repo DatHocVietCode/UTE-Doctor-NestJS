@@ -28,10 +28,10 @@ export class BookingAppointmentSubmitSaga {
         // First, check the payment method, check whether payment method is online or offline
         if (payload.paymentMethod === PaymentMethod.ONLINE) {
             const amount = payload.amount ?? 0; // nếu undefined thì thành 0
-
+            console.log(`[Saga] Processing online payment for amount: ${amount}`);
             if (amount > 0) {
                 // Emit event tạo payment URL
-                const [paymentUrl] = await emitTyped<
+                const paymentUrl = await emitTyped<
                     { amount: number; method: string; appointmentId: string },
                     string
                 >(
@@ -48,9 +48,10 @@ export class BookingAppointmentSubmitSaga {
                 }
 
                 // Emit event hoặc trả URL cho FE để redirect
-                this.eventEmitter.emit('appointment.payment.url.created', {
+                this.eventEmitter.emit('payment.vnpay.url.created', {
                     appointmentId,
                     paymentUrl,
+                    email: payload.patientEmail
                 });
 
                 console.log('Payment URL created:', paymentUrl);
