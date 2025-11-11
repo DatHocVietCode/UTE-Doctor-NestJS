@@ -72,8 +72,14 @@ export class AppointmentService {
         console.log('[AppointmentService] Mongo filter for today:', JSON.stringify(filter));
 
         const appointments: any[] = await this.appointmentModel.find(filter)
-            // populate full patient document and their profile
-            .populate({ path: 'patientId', populate: { path: 'profileId' } })
+            // populate full patient document: profile and their appointments (with timeslot)
+            .populate({
+                path: 'patientId',
+                populate: [
+                    { path: 'profileId', select: 'name phone address email gender dob' },
+                    { path: 'appointments', populate: { path: 'timeSlot', select: 'start end label' }, select: '_id date appointmentStatus serviceType consultationFee reasonForAppointment timeSlot' }
+                ]
+            })
             .populate('timeSlot', 'start end label shift')
             .lean() as any[];
 
@@ -89,6 +95,9 @@ export class AppointmentService {
                     serviceType: a.serviceType,
                     consultationFee: a.consultationFee,
                     reasonForAppointment: a.reasonForAppointment,
+                    // listAppointments: only include patient's completed appointments
+                    listAppointments: (a.patientId?.appointments ?? []).filter((ap: any) => ap.appointmentStatus === 'COMPLETED'),
+                    // Return full patient object (all populated properties)
                     patient: a.patientId ?? null,
                     startTime: timeSlot?.start ?? null,
                     endTime: timeSlot?.end ?? null, 

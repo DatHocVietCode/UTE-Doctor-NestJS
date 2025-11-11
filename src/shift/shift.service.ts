@@ -517,9 +517,9 @@ export class ShiftService {
       // Tìm tất cả appointment liên quan tới các timeSlot của shift
       const timeSlotIds = (shift.timeSlots || []).map((t: any) => t._id?.toString ? t._id.toString() : t._id);
 
-      const appointments = await this.appointmentModel.find({ timeSlot: { $in: timeSlotIds } })
-        // populate full patient and their profile
-        .populate({ path: 'patientId', populate: { path: 'profileId' } })
+        const appointments = await this.appointmentModel.find({ timeSlot: { $in: timeSlotIds } })
+          .populate({ path: 'patientId', select: 'profileId' })
+          .populate({ path: 'patientId', populate: { path: 'profileId', select: 'name phone address email gender dob' } })
         .lean()
         .exec();
 
