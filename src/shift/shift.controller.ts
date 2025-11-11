@@ -34,6 +34,15 @@ export class ShiftController {
     return await this.shiftService.getShiftsByMonth(doctorId, month, year, status);
   }
 
+  @Get('/doctor/:doctorId/date/:date')
+  async getShiftByDoctorAndDate(
+    @Param('doctorId') doctorId: string,
+    @Param('date') date: string,
+  ) {
+    console.log('[ShiftController] GET shift by doctor and date', { doctorId, date });
+    return await this.shiftService.getShiftByDoctorAndDate(doctorId, date);
+  }
+
   @Delete("/:id")
   async deleteShift(@Param("id") id: string) {
     console.log("🔴 [Controller] Yêu cầu xóa ca:", id);

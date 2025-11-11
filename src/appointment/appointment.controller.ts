@@ -14,7 +14,14 @@ export class AppointmentController {
 
     @Get('/today')
     async getTodayAppointments(@Query('doctorId') doctorId: string) {
-        return await this.appointmentService.getTodayAppointments(doctorId);
+        console.log(`[AppointmentController] GET /today?doctorId=${doctorId}`);
+        try {
+            const res = await this.appointmentService.getTodayAppointments(doctorId);
+            console.log('[AppointmentController] Response data:', JSON.stringify(res?.data ?? res));
+            return res;
+        } catch (error) {
+            console.error('[AppointmentController] Error in getTodayAppointments:', error?.message ?? error);
+            throw error;
+        }
     }
-
 }

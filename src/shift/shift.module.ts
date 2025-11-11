@@ -6,14 +6,16 @@ import { Shift, ShiftSchema } from "src/shift/schema/shift.schema";
 import { ShiftListener } from "./shift.listenner";
 import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-log.schema";
 import { TimeSlotData, TimeSlotDataSchema } from "src/timeslot/schemas/timeslot-data.schema";
+import { Appointment, AppointmentSchema } from "src/appointment/schemas/appointment.schema";
 
 
 @Module({
   imports: [
     MongooseModule.forFeature([
-      { name: Shift.name, schema: ShiftSchema },
-      { name: TimeSlotLog.name, schema: TimeSlotLogSchema },
-      { name: TimeSlotData.name, schema: TimeSlotDataSchema }
+  { name: Shift.name, schema: ShiftSchema },
+  { name: TimeSlotLog.name, schema: TimeSlotLogSchema },
+  { name: TimeSlotData.name, schema: TimeSlotDataSchema },
+  { name: Appointment.name, schema: AppointmentSchema }
     ]),
   ],
   controllers: [ShiftController],

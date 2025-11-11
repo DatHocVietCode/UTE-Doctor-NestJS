@@ -46,21 +46,36 @@ export class AppointmentService {
     }
 
     async getTodayAppointments(doctorId: string) {
-        const today = new Date();
-        const formatted = today.toISOString().split("T")[0]; // yyyy-mm-dd
+    const today = new Date();
+    const localYear = today.getFullYear();
+    const localMonth = String(today.getMonth() + 1).padStart(2, '0');
+    const localDay = String(today.getDate()).padStart(2, '0');
+    const formatted = `${localYear}-${localMonth}-${localDay}`; // yyyy-mm-dd in local timezone
+    console.log(`[AppointmentService] using local date formatted=${formatted} timezoneOffsetMinutes=${today.getTimezoneOffset()}`);
+        console.log(`[AppointmentService] getTodayAppointments doctorId=${doctorId} formatted=${formatted}`);
 
-        const appointments: any[] = await this.appointmentModel.find({
+        const filter: any = {
             doctorId,
-            $expr: {
-                $eq: [
-                    { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
-                    formatted
-                ]
-            }
-        })
-        .populate('patientId', 'profileId name phone') // chọn field cần
-        .populate('timeSlot', 'start end label shift') // ✅ LẤY start & end
-        .lean() as any[];
+            $or: [
+                { date: formatted },
+                {
+                    $expr: {
+                        $eq: [
+                            { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+                            formatted
+                                ]
+                            }
+                        }
+                    ]
+                };
+
+        console.log('[AppointmentService] Mongo filter for today:', JSON.stringify(filter));
+
+        const appointments: any[] = await this.appointmentModel.find(filter)
+            // populate full patient document and their profile
+            .populate({ path: 'patientId', populate: { path: 'profileId' } })
+            .populate('timeSlot', 'start end label shift')
+            .lean() as any[];
 
         return {
             code: "SUCCESS",
@@ -74,9 +89,9 @@ export class AppointmentService {
                     serviceType: a.serviceType,
                     consultationFee: a.consultationFee,
                     reasonForAppointment: a.reasonForAppointment,
-                    patient: a.patientId, // thông tin bệnh nhân
-                    startTime: timeSlot?.start ?? null, // ✅ LẤY GIỜ BẮT ĐẦU
-                    endTime: timeSlot?.end ?? null,     // ✅ LẤY GIỜ KẾT THÚC
+                    patient: a.patientId ?? null,
+                    startTime: timeSlot?.start ?? null,
+                    endTime: timeSlot?.end ?? null, 
                     label: timeSlot?.label ?? null,
                 };
             })

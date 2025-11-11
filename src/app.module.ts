@@ -48,7 +48,7 @@ import { TimeSlotModule } from './timeslot/timeslot.module';
     PaymentModule,
     NotificationModule,
     TimeSlotModule,
-    ShiftModule,
+  // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
   controllers: [AppController],
   providers: [AppService],
