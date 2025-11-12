@@ -20,6 +20,8 @@ import { SocketModule } from './socket/socket.module';
 import { NotificationModule } from './notification/notification.module';
 import { ShiftModule } from 'src/shift/shift.module';
 import { TimeSlotModule } from './timeslot/timeslot.module';
+import { Medicine } from 'src/medicine/schema/medicine.schema';
+import { MedicineModule } from 'src/medicine/medicine.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -48,6 +50,7 @@ import { TimeSlotModule } from './timeslot/timeslot.module';
     PaymentModule,
     NotificationModule,
     TimeSlotModule,
+    MedicineModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
   controllers: [AppController],

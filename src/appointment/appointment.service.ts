@@ -77,7 +77,7 @@ export class AppointmentService {
                 path: 'patientId',
                 populate: [
                     { path: 'profileId', select: 'name phone address email gender dob' },
-                    { path: 'appointments', populate: { path: 'timeSlot', select: 'start end label' }, select: '_id date appointmentStatus serviceType consultationFee reasonForAppointment timeSlot' }
+                    // { path: 'appointments', populate: { path: 'timeSlot', select: 'start end label' }, select: '_id date appointmentStatus serviceType consultationFee reasonForAppointment timeSlot' }
                 ]
             })
             .populate('timeSlot', 'start end label shift')
@@ -96,7 +96,7 @@ export class AppointmentService {
                     consultationFee: a.consultationFee,
                     reasonForAppointment: a.reasonForAppointment,
                     // listAppointments: only include patient's completed appointments
-                    listAppointments: (a.patientId?.appointments ?? []).filter((ap: any) => ap.appointmentStatus === 'COMPLETED'),
+                    // listAppointments: (a.patientId?.appointments ?? []).filter((ap: any) => ap.appointmentStatus === 'COMPLETED'),
                     // Return full patient object (all populated properties)
                     patient: a.patientId ?? null,
                     startTime: timeSlot?.start ?? null,

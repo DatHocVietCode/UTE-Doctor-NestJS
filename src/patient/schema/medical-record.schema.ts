@@ -1,6 +1,20 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
-import { HydratedDocument } from "mongoose";
+import mongoose, { HydratedDocument } from "mongoose";
 import { BloodType } from "src/common/enum/blood-type.enum";
+
+export class PrescriptionItem {
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: "Medicine", required: true })
+  medicineId: mongoose.Types.ObjectId; // tham chiếu đến thuốc trong bảng Medicine
+
+  @Prop({ type: String, required: true })
+  name: string; // tên thuốc (có thể lưu kèm để tránh mất thông tin nếu thuốc bị xóa)
+
+  @Prop({ type: Number, required: true })
+  quantity: number; // số lượng thuốc
+
+}
+
+export const PrescriptionItemSchema = SchemaFactory.createForClass(PrescriptionItem);
 
 export type VitalSignRecordDocument = HydratedDocument<VitalSignRecord>;
 @Schema()
@@ -16,17 +30,22 @@ export class VitalSignRecord {
 }
 export const VitalSignRecordSchema = SchemaFactory.createForClass(VitalSignRecord);
 
+
+
 export type MedicalRecordDescriptionDocument = HydratedDocument<MedicalRecordDescription>;
 @Schema()
 export class MedicalRecordDescription {
-  @Prop()
-  name: string;
+  @Prop({ required: true })
+  diagnosis: string; // Chuẩn đoán chính
 
-  @Prop()
-  description: string;
+  @Prop({ type: [PrescriptionItemSchema], default: [] })
+  prescriptions: PrescriptionItem[]; // Đơn thuốc
 
-  @Prop()
-  dateRecord: Date;
+  @Prop({ type: String })
+  note: string; // Ghi chú của bác sĩ
+
+  @Prop({ type: Date, required: true })
+  dateRecord: Date; // Ngày khám
 }
 export const MedicalRecordDescriptionSchema = SchemaFactory.createForClass(MedicalRecordDescription);
 
@@ -58,3 +77,5 @@ export class MedicalRecord {
   heartRate: VitalSignRecord[];
 }
 export const MedicalRecordSchema = SchemaFactory.createForClass(MedicalRecord);
+
+

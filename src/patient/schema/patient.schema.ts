@@ -24,7 +24,5 @@ export class Patient {
   @Prop({ type: MedicalRecordSchema })
   medicalRecord: MedicalRecord;
 
-  @Prop({ type: [{ type: mongoose.Schema.Types.ObjectId, ref: Appointment.name }] })
-  appointments: mongoose.Types.ObjectId[];
 }
 export const PatientSchema = SchemaFactory.createForClass(Patient);
