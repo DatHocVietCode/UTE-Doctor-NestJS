@@ -2,15 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import mongoose, { Model } from 'mongoose';
-import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { DataResponse } from 'src/common/dto/data-respone';
+import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
+import { RoleEnum } from 'src/common/enum/role.enum';
+import { ProfileDocument } from 'src/profile/schema/profile.schema';
+import { getProfileByEntity } from 'src/utils/helpers/profile.helper';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { PatientProfileDTO } from './dto/patient.dto';
 import { Patient, PatientDocument } from './schema/patient.schema';
-import { RoleEnum } from 'src/common/enum/role.enum';
 
 @Injectable()
 export class PatientService {
+    
   constructor(
     @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
     private readonly eventEmitter: EventEmitter2
@@ -96,6 +99,10 @@ export class PatientService {
       .lean(); // chỉ cần data thô
   }
 
+  findById(patientId: string) {
+    return this.patientModel.findById(patientId).lean();
+  }
+
  @OnEvent('patient.getByProfileId')
   async handleGetPatientByProfileId(payload: { profileId: string }): Promise<PatientProfileDTO | null> {
     const patient = await this.findByProfileId(payload.profileId);
@@ -115,4 +122,22 @@ export class PatientService {
     return dto;
   }
 
+  async getPatientProfile(patientId: string): Promise<DataResponse<ProfileDocument | null>> {
+    const patient = await getProfileByEntity<PatientDocument>(
+      this.patientModel,
+      patientId
+    );
+    if (!patient) {
+      return {
+        code: rc.ERROR,
+        message: 'Patient profile not found',
+        data: null,
+      };
+    }
+    return {
+      code: rc.SUCCESS,
+      message: 'Fetched patient profile successfully',
+      data: patient,
+    };
+  }
 }

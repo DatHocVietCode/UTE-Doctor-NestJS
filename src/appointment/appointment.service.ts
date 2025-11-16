@@ -37,7 +37,8 @@ export class AppointmentService {
             patientId: payload.patientId,
             doctorId: payload.doctor?.id ?? undefined, // nếu null thì bỏ qua
             reasonForAppointment: payload.reasonForAppointment,
-            specialtyId: payload.specialty
+            specialtyId: payload.specialty,
+            paymentMethod: payload.paymentMethod,
         });
 
         console.log('Storing appointment booking information:', appointmentDoc);
@@ -83,4 +84,9 @@ export class AppointmentService {
         };
     }
 
-}
+    async getAppointmentById(appointmentId: string) : Promise<AppointmentDocument | null> {
+        const appointment = await this.appointmentModel.findById(appointmentId);
+        console.log('Fetched appointment by ID:', appointmentId, appointment);
+        return appointment;
+    }
+}   

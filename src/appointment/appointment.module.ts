@@ -5,6 +5,7 @@ import { BookingListener } from "./listenners/booking.listenner";
 import { MongooseModule } from "@nestjs/mongoose";
 import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
 import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-log.schema";
+import { AppointmentListenner } from "./listenners/appointment.listenner";
 
 
 @Module({
@@ -15,7 +16,7 @@ import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-lo
         ]),
     ],
     controllers: [AppointmentController],
-    providers: [AppointmentService, BookingListener],
+    providers: [AppointmentService, BookingListener, AppointmentListenner],
     exports: [AppointmentService]
 })
 export class AppointmentModule {}

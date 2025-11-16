@@ -5,5 +5,6 @@ export enum ResponseCode
     INVALID_TOKEN = "INVALID_TOKEN",
     SERVER_ERROR = "SERVER_ERROR",
     ERROR = "ERROR",
-    PENDING = "PENDING"
+    PENDING = "PENDING",
+    NOT_FOUND = "NOT_FOUND"
 }
