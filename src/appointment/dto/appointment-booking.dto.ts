@@ -1,4 +1,4 @@
-import { Type } from "class-transformer";
+import { Type, Transform } from "class-transformer";
 import {
     IsDecimal,
     IsEmail,
@@ -11,6 +11,7 @@ import {
 } from "class-validator";
 import { ServiceType } from "src/appointment/enums/service-type.enum";
 import { PaymentMethod } from "src/common/enum/paymentMethod.enum";
+import { IsNotEmpty, IsArray } from 'class-validator';
 
 
 export class AppointmentBookingDto {
@@ -62,4 +63,36 @@ export class DoctorDto {
 
   @IsEmail()
   email: string;
+}
+
+export class PrescriptionItemDto {
+  @IsMongoId()
+  medicineId: string;
+
+  @IsNotEmpty()
+  @IsString()
+  name: string;
+
+  @IsNotEmpty()
+  @IsNumber()
+  quantity: number;
+}
+
+export class CompleteAppointmentDto {
+  @IsNotEmpty()
+  @IsMongoId()
+  appointmentId: string;
+
+  @IsNotEmpty()
+  @IsString()
+  diagnosis: string;
+
+  @IsString()
+  @IsOptional()
+  note?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PrescriptionItemDto)
+  prescriptions: PrescriptionItemDto[];
 }

@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Post, Query } from "@nestjs/common";
-import { AppointmentBookingDto } from "./dto/appointment-booking.dto";
+import { Body, Controller, Get, Patch, Post, Query } from "@nestjs/common";
+import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 import { AppointmentService } from "./appointment.service";
 import e from "express";
 
@@ -24,4 +24,9 @@ export class AppointmentController {
             throw error;
         }
     }
+
+    @Patch('/complete')
+    async completeAppointment(@Body() dto: CompleteAppointmentDto) {
+        return await this.appointmentService.completeAppointment(dto);
+  }
 }

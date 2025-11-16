@@ -2,50 +2,52 @@ import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import mongoose, { HydratedDocument } from "mongoose";
 import { BloodType } from "src/common/enum/blood-type.enum";
 
-export class PrescriptionItem {
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: "Medicine", required: true })
-  medicineId: mongoose.Types.ObjectId; // tham chiếu đến thuốc trong bảng Medicine
-
-  @Prop({ type: String, required: true })
-  name: string; // tên thuốc (có thể lưu kèm để tránh mất thông tin nếu thuốc bị xóa)
-
-  @Prop({ type: Number, required: true })
-  quantity: number; // số lượng thuốc
-
-}
-
-export const PrescriptionItemSchema = SchemaFactory.createForClass(PrescriptionItem);
 
 export type VitalSignRecordDocument = HydratedDocument<VitalSignRecord>;
 @Schema()
 export class VitalSignRecord {
   @Prop({ type: Number, required: false })
-  value?: number; // dùng cho nhịp tim
+  value?: number;
 
   @Prop({ type: Object, required: false })
-  bloodPressure?: { systolic: number; diastolic: number }; // dùng cho huyết áp
+  bloodPressure?: { systolic: number; diastolic: number };
 
   @Prop({ type: Date, required: true })
   dateRecord: Date;
 }
 export const VitalSignRecordSchema = SchemaFactory.createForClass(VitalSignRecord);
 
-
-
 export type MedicalRecordDescriptionDocument = HydratedDocument<MedicalRecordDescription>;
 @Schema()
 export class MedicalRecordDescription {
   @Prop({ required: true })
-  diagnosis: string; // Chuẩn đoán chính
+  diagnosis: string;
 
-  @Prop({ type: [PrescriptionItemSchema], default: [] })
-  prescriptions: PrescriptionItem[]; // Đơn thuốc
+  @Prop({
+    type: [
+      {
+        medicineId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        name: { type: String, required: true },
+        quantity: { type: Number, required: true },
+        _id: false
+      }
+    ],
+    default: []
+  })
+  prescriptions: Array<{
+    medicineId: mongoose.Types.ObjectId;
+    name: string;
+    quantity: number;
+  }>;
 
   @Prop({ type: String })
-  note: string; // Ghi chú của bác sĩ
+  note: string;
 
   @Prop({ type: Date, required: true })
-  dateRecord: Date; // Ngày khám
+  dateRecord: Date;
+
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', required: true })
+  appointmentId: mongoose.Types.ObjectId;
 }
 export const MedicalRecordDescriptionSchema = SchemaFactory.createForClass(MedicalRecordDescription);
 
@@ -53,10 +55,10 @@ export type MedicalRecordDocument = HydratedDocument<MedicalRecord>;
 @Schema()
 export class MedicalRecord {
   @Prop()
-  height: number; // cm
+  height: number;
 
   @Prop()
-  weight: number; // kg
+  weight: number;
 
   @Prop({ enum: BloodType })
   bloodType: BloodType;
@@ -77,5 +79,3 @@ export class MedicalRecord {
   heartRate: VitalSignRecord[];
 }
 export const MedicalRecordSchema = SchemaFactory.createForClass(MedicalRecord);
-
-

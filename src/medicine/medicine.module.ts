@@ -11,6 +11,6 @@ import { MedicineSeeder } from "src/medicine/medicine.seed";
   ],
   controllers: [MedicineController],
   providers: [MedicineService, MedicineSeeder],
-  exports: [MedicineService]
+  exports: [MedicineService, MongooseModule]
 })
 export class MedicineModule {}
