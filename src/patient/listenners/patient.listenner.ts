@@ -4,7 +4,7 @@ import { OnEvent } from "@nestjs/event-emitter";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ProfileDocument } from "src/profile/schema/profile.schema";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
-import { Patient } from "../schema/patient.schema";
+import { Patient, PatientDocument } from "../schema/patient.schema";
 
 
 @Injectable()
@@ -29,5 +29,19 @@ export class PatientListener {
             message: patient ? 'Patient found' : 'Patient not found',
             data: patient
         };
+    }
+
+    @OnEvent('patient.get.byEmail')
+    async handleGetPatientByEmailEvent(email: string) : Promise<Patient | null> {
+        // Xử lý sự kiện lấy bệnh nhân theo email
+        console.log(`[PatientListener] Yêu cầu lấy bệnh nhân theo email: ${email}`);    
+        const patient = await this.patientService.getPatientByEmail(email);
+
+        if (!patient) {
+            console.log(`[PatientListener] Không tìm thấy bệnh nhân với email: ${email}`);
+            return null;
+        }
+        console.log(`[PatientListener] Tìm thấy bệnh nhân:`, patient);
+        return patient;
     }
 }

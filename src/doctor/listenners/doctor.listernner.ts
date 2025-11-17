@@ -18,15 +18,12 @@ export class DoctorListener {
     }
 
     @OnEvent('doctor.get.byId')
-    async handleGetDoctorByIdEvent(doctorId: string) : Promise<DataResponse<Doctor| null>> {
+    async handleGetDoctorByIdEvent(doctorId: string) : Promise<Doctor| null> {
         // Xử lý sự kiện lấy bác sĩ theo ID
         console.log(`[DoctorListener] Yêu cầu lấy bác sĩ theo ID: ${doctorId}`);
        
        const doctor = await this.doctorService.findById(doctorId);
-         return {
-            code: doctor ? ResponseCode.SUCCESS : ResponseCode.NOT_FOUND,
-            message: doctor ? 'Doctor found' : 'Doctor not found',
-            data: doctor
-        };
+        
+        return doctor;
     }
 }

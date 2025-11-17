@@ -8,6 +8,6 @@ export class PatientController {
 
   @Get('/me')
   async getPatientProfile(@Query('email') email: string) : Promise<DataResponse> {
-    return await this.patientService.getPatientByEmail(email);
+    return await this.patientService.getPatientProfileByEmail(email);
   }
 }

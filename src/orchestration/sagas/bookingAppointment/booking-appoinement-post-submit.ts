@@ -7,6 +7,7 @@ import { AppointmentDocument } from "src/appointment/schemas/appointment.schema"
 import { Doctor, DoctorDocument } from "src/doctor/schema/doctor.schema";
 import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
 import { PaymentStatusEnum } from "src/payment/enums/payment-status.enum";
+import { Profile } from "src/profile/schema/profile.schema";
 import { emitTyped } from "src/utils/helpers/event.helper";
 
 @Injectable()
@@ -37,33 +38,38 @@ export class BookingAppointmentPostSubmitSaga {
             appointment.doctorId.toString()
         );
 
-        const patient : Patient = await emitTyped<string, Patient>(
+        const patient : Patient = await emitTyped<string, PatientDocument>(
             this.eventEmitter,
-            'patient.get.byId',
-            appointment.patientId.toString()
+            'patient.get.byEmail',
+            appointment.patientEmail
         );
 
 
         console.log('[Saga] Retrieved doctor and patient profiles' , doctor, patient);
         
 
-        const doctorProfile = await emitTyped<string, any>(
-            this.eventEmitter,
-            'doctor.get.profile',
-             doctor.profileId.toString() 
-        );
+        const doctorProfileId = doctor?.profileId?._id?.toString() || doctor?.profileId?.toString();
+        const patientProfileId = patient?.profileId?.toString();
 
-        const patientProfile = await emitTyped<string, any>(
-            this.eventEmitter,
-            'patient.get.profile',
-            patient.profileId.toString() 
-        );
+        if (!doctorProfileId || !patientProfileId) {
+            console.error('[Saga] Missing profileId', { doctor, patient });
+        return;
+        }
+
+        const doctorProfile: Profile = doctor?.profileId as unknown as Profile;
+
+        const patientProfile = patient?.profileId as unknown as Profile;
+
+        console.log('[Saga] Retrieved doctorProfile and patientProfile' , doctorProfile, patientProfile);
+
 
         const enrichedPayload = buildEnrichedAppointmentPayload(
             appointment,
             doctorProfile,
             patientProfile,
-            payload.amount
+            payload.amount,
+            patientProfile.name,
+            patientProfile.email
         );
 
         enrichedPayload.paymentStatus = PaymentStatusEnum.COMPLETED;

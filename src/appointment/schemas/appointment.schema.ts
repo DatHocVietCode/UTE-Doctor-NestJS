@@ -25,7 +25,10 @@ export class Appointment {
     timeSlot: mongoose.Types.ObjectId;
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true })
-    patientId: mongoose.Types.ObjectId;
+    patientId: mongoose.Types.ObjectId; // This is account Id, not patient Id (To be fixed later)
+
+    @Prop()
+    patientEmail: string;
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Doctor' })
     doctorId: mongoose.Types.ObjectId;

@@ -22,10 +22,21 @@ export function buildEnrichedAppointmentPayload(
   appointment: AppointmentDocument,
   doctorProfile: Profile | null,
   patientProfile: Profile,
-  amount: number
+  amount: number,
+  patientName: string,
+  patientEmail: string
 ): AppointmentEnriched {
 
   const base = appointment.toObject(); // convert document → plain object
+
+  console.log('Building enriched appointment payload with:', {
+    appointmentId: appointment._id.toString(),
+    doctorProfile,
+    patientProfile,
+    amount,
+    patientName,
+    patientEmail
+  });
 
   return {
     ...base,

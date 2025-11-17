@@ -34,11 +34,13 @@ export class AppointmentService {
             serviceType: payload.serviceType,
             consultationFee: payload.amount ?? undefined, // nếu amount có thì lưu
             timeSlot: payload.timeSlotId,
-            patientId: payload.patientId,
+            patientId: payload.patientId, // This is account Id, not patient Id (To be fixed later)
             doctorId: payload.doctor?.id ?? undefined, // nếu null thì bỏ qua
             reasonForAppointment: payload.reasonForAppointment,
             specialtyId: payload.specialty,
             paymentMethod: payload.paymentMethod,
+            hospitalName: payload.hospitalName,
+            patientEmail: payload.patientEmail,
         });
 
         console.log('Storing appointment booking information:', appointmentDoc);

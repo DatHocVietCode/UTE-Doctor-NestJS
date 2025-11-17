@@ -50,7 +50,7 @@ export class PatientService {
     console.log(dataRes.message)
     return dataRes;
   }
-  async getPatientByEmail(email: string) : Promise<DataResponse> {
+  async getPatientProfileByEmail(email: string) : Promise<DataResponse> {
     const res : DataResponse = {
       code: rc.PENDING,
       message: "Server received request!",
@@ -93,7 +93,7 @@ export class PatientService {
   //   };
   // }
 
-   async findByProfileId(profileId: string): Promise<Patient | null> {
+  async findByProfileId(profileId: string): Promise<Patient | null> {
     return this.patientModel
       .findOne({ profileId: new mongoose.Types.ObjectId(profileId) })
       .lean(); // chỉ cần data thô
@@ -140,4 +140,25 @@ export class PatientService {
       data: patient,
     };
   }
+
+  async getPatientByEmail(email: string): Promise<Patient | null> {
+    // Tìm patient và populate luôn profile
+    const patient = await this.patientModel
+      .findOne()                      // không filter gì trước
+      .populate({
+        path: 'profileId',            // populate field profileId
+        match: { email },             // filter profile theo email
+      })
+      .exec();
+
+    // Nếu không có patient hoặc profile bị null do match
+    if (!patient || !patient.profileId) {
+      console.log('[PatientService] No patient found with email:', email);
+      return null;
+    }
+
+    console.log('[PatientService] Patient found:', JSON.stringify(patient, null, 2));
+    return patient;
+  }
+
 }

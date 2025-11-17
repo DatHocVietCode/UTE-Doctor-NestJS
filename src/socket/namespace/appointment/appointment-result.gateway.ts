@@ -6,6 +6,7 @@ import { ResponseCode } from 'src/common/enum/reponse-code.enum';
 import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
 import { BaseGateway } from '../../base/base.gateway';
 import { SocketRoomService } from '../../socket.service';
+import type { AppointmentEnriched } from 'src/appointment/schemas/appointment-enriched';
 
 @WebSocketGateway({ cors: true, namespace: '/appointment' })
 export class AppointmentGateway extends BaseGateway {
@@ -15,14 +16,14 @@ export class AppointmentGateway extends BaseGateway {
     }
 
   @OnEvent('socket.appointment.success')
-  handleCompleted(payload: AppointmentBookingDto) {
+  handleCompleted(payload: AppointmentEnriched) {
     const res: DataResponse = {
       code: ResponseCode.SUCCESS,
       message: 'Appointment booking completed',
       data: payload,
     };
     console.log('[Socket][Appointment] Push COMPLETED to doctor');
-    this.emitToRoom(payload.doctor!.email, SocketEventsEnum.APPOINTMENT_COMPLETED, res); // Emit to doctor
+    this.emitToRoom(payload.doctorEmail!, SocketEventsEnum.APPOINTMENT_COMPLETED, res); // Emit to doctor
     console.log('[Socket][Appointment] Push COMPLETED to patient');
     this.emitToRoom(payload.patientEmail, SocketEventsEnum.APPOINTMENT_COMPLETED, res); // Emit to patient
   }
