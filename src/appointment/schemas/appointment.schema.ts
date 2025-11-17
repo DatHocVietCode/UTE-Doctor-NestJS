@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import mongoose, { HydratedDocument } from "mongoose";
+import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 import { AppointmentStatus } from "../enums/Appointment-status.enum";
 import { ServiceType } from "../enums/service-type.enum";
 
@@ -34,6 +35,12 @@ export class Appointment {
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'ChuyenKhoa' })
     specialtyId: string;
+
+    @Prop({ type: String, enum: PaymentMethodEnum })
+    paymentMethod:PaymentMethodEnum;
+
+    @Prop()
+    hospitalName: string;
 }
 
 export const AppointmentSchema = SchemaFactory.createForClass(Appointment);

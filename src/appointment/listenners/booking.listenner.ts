@@ -2,6 +2,8 @@ import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { AppointmentBookingDto } from "../dto/appointment-booking.dto";
 import { AppointmentService } from "../appointment.service";
+import type { AppointmentDocument } from "../schemas/appointment.schema";
+import * as appointmentEnriched from "../schemas/appointment-enriched";
 
 @Injectable()
 export class BookingListener {
@@ -10,7 +12,7 @@ export class BookingListener {
     ) {}
 
     @OnEvent('appointment.booking.success')
-    handleBookingCompleted(payload: AppointmentBookingDto) {
+    handleBookingCompleted(payload: appointmentEnriched.AppointmentEnriched) {
         // emit tiếp các side-effect
         this.eventEmitter.emit('notify.patient.booking.success', payload);
         this.eventEmitter.emit('notify.doctor.booking.success', payload);
