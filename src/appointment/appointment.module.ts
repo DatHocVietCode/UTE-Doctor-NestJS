@@ -6,6 +6,7 @@ import { MongooseModule } from "@nestjs/mongoose";
 import { MedicineModule } from "src/medicine/medicine.module";
 import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
 import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-log.schema";
+import { AppointmentListenner } from "./listenners/appointment.listenner";
 import { Patient, PatientSchema } from "src/patient/schema/patient.schema";
 
 
@@ -19,7 +20,7 @@ import { Patient, PatientSchema } from "src/patient/schema/patient.schema";
         MedicineModule,
     ],
     controllers: [AppointmentController],
-    providers: [AppointmentService, BookingListener],
+    providers: [AppointmentService, BookingListener, AppointmentListenner],
     exports: [AppointmentService]
 })
 export class AppointmentModule {}

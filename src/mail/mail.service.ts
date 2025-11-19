@@ -2,6 +2,7 @@ import { MailerService } from "@nestjs-modules/mailer";
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { AppointmentBookingDto } from "src/appointment/dto/appointment-booking.dto";
+import type { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
 import { emitTyped } from "src/utils/helpers/event.helper";
 
 @Injectable()
@@ -41,17 +42,17 @@ export class MailService {
   }
 
   /** === BOOKING SUCCESS: PATIENT === */
-  async sendPatientBookingSuccessMail(payload: AppointmentBookingDto) {
+  async sendPatientBookingSuccessMail(payload: AppointmentEnriched) {
     let timeSlotName = '';
     timeSlotName = await emitTyped<string, string>(
         this.eventEmitter,
         'timeslot.get.name.by.id',
-        payload.timeSlotId!
+        payload.timeSlot._id.toString()
     );
     const html = `
       <h2>Xin chào ${payload.patientEmail},</h2>
       <p>Lịch hẹn của bạn đã được xác nhận thành công!</p>
-      <p><b>Bác sĩ:</b> ${payload.doctor?.name}</p>
+      <p><b>Bác sĩ:</b> ${payload.doctorName}</p>
       <p><b>Thời gian:</b> ${payload.date} - ${timeSlotName}</p>
       <p>Địa điểm: ${payload.hospitalName}</p>
       <p>Cảm ơn bạn đã tin tưởng UTE Doctor!</p>
@@ -60,20 +61,20 @@ export class MailService {
   }
 
   /** === BOOKING SUCCESS: DOCTOR === */
-  async sendDoctorBookingSuccessMail(payload: AppointmentBookingDto) {
+  async sendDoctorBookingSuccessMail(payload: AppointmentEnriched) {
     let timeSlotName = '';
     timeSlotName = await emitTyped<string, string>(
         this.eventEmitter,
         'timeslot.get.name.by.id',
-        payload.timeSlotId!
+        payload.timeSlot._id.toString() 
     );
     const html = `
-      <h2>Xin chào bác sĩ ${payload.doctor?.name},</h2>
+      <h2>Xin chào bác sĩ ${payload.doctorName},</h2>
       <p>Bạn có lịch hẹn mới!</p>
       <p><b>Bệnh nhân:</b> ${payload.patientEmail}</p>
       <p><b>Thời gian:</b> ${payload.date} - ${timeSlotName}</p>
       <p>Địa điểm: ${payload.hospitalName}</p>
     `;
-    await this.sendMail(payload.doctor!.email, "Lịch hẹn mới - UTE Doctor", html); // When booking is successful, doctor email is guaranteed
+    await this.sendMail(payload.doctorEmail!, "Lịch hẹn mới - UTE Doctor", html); // When booking is successful, doctor email is guaranteed
   }
 }

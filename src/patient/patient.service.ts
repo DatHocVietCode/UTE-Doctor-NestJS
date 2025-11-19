@@ -2,15 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import mongoose, { Model } from 'mongoose';
-import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { DataResponse } from 'src/common/dto/data-respone';
+import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
+import { RoleEnum } from 'src/common/enum/role.enum';
+import { ProfileDocument } from 'src/profile/schema/profile.schema';
+import { getProfileByEntity } from 'src/utils/helpers/profile.helper';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { PatientProfileDTO } from './dto/patient.dto';
 import { Patient, PatientDocument } from './schema/patient.schema';
-import { RoleEnum } from 'src/common/enum/role.enum';
 
 @Injectable()
 export class PatientService {
+    
   constructor(
     @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
     private readonly eventEmitter: EventEmitter2
@@ -47,7 +50,7 @@ export class PatientService {
     console.log(dataRes.message)
     return dataRes;
   }
-  async getPatientByEmail(email: string) : Promise<DataResponse> {
+  async getPatientProfileByEmail(email: string) : Promise<DataResponse> {
     const res : DataResponse = {
       code: rc.PENDING,
       message: "Server received request!",
@@ -90,10 +93,14 @@ export class PatientService {
   //   };
   // }
 
-   async findByProfileId(profileId: string): Promise<Patient | null> {
+  async findByProfileId(profileId: string): Promise<Patient | null> {
     return this.patientModel
       .findOne({ profileId: new mongoose.Types.ObjectId(profileId) })
       .lean(); // chỉ cần data thô
+  }
+
+  findById(patientId: string) {
+    return this.patientModel.findById(patientId).lean();
   }
 
  @OnEvent('patient.getByProfileId')
@@ -113,6 +120,45 @@ export class PatientService {
     console.log("[PatientSubscriber] Patient info fetched:", JSON.stringify(dto, null, 2));
     
     return dto;
+  }
+
+  async getPatientProfile(patientId: string): Promise<DataResponse<ProfileDocument | null>> {
+    const patient = await getProfileByEntity<PatientDocument>(
+      this.patientModel,
+      patientId
+    );
+    if (!patient) {
+      return {
+        code: rc.ERROR,
+        message: 'Patient profile not found',
+        data: null,
+      };
+    }
+    return {
+      code: rc.SUCCESS,
+      message: 'Fetched patient profile successfully',
+      data: patient,
+    };
+  }
+
+  async getPatientByEmail(email: string): Promise<Patient | null> {
+    // Tìm patient và populate luôn profile
+    const patient = await this.patientModel
+      .findOne()                      // không filter gì trước
+      .populate({
+        path: 'profileId',            // populate field profileId
+        match: { email },             // filter profile theo email
+      })
+      .exec();
+
+    // Nếu không có patient hoặc profile bị null do match
+    if (!patient || !patient.profileId) {
+      console.log('[PatientService] No patient found with email:', email);
+      return null;
+    }
+
+    console.log('[PatientService] Patient found:', JSON.stringify(patient, null, 2));
+    return patient;
   }
 
 }

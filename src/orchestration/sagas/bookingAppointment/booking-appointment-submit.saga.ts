@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { AppointmentBookingDto } from "src/appointment/dto/appointment-booking.dto";
-import { Appointment, AppointmentDocument } from "src/appointment/schemas/appointment.schema";
+import { AppointmentDocument } from "src/appointment/schemas/appointment.schema";
 import { PaymentMethod } from "src/common/enum/paymentMethod.enum";
 import { emitTyped } from "src/utils/helpers/event.helper";
 
@@ -59,17 +59,17 @@ export class BookingAppointmentSubmitSaga {
             }
         }
 
-        // Cân nhắc bỏ, chờ FE thanh toán xong mới book
-        if (this.isBookingInformationEnough(payload) && isPaymentSuccess)
-        {
-            this.eventEmitter.emit('appointment.booking.success', payload); // Noti to receptionst, and patient
-            console.log('Booking completed');
-        }
-        else
-        {
-            this.eventEmitter.emit('appointment.booking.pending', payload); // Noti to receptionist, doctor and patient
-            console.log('Booking pending');
-        }
+        // // Cân nhắc bỏ, chờ FE thanh toán xong mới book
+        // if (this.isBookingInformationEnough(payload) && isPaymentSuccess)
+        // {
+        //     this.eventEmitter.emit('appointment.booking.success', payload); // Noti to receptionst, and patient
+        //     console.log('Booking completed');
+        // }
+        // else
+        // {
+        //     this.eventEmitter.emit('', payload); // Noti to receptionist, doctor and patient
+        //     console.log('Booking pending');
+        // }
     }
 
     isBookingInformationEnough(dto: AppointmentBookingDto) {

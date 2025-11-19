@@ -9,6 +9,7 @@ export class VnPayPaymentController {
   @Get('create_payment_url')
   createPayment(@Query('orderId') orderId: string, @Query('amount') amount: number, @Req() req: express.Request) {
     const ipAddr = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    console.log('Client IP Address:', ipAddr);
     const url = this.vnPaymentService.createPayment(orderId, amount, ipAddr as string);
     return { paymentUrl: url };
   }

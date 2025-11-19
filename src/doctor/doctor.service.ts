@@ -1,16 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
+import Fuse from 'fuse.js';
 import { Model } from 'mongoose';
-import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
-import { CreateDoctorDto } from './dto/create-doctor.dto';
-import { Doctor, DoctorDocument } from './schema/doctor.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
-import Fuse from 'fuse.js';
-import { emitTyped } from 'src/utils/helpers/event.helper';
+import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
 import { TimeSlotDto } from 'src/timeslot/dtos/timeslot.dto';
 import { TimeSlotStatusEnum } from 'src/timeslot/enums/timeslot-status.enum';
+import { emitTyped } from 'src/utils/helpers/event.helper';
+import { getProfileByEntity } from 'src/utils/helpers/profile.helper';
+import { CreateDoctorDto } from './dto/create-doctor.dto';
+import { Doctor, DoctorDocument } from './schema/doctor.schema';
 
 
 @Injectable()
@@ -70,7 +71,7 @@ export class DoctorService {
   }
 
   async findById(id: string): Promise<Doctor | null> {
-    return this.doctorModel.findById(id).populate('accountId').populate('chuyenKhoaId').exec();
+    return this.doctorModel.findById(id).populate('profileId').populate('chuyenKhoaId').exec();
   }
 
 
@@ -173,4 +174,28 @@ export class DoctorService {
     };
   }
 
+  async getDoctorProfile(doctorId: string): Promise<DataResponse<ProfileDocument | null>> {
+    console.log("[DoctorService] Yêu cầu lấy profile cho bác sĩ:", doctorId);
+    
+    const doctorProfile = await getProfileByEntity<DoctorDocument>(
+      this.doctorModel,
+      doctorId
+    );
+
+    if (!doctorProfile) {
+      console.log("[DoctorService] Không tìm thấy profile cho bác sĩ:", doctorId);
+      return {
+        code: rc.ERROR,
+        message: 'Doctor profile not found',
+        data: null,
+      };
+    }
+    console.log("[DoctorService] Lấy profile cho bác sĩ:", doctorId, "→", doctorProfile);
+
+    return {
+      code: rc.SUCCESS,
+      message: 'Fetched doctor profile successfully',
+      data: doctorProfile,
+    };
+  }
 }

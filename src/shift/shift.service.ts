@@ -14,6 +14,7 @@ import { emitTyped } from "src/utils/helpers/event.helper";
 import { RegisterShiftDto } from "./dto/register-shift.dto";
 import { ShiftStatusEnum } from "./enums/shift-status.enum";
 import { Shift } from "./schema/shift.schema";
+import { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
 
 @Injectable()
 export class ShiftService {
@@ -564,10 +565,12 @@ export class ShiftService {
     }
   }
   
-  async handleDoctorUpdateSchedule(payload: AppointmentBookingDto): Promise<boolean> {
+  async handleDoctorUpdateSchedule(payload: AppointmentEnriched): Promise<boolean> {
     try {
-      const { doctor, date, timeSlotId } = payload;
-      const doctorId = doctor?.id;
+      // const { doc, date, timeSlotId } = payload;
+      const doctorId = payload.doctorId;
+      const date = payload.date;
+      const timeSlotId = payload.timeSlot._id.toString();
       const dateOnly = new Date(date).toISOString().split("T")[0];
 
       // 1️⃣ Tìm tất cả shift của bác sĩ trong ngày đó
