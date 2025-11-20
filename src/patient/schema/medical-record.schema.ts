@@ -26,10 +26,11 @@ export class MedicalRecordDescription {
   @Prop({
     type: [
       {
-        medicineId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        medicineId: { type: mongoose.Schema.Types.ObjectId, required: false },
         name: { type: String, required: true },
         quantity: { type: Number, required: true },
-        _id: false
+        note: { type: String, required: false },
+        _id: false,
       }
     ],
     default: []

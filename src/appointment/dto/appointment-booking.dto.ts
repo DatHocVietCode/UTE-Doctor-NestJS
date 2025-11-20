@@ -76,6 +76,10 @@ export class PrescriptionItemDto {
   @IsNotEmpty()
   @IsNumber()
   quantity: number;
+
+  @IsNotEmpty()
+  @IsString()
+  note: string;
 }
 
 export class CompleteAppointmentDto {

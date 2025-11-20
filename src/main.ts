@@ -1,9 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import * as path from 'path';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   const allowedOrigins = [
     'http://localhost:3000',
@@ -22,6 +24,9 @@ async function bootstrap() {
 
 
   app.setGlobalPrefix('api');
+
+  // Serve generated PDFs and other public assets from /public
+  app.useStaticAssets(path.join(process.cwd(), 'public'));
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);

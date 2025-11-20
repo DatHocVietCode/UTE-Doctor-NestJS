@@ -32,6 +32,12 @@ export class AppointmentService {
         return dataResponse;
     }
 
+    async getAppointmentById(appointmentId: string) : Promise<AppointmentDocument | null> {
+        const appointment = await this.appointmentModel.findById(appointmentId);
+        console.log('Fetched appointment by ID:', appointmentId, appointment);
+        return appointment;
+    }
+
     async storeBookingInformation(payload: AppointmentBookingDto): Promise<AppointmentDocument> {
         const appointmentDoc = new this.appointmentModel({
             date: payload.date,
@@ -152,6 +158,7 @@ export class AppointmentService {
             medicineId: medicineIdObj,
             name,
             quantity: (typeof p.quantity === 'number' && p.quantity > 0) ? p.quantity : 1,
+            note: p.note,
         };
     }));
 
@@ -176,8 +183,40 @@ export class AppointmentService {
         } as any;
     }
 
-    // Push the new record onto the document and save so Mongoose will cast subdocuments correctly
+    // Sanitize existing medicalHistory entries and their prescriptions so Mongoose validation won't fail
     patient.medicalRecord.medicalHistory = patient.medicalRecord.medicalHistory || [];
+    patient.medicalRecord.medicalHistory = (patient.medicalRecord.medicalHistory as any[]).map((rec: any) => {
+        rec = rec || {};
+        rec.diagnosis = rec.diagnosis ?? '';
+        rec.note = rec.note ?? '';
+        // Normalize dateRecord to Date or current date
+        try {
+            rec.dateRecord = rec.dateRecord ? new Date(rec.dateRecord) : new Date();
+        } catch (err) {
+            rec.dateRecord = new Date();
+        }
+        rec.appointmentId = rec.appointmentId ?? null;
+
+        // Ensure prescriptions is an array of full objects
+        rec.prescriptions = Array.isArray(rec.prescriptions) ? rec.prescriptions : [];
+        rec.prescriptions = rec.prescriptions.map((pr: any) => {
+            pr = pr || {};
+            // preserve existing ObjectId values but cast strings to ObjectId
+            try {
+                pr.medicineId = pr.medicineId ? ((typeof pr.medicineId === 'string') ? new Types.ObjectId(pr.medicineId) : pr.medicineId) : undefined;
+            } catch (e) {
+                pr.medicineId = pr.medicineId;
+            }
+            pr.name = pr.name ?? 'Unknown medicine';
+            pr.quantity = (typeof pr.quantity === 'number' && pr.quantity > 0) ? pr.quantity : 1;
+            pr.note = pr.note ?? '';
+            return pr;
+        });
+
+        return rec;
+    });
+
+    // Push the new record onto the document and save so Mongoose will cast subdocuments correctly
     patient.medicalRecord.medicalHistory.push(newRecord as any);
 
     const savedPatient = await patient.save();
@@ -194,6 +233,7 @@ export class AppointmentService {
             patientId: patient._id,
         },
     };
+
 }
 
 }
