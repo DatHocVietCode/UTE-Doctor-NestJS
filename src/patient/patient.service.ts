@@ -161,4 +161,9 @@ export class PatientService {
     return patient;
   }
 
+  async findByAccountId(accountId: string) {
+    return this.patientModel.findOne({ accountId }).populate('profileId').exec();
+  }
+
+
 }
