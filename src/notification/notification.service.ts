@@ -1,12 +1,12 @@
-import { Injectable } from "@nestjs/common";
-import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
-import { NotificationDocument, Notification } from "./schemas/notification.schema";
-import { Model } from "mongoose";
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { EventEmitter2 } from "@nestjs/event-emitter";
 import { InjectModel } from "@nestjs/mongoose";
-import { AppointmentBookingDto } from "src/appointment/dto/appointment-booking.dto";
-import { emitTyped } from "src/utils/helpers/event.helper";
-import { AppointmentDocument } from "src/appointment/schemas/appointment.schema";
+import { Model } from "mongoose";
 import { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
+import { PaginationQueryDto } from "src/common/dto/pagination-query.dto";
+import { PaginationResult } from "src/common/dto/pagination-result.dto";
+import { emitTyped } from "src/utils/helpers/event.helper";
+import { Notification, NotificationDocument } from "./schemas/notification.schema";
 
 @Injectable()
 export class NotificationService {
@@ -68,5 +68,73 @@ export class NotificationService {
         });
     }
 
+    async getNotifications(
+        pagination: PaginationQueryDto
+        ): Promise<PaginationResult<Notification>> {
+        const { page, limit } = pagination;
+
+        const skip = (page - 1) * limit;
+
+        const [data, total] = await Promise.all([
+            this.notificationModel
+            .find()
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+
+            this.notificationModel.countDocuments(),
+        ]);
+
+        return new PaginationResult(data, total, page, limit);
+    }
+    async getNotificationsByEmail(
+        email: string,
+        pagination: PaginationQueryDto
+        ): Promise<PaginationResult<Notification>> {
+
+        const { page, limit } = pagination;
+        const skip = (page - 1) * limit;
+
+        const filter = {
+            $or: [
+            { isBroadcast: true },
+            { receiverEmail: email },
+            ],
+        };
+
+        const [data, total] = await Promise.all([
+            this.notificationModel
+            .find(filter)
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+
+            this.notificationModel.countDocuments(filter),
+        ]);
+
+        return new PaginationResult(data, total, page, limit);
+    }
+
+    async countUnreadByEmail(email: string): Promise<number> {
+        if (!email) throw new Error('[NotificationService] Email is required');
+
+        return this.notificationModel.countDocuments({
+        receiverEmail: email,
+        isRead: false,
+        });
+    }
+
+    async markAsRead(id: string): Promise<Notification> {
+        const notif = await this.notificationModel.findByIdAndUpdate(
+            id,
+            { isRead: true },
+            { new: true }
+        ).lean();
+
+        if (!notif) throw new NotFoundException('[NotificationService] Notification not found');
+        return notif;
+    }
 }
 
