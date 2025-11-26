@@ -235,5 +235,14 @@ export class AppointmentService {
     };
 
 }
+    async findById(id: string) {
+        return this.appointmentModel
+        .findById(id)
+        .populate('timeSlot')
+        .populate('patientId')
+        .populate('doctorId')
+        .populate('specialtyId')
+        .exec();
+  }
 
 }

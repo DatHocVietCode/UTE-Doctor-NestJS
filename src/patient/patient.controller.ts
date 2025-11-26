@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, Query } from '@nestjs/common';
 import { PatientService } from './patient.service';
 import { DataResponse } from 'src/common/dto/data-respone';
+import { Types } from 'mongoose';
 
 @Controller('patients')
 export class PatientController {
@@ -27,6 +28,20 @@ export class PatientController {
       message: "Patient fetched successfully",
       data: patient,
     };
+  }
+  @Get('/profile/:id')
+  async getPatientById(@Param('id') id: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException('Invalid patient ID');
+    }
+
+    const patient = await this.patientService.findProfileById(id);
+
+    if (!patient) {
+      throw new NotFoundException('Patient not found');
+    }
+
+    return patient;
   }
 
 }

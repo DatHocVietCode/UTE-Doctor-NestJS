@@ -23,6 +23,7 @@ import { TimeSlotModule } from './timeslot/timeslot.module';
 import { Medicine } from 'src/medicine/schema/medicine.schema';
 import { MedicineModule } from 'src/medicine/medicine.module';
 import { PrescriptionModule } from 'src/prescription/prescription.module';
+import { ReviewModule } from 'src/review/review.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -53,6 +54,7 @@ import { PrescriptionModule } from 'src/prescription/prescription.module';
     TimeSlotModule,
     MedicineModule,
     PrescriptionModule,
+    ReviewModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
   controllers: [AppController],

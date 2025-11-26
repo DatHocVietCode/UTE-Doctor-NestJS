@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query } from "@nestjs/common";
 import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 import { AppointmentService } from "./appointment.service";
 import e from "express";
+import { Types } from "mongoose";
 
 @Controller('appointment')
 export class AppointmentController {
@@ -29,4 +30,20 @@ export class AppointmentController {
     async completeAppointment(@Body() dto: CompleteAppointmentDto) {
         return await this.appointmentService.completeAppointment(dto);
   }
+
+  @Get(':id')
+    async getAppointmentById(@Param('id') id: string) {
+        // Validate ObjectId
+        if (!Types.ObjectId.isValid(id)) {
+        throw new NotFoundException('Invalid appointment ID');
+        }
+
+        const appointment = await this.appointmentService.findById(id);
+
+        if (!appointment) {
+        throw new NotFoundException('Appointment not found');
+        }
+
+        return appointment;
+    }
 }

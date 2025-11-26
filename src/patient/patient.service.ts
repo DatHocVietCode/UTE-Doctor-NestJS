@@ -165,5 +165,11 @@ export class PatientService {
     return this.patientModel.findOne({ accountId }).populate('profileId').exec();
   }
 
+  async findProfileById(id: string) {
+    return this.patientModel
+      .findById(id)
+      .populate('profileId')   // lấy thông tin Profile
+      .exec();
+  }
 
 }
