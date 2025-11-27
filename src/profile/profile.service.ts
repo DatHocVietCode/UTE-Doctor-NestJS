@@ -1,13 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Profile, ProfileDocument } from './schema/profile.schema';
-import { UpdateProfileDto } from './dto/update-profile.dto';
-import { DataResponse } from 'src/common/dto/data-respone';
-import { CreateProfileDto } from './dto/create-profile.dto';
 import { OnEvent } from '@nestjs/event-emitter';
+import { InjectModel } from '@nestjs/mongoose';
+import mongoose, { Model } from 'mongoose';
+import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
-import mongoose from 'mongoose';
+import { CreateProfileDto } from './dto/create-profile.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { Profile, ProfileDocument } from './schema/profile.schema';
 
 
 @Injectable()

@@ -1,19 +1,20 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { DataResponse } from "src/common/dto/data-respone";
-import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
-import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
-import { AppointmentStatus } from "./enums/Appointment-status.enum";
-import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
-import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
-import { MedicalRecordDescription } from "src/patient/schema/medical-record.schema";
+import { DataResponse } from "src/common/dto/data-respone";
+import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { Medicine, MedicineDocument } from "src/medicine/schema/medicine.schema";
+import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
+import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
+import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
+import { AppointmentStatus } from "./enums/Appointment-status.enum";
+import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
+import { AppointmentDto } from "./dto/appointment.dto";
 
 @Injectable()
 export class AppointmentService {
+
     constructor(private readonly eventEmitter: EventEmitter2,
         @InjectModel(Appointment.name) private readonly appointmentModel: Model<Appointment>,
         @InjectModel(TimeSlotLog.name) private readonly timeSlotLogModel: Model<TimeSlotLogDocument>,
@@ -245,4 +246,24 @@ export class AppointmentService {
         .exec();
   }
 
+    async getAllAppointments() : Promise<Appointment[]> {
+        return this.appointmentModel.find().exec();
+    }
+
+    async getAppointmentsByPatientEmail(patientEmail: string): Promise<AppointmentDto[]> {
+        return this.appointmentModel
+            .find({ patientEmail })
+            .lean()
+            .exec() as unknown as AppointmentDto[];
+    }
+
+    async updateAppointmentStatus(appointmentId: string, status: AppointmentStatus) {
+        const appointment = await this.appointmentModel.findById(appointmentId);
+        if (!appointment) {
+            throw new NotFoundException('Appointment not found');
+        }
+        appointment.appointmentStatus = status;
+        await appointment.save();
+        console.log(`[AppointmentService] Updated appointment ${appointmentId} status to ${status}`);    
+    }
 }

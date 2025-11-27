@@ -3,10 +3,29 @@ import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment
 import { AppointmentService } from "./appointment.service";
 import e from "express";
 import { Types } from "mongoose";
+import { DataResponse } from "src/common/dto/data-respone";
+import { ResponseCode } from "src/common/enum/reponse-code.enum";
 
 @Controller('appointment')
 export class AppointmentController {
     constructor(private readonly appointmentService: AppointmentService) {}
+
+    @Get()
+    async getAllAppointments() {
+        return await this.appointmentService.getAllAppointments();
+    }
+
+    @Get('/patient')
+    async getAppointmentsByPatient(@Query('patientEmauk') patientEmail: string) {
+        const data = await this.appointmentService.getAppointmentsByPatientEmail(patientEmail);
+        const res : DataResponse = {
+            code: ResponseCode.SUCCESS,
+            message: "Fetched appointments successfully",
+            data: data
+        }
+        return res;
+    }
+
     @Post('/book')
     async bookAppointment(@Body() bookingAppointment: AppointmentBookingDto) {
         console.log('Received appointment booking:', bookingAppointment);
@@ -46,4 +65,6 @@ export class AppointmentController {
 
         return appointment;
     }
+
+    
 }
