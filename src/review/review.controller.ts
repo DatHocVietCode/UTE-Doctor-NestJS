@@ -1,9 +1,17 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common';
 import { ReviewService } from './review.service';
 
 @Controller('reviews')
 export class ReviewController {
   constructor(private readonly reviewService: ReviewService) {}
+
+   @Get('/by-appointment-patient')
+    async getReviewByAppointmentAndPatient(
+      @Query('appointmentId') appointmentId: string,
+      @Query('patientId') patientId: string,
+    ) {
+      return this.reviewService.findByAppointmentAndPatient(appointmentId, patientId);
+  }
 
   @Post()
   async create(@Body() body) {
@@ -32,4 +40,6 @@ export class ReviewController {
   async delete(@Param('id') id: string) {
     return this.reviewService.delete(id);
   }
+
+
 }

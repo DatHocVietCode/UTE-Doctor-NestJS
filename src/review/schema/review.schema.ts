@@ -22,11 +22,14 @@ export class Review {
   })
   patientId: mongoose.Types.ObjectId;
 
-  @Prop({ type: Number, required: true, min: 1, max: 5 })
+  @Prop({type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', required: true})
+  appointmentId: mongoose.Types.ObjectId;
+
+  @Prop({ type: Number, required: true, min: 1, max: 10 })
   rating: number;
 
   @Prop({ type: String })
-  note: string;   // ghi chú / nhận xét
+  comment: string;   // ghi chú / nhận xét
 }
 
 export const ReviewSchema = SchemaFactory.createForClass(Review);

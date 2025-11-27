@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import Fuse from 'fuse.js';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
@@ -198,4 +198,42 @@ export class DoctorService {
       data: doctorProfile,
     };
   }
+
+  async getDoctorByAccountId(accountId: string): Promise<DataResponse<any>> {
+    const dataRes: DataResponse<any> = {
+      code: rc.PENDING,
+      message: '',
+      data: null,
+    };
+
+    try {
+      if (!Types.ObjectId.isValid(accountId)) {
+        throw new NotFoundException('Invalid account ID');
+      }
+
+      const doctor = await this.doctorModel
+        .findOne({ accountId })
+        // .populate('profileId')
+        // .populate('accountId')
+        // .populate('chuyenKhoaId')
+        .exec();
+
+      if (!doctor) {
+        dataRes.code = rc.ERROR;
+        dataRes.message = 'Doctor not found for this account';
+        return dataRes;
+      }
+
+      dataRes.code = rc.SUCCESS;
+      dataRes.message = 'Fetched doctor successfully';
+      dataRes.data = doctor;
+
+    } catch (error) {
+      dataRes.code = rc.ERROR;
+      dataRes.message = error.message;
+    }
+
+    return dataRes;
+  }
+
 }
