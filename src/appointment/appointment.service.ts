@@ -8,9 +8,10 @@ import { Medicine, MedicineDocument } from "src/medicine/schema/medicine.schema"
 import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
 import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
 import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
+import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
-import { AppointmentDto } from "./dto/appointment.dto";
+import path from "path";
 
 @Injectable()
 export class AppointmentService {
@@ -253,6 +254,24 @@ export class AppointmentService {
     async getAppointmentsByPatientEmail(patientEmail: string): Promise<AppointmentDto[]> {
         return this.appointmentModel
             .find({ patientEmail })
+            .populate('timeSlot', 'start end label shift status')
+            .populate({
+            path: 'doctorId',
+            select: 'profileId',
+            populate: {
+                path: 'profileId',
+                select: 'name email phone',
+            },
+            })
+            .populate({
+                path: 'patientId',
+                select: 'profileId',
+                populate: {
+                    path: 'profileId',
+                    select: 'name email phone',
+                },
+            })
+            .sort({ date: -1 }) 
             .lean()
             .exec() as unknown as AppointmentDto[];
     }

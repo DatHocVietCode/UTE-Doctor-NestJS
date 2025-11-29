@@ -1,10 +1,9 @@
 import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query } from "@nestjs/common";
-import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
-import { AppointmentService } from "./appointment.service";
-import e from "express";
 import { Types } from "mongoose";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
+import { AppointmentService } from "./appointment.service";
+import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 
 @Controller('appointment')
 export class AppointmentController {
@@ -16,7 +15,7 @@ export class AppointmentController {
     }
 
     @Get('/patient')
-    async getAppointmentsByPatient(@Query('patientEmauk') patientEmail: string) {
+    async getAppointmentsByPatient(@Query('patientEmail') patientEmail: string) {
         const data = await this.appointmentService.getAppointmentsByPatientEmail(patientEmail);
         const res : DataResponse = {
             code: ResponseCode.SUCCESS,

@@ -9,6 +9,7 @@ import { Model } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
+import { UserContextService } from 'src/user-context/user-context.service';
 import { emitTyped } from 'src/utils/helpers/event.helper';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { Account } from '../account/schemas/account.schema';
@@ -19,7 +20,8 @@ import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth
 export class AuthService {
     constructor(@InjectModel(Account.name) private accountModel: Model<Account>
                 , private jwtService: JwtService
-                , private readonly eventEmitter: EventEmitter2) {}
+                , private readonly eventEmitter: EventEmitter2
+            , private userContextService: UserContextService,) {}
     
     async register(registerUser: RegisterUserReqDto) {
         // bắn event "đăng ký yêu cầu"
@@ -70,12 +72,16 @@ export class AuthService {
 
         const refreshTokenRespone = await this.getAccountRefreshToken(user.email); 
         const accessToken = this.createAccessToken(user.email, user.role, user._id.toString());
-
+        const userCtx = await this.userContextService.getUserContext(user);
+        
         if (dataRes.data) {
             dataRes.data.accessToken = accessToken;
             dataRes.data.refreshToken = refreshTokenRespone?.data ?? "";
             dataRes.data.role = user.role;
             dataRes.data.id = user._id.toString();
+            dataRes.data.patientId = userCtx.patientId ?? undefined;
+            dataRes.data.doctorId = userCtx.doctorId ?? undefined;
+            dataRes.data.profileId = userCtx.profileId ? userCtx.profileId.toString() : undefined;
         }
 
         return dataRes;

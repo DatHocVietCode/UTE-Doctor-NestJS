@@ -24,6 +24,7 @@ import { Medicine } from 'src/medicine/schema/medicine.schema';
 import { MedicineModule } from 'src/medicine/medicine.module';
 import { PrescriptionModule } from 'src/prescription/prescription.module';
 import { ReviewModule } from 'src/review/review.module';
+import { UserContextModule } from './user-context/user-context.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -55,6 +56,7 @@ import { ReviewModule } from 'src/review/review.module';
     MedicineModule,
     PrescriptionModule,
     ReviewModule,
+    UserContextModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
   controllers: [AppController],

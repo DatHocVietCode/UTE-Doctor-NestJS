@@ -5,6 +5,7 @@ import { Account, AccountSchema } from "src/account/schemas/account.schema";
 import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
 import { AuthSaga } from "../orchestration/sagas/auth.saga";
+import { UserContextModule } from "src/user-context/user-context.module";
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { AuthSaga } from "../orchestration/sagas/auth.saga";
       signOptions: { expiresIn: process.env.JWT_EXPIRES_IN }
     }),
     MongooseModule.forFeature([{ name: Account.name, schema: AccountSchema }]),
+    UserContextModule,
   ],
   controllers: [AuthController],
   providers: [AuthService],
