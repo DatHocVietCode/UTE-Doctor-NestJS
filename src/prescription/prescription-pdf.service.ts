@@ -274,15 +274,6 @@ export class PrescriptionPdfService {
         `
             : ''
         }
-        
-        <div class="footer">
-          <div class="signature-box">
-            <p class="date">Ngày ${formattedDate}</p>
-            <p>Bác sĩ điều trị</p>
-            <p style="margin-top: 50px;">(Ký và ghi rõ họ tên)</p>
-            <p class="doctor-name">${data.doctorName || ''}</p>
-          </div>
-        </div>
       </body>
       </html>
     `;
