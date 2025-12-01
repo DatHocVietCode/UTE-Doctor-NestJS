@@ -40,6 +40,9 @@ export class AuthService {
     
     async login(loginUserDto: LoginUserReqDto): Promise<DataResponse<LoginUserResDto>> {
         const user = await this.accountModel.findOne({ email: loginUserDto.email }).exec();
+
+        console.log("Found user:", user?.email);
+
         let dataRes: DataResponse<LoginUserResDto> = {
             code: rc.ACCOUNT_NOT_FOUND,
             message: "",
@@ -49,6 +52,7 @@ export class AuthService {
         if (!user) {
             dataRes.message = "User not found";
             dataRes.code = rc.ACCOUNT_NOT_FOUND;
+            console.log(dataRes.message);
             return dataRes;
         }
         
@@ -56,12 +60,14 @@ export class AuthService {
         if (!isPasswordValid) {
             dataRes.message = "Invalid password";
             dataRes.code = rc.ERROR;
+            console.log(dataRes.message);
             return dataRes;
         }
 
         if (user.status === AccountStatusEnum.INACTIVE) {
             dataRes.message = "User is not activated! Automatically redirect you to verify OTP page...";
             dataRes.code = rc.ERROR;
+            console.log(dataRes.message);
             await this.handleOTPSending(loginUserDto.email);
             return dataRes;
         }
@@ -69,6 +75,8 @@ export class AuthService {
         // Login thành công
         dataRes.code = rc.SUCCESS;
         dataRes.message = "Login Successful";
+
+        console.log("Creating tokens for user:", user.email);
 
         const refreshTokenRespone = await this.getAccountRefreshToken(user.email); 
         const accessToken = this.createAccessToken(user.email, user.role, user._id.toString());
@@ -299,6 +307,7 @@ export class AuthService {
         {
             dataRes.code = rc.ACCOUNT_NOT_FOUND;
             dataRes.message = "Account not found";
+            console.log(dataRes.message);
         }
         else
         {
@@ -309,6 +318,7 @@ export class AuthService {
                     dataRes.code = rc.SUCCESS;
                     dataRes.message = "Successfully get refresh token";
                     dataRes.data = account.refreshToken;
+                    console.log(dataRes.message);
                 }
             }
             else
@@ -319,8 +329,11 @@ export class AuthService {
                 dataRes.code = rc.SUCCESS;
                 dataRes.message = "Successfully create new refresh token";
                 dataRes.data = newRefreshToken;
+                console.log(dataRes.message);
+                console.log("New refresh token: " + newRefreshToken);
             }
         }
+        console.log(dataRes.data);
         return dataRes;
     }
 
@@ -362,6 +375,7 @@ export class AuthService {
             // verify refresh token using refresh secret
             let payload: any;
             try {
+                console.log("Verifying refresh token", refreshToken);
                 payload = await this.jwtService.verifyAsync(refreshToken, { secret: process.env.JWT_REFRESH_SECRET });
             } catch (err) {
                 dataRes.message = 'Refresh token invalid or expired';
