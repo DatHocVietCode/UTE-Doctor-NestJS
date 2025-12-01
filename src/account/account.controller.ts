@@ -3,6 +3,7 @@ import { AccountService } from './account.service';
 import { Account } from './schemas/account.schema';
 import { AccountProfileDto } from './dto/account.dto';
 import { JwtAuthGuard } from 'src/common/guards/jws-auth.guard';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Controller('users')
 export class AccountController {
@@ -30,6 +31,15 @@ export class AccountController {
         @Body() updateProfileDto: Partial<AccountProfileDto>,
     ) {
         return this.accountService.updateUserProfile(req.user.id, updateProfileDto);
+    }
+
+    @Put('password')
+    @UseGuards(JwtAuthGuard)
+    async changePassword(
+        @Req() req: any,
+        @Body() body: ChangePasswordDto
+    ) {
+        return this.accountService.changePassword(req.user.id, body.currentPassword, body.newPassword);
     }
 
     @Patch(':id')

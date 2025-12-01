@@ -189,6 +189,47 @@ export class AccountService {
         }
     }
 
+    async changePassword(accountId: string, currentPassword: string, newPassword: string): Promise<DataResponse> {
+        const dataRes: DataResponse = {
+            code: rc.PENDING,
+            message: '',
+            data: null,
+        };
+
+        try {
+            const account = await this.accountModel.findById(accountId).exec();
+            if (!account) {
+                dataRes.code = rc.ERROR;
+                dataRes.message = 'Account not found';
+                return dataRes;
+            }
+
+            // Compare current password
+            const match = await bcrypt.compare(currentPassword, account.password || '');
+            if (!match) {
+                dataRes.code = rc.ERROR;
+                dataRes.message = 'Current password is incorrect';
+                return dataRes;
+            }
+
+            // Hash new password and update
+            const hashed = await bcrypt.hash(newPassword, 10);
+            account.password = hashed;
+            await account.save();
+
+            dataRes.code = rc.SUCCESS;
+            dataRes.message = 'Password changed successfully';
+            dataRes.data = null;
+            return dataRes;
+        } catch (error) {
+            console.error('[AccountService]: Error changing password', error);
+            dataRes.code = rc.ERROR;
+            dataRes.message = 'Failed to change password';
+            dataRes.data = null;
+            return dataRes;
+        }
+    }
+
     /**
      * 
      * @param email input Account's email
