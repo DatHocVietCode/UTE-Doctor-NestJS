@@ -68,4 +68,19 @@ export class AuthController
         );
     }
     }
+
+    @Post('/refresh')
+    async refreshToken(@Body() body: { refreshToken: string }) {
+        const { refreshToken } = body;
+        try {
+            const result = await this.authService.refresh(refreshToken);
+            if (result.code === rc.SUCCESS) return result;
+            throw new HttpException(result.message, HttpStatus.UNAUTHORIZED);
+        } catch (err: any) {
+            throw new HttpException(
+                { code: rc.SERVER_ERROR, message: err?.message ?? err, data: null },
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+    }
 }

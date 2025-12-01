@@ -345,4 +345,65 @@ export class AuthService {
             return false;
         }
     }
+
+    async refresh(refreshToken: string): Promise<DataResponse<LoginUserResDto>> {
+        const dataRes: DataResponse<LoginUserResDto> = {
+            code: rc.ERROR,
+            message: 'Invalid refresh token',
+            data: { accessToken: '', refreshToken: '', role: '', id: '' },
+        };
+
+        try {
+            if (!refreshToken) {
+                dataRes.message = 'Missing refresh token';
+                return dataRes;
+            }
+
+            // verify refresh token using refresh secret
+            let payload: any;
+            try {
+                payload = await this.jwtService.verifyAsync(refreshToken, { secret: process.env.JWT_REFRESH_SECRET });
+            } catch (err) {
+                dataRes.message = 'Refresh token invalid or expired';
+                return dataRes;
+            }
+
+            const email = payload?.sub;
+            if (!email) {
+                dataRes.message = 'Invalid token payload';
+                return dataRes;
+            }
+
+            const account = await this.accountModel.findOne({ email }).exec();
+            if (!account) {
+                dataRes.message = 'Account not found';
+                dataRes.code = rc.ACCOUNT_NOT_FOUND;
+                return dataRes;
+            }
+
+            // Ensure provided refresh token matches stored value
+            if (!account.refreshToken || account.refreshToken !== refreshToken) {
+                dataRes.message = 'Refresh token does not match';
+                return dataRes;
+            }
+
+            // Optionally refresh the refresh token if needed; for now reuse existing
+            const accessToken = this.createAccessToken(account.email, account.role, account._id.toString());
+
+            dataRes.code = rc.SUCCESS;
+            dataRes.message = 'Access token refreshed';
+            dataRes.data = {
+                accessToken,
+                refreshToken: account.refreshToken,
+                role: account.role,
+                id: account._id.toString(),
+            };
+
+            return dataRes;
+        } catch (error) {
+            console.error('[AuthService] Error refreshing token', error);
+            dataRes.message = 'Server error while refreshing token';
+            return dataRes;
+        }
+    }
 }

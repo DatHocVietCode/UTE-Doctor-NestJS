@@ -85,6 +85,39 @@ export class ProfileService {
       name: profile.name,
       gender: profile.gender,
       phoneNumber: profile.phone,
+      dateOfBirth: profile.dob,
+      address: profile.address,
+      avatarUrl: profile.avatarUrl,
+      createdAt: (profile as any).createdAt,  // type assertion
+      updatedAt: (profile as any).updatedAt
     };
+  }
+
+  async handleProfileUpdate(payload: { profileId: string; data: any }): Promise<Profile | null> {
+    try {
+      const { profileId, data } = payload;
+      
+      if (!mongoose.Types.ObjectId.isValid(profileId)) {
+        console.error('[ProfileService]: Invalid profile ID format', profileId);
+        return null;
+      }
+
+      const updatedProfile = await this.profileModel.findByIdAndUpdate(
+        profileId,
+        data,
+        { new: true }
+      ).exec();
+
+      if (!updatedProfile) {
+        console.error('[ProfileService]: Profile not found', profileId);
+        return null;
+      }
+
+      console.log('[ProfileService]: Profile updated successfully', profileId);
+      return updatedProfile;
+    } catch (error) {
+      console.error('[ProfileService]: Error updating profile', error);
+      return null;
+    }
   }
 }
