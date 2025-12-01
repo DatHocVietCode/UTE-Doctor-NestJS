@@ -58,9 +58,9 @@ export class DoctorSeeder implements OnModuleInit {
         degree: ["BSCKI", "BSCKII"][Math.floor(Math.random() * 2)],
       });
 
-      console.log(`✅ Seeded doctor: ${doc.name}`);
+      console.log(`Seeded doctor: ${doc.name}`);
     }
 
-    console.log("🎉 Done seeding doctors!");
+    console.log("Done seeding doctors!");
   }
 }

@@ -27,6 +27,15 @@ export class Doctor {
   degree: string[];
 
   @Prop()
+  academic: string;
+
+  @Prop()
+  bio: string;
+
+  @Prop()
+  achievements: string;
+
+  @Prop()
   yearsOfExperience: number;
 }
 
