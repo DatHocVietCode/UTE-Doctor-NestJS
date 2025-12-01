@@ -1,13 +1,10 @@
 
 import { Module } from "@nestjs/common";
-import { DoctorModule } from "src/doctor/doctor.module";
-import { PatientModule } from "src/patient/patient.module";
-import { ProfileModule } from "src/profile/profile.module";
-import { UserContextService } from "./user-context.service";
 import { MongooseModule } from "@nestjs/mongoose";
-import { Patient, PatientSchema } from "src/patient/schema/patient.schema";
 import { Doctor, DoctorSchema } from "src/doctor/schema/doctor.schema";
+import { Patient, PatientSchema } from "src/patient/schema/patient.schema";
 import { Profile, ProfileSchema } from "src/profile/schema/profile.schema";
+import { UserContextService } from "./user-context.service";
 
 @Module({
   imports: [

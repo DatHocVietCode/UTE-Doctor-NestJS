@@ -1,21 +1,20 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
 
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import mongoose, { Model } from 'mongoose';
-import { AuthService } from 'src/auth/auth.service';
-import { DataResponse } from 'src/common/dto/data-respone';
-import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
-import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
-import { OtpDTO } from 'src/utils/otp/otp-dto';
-import { Account, AccountDocument } from './schemas/account.schema';
 import { RegisterUserReqDto } from 'src/auth/dto/auth-user.dto';
-import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
+import { DataResponse } from 'src/common/dto/data-respone';
+import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
+import { Account, AccountDocument } from './schemas/account.schema';
 @Injectable()
 export class AccountService {
     constructor(
         @InjectModel(Account.name) private accountModel: Model<AccountDocument>,
-        private readonly eventEmitter: EventEmitter2
+        private readonly eventEmitter: EventEmitter2,
+        private readonly cloudinaryService: CloudinaryService,
     ) {}
 
     @OnEvent('account.createAccount')
@@ -155,10 +154,30 @@ export class AccountService {
 
             if (updateProfileDto.name !== undefined) profileUpdateData.name = updateProfileDto.name;
             if (updateProfileDto.phoneNumber !== undefined) profileUpdateData.phone = updateProfileDto.phoneNumber;
-            if (updateProfileDto.dateOfBirth !== undefined) profileUpdateData.dob = updateProfileDto.dateOfBirth;
+            if (updateProfileDto.dateOfBirth !== undefined) {
+                const dobVal = updateProfileDto.dateOfBirth;
+                profileUpdateData.dob = typeof dobVal === 'string' ? new Date(dobVal) : dobVal;
+            }
             if (updateProfileDto.address !== undefined) profileUpdateData.address = updateProfileDto.address;
             if (updateProfileDto.gender !== undefined) profileUpdateData.gender = updateProfileDto.gender;
-            if (updateProfileDto.avatarUrl !== undefined) profileUpdateData.avatarUrl = updateProfileDto.avatarUrl;
+            if (updateProfileDto.avatarUrl !== undefined) {
+                // If the avatar is a base64 data URI, upload it to Cloudinary
+                try {
+                    const avatarValue = updateProfileDto.avatarUrl as string;
+                    if (avatarValue && typeof avatarValue === 'string' && avatarValue.startsWith('data:')) {
+                        // Upload base64 to cloudinary
+                        const uploadedUrl = await this.cloudinaryService.uploadBase64(avatarValue, 'profiles');
+                        profileUpdateData.avatarUrl = uploadedUrl;
+                    } else {
+                        // Assume it's an already-hosted URL, or empty -> keep as is
+                        profileUpdateData.avatarUrl = avatarValue;
+                    }
+                } catch (error) {
+                    console.error('[AccountService]: Failed to upload avatar to Cloudinary', error);
+                    // Fallback: if upload fails, keep original base64 or URL
+                    profileUpdateData.avatarUrl = updateProfileDto.avatarUrl;
+                }
+            }
 
             // Chuẩn hóa profileId
             const profileId = account.profileId instanceof mongoose.Types.ObjectId

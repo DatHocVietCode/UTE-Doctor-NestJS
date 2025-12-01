@@ -1,8 +1,8 @@
 import { Body, Controller, HttpException, HttpStatus, Post } from "@nestjs/common";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode as rc } from "src/common/enum/reponse-code.enum";
-import { AuthService } from "./auth.service";
 import { LoginUserReqDto, RegisterUserReqDto } from "./dto/auth-user.dto";
+import { AuthService } from "./auth.service";
 
 @Controller("auth")
 export class AuthController
@@ -19,8 +19,9 @@ export class AuthController
     async loginUser(@Body() loginUserDTO: LoginUserReqDto)
     {
         try {
+            console.log(">>> CONTROLLER LOGIN CALLED");
             const result = await this.authService.login(loginUserDTO);
-            console.log(result);
+            console.log(">>> CONTROLLER RESULT:", result);
             // Nếu đăng nhập thành công → trả 200
             if (result.code === rc.SUCCESS) {
                 return result; // { code: rc.SUCCESS, message: "Login successfully!", data: { accessToken, refreshToken } }

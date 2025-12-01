@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
@@ -15,14 +15,16 @@ import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { Account } from '../account/schemas/account.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
 
-
 @Injectable()
 export class AuthService {
     constructor(@InjectModel(Account.name) private accountModel: Model<Account>
                 , private jwtService: JwtService
                 , private readonly eventEmitter: EventEmitter2
-            , private userContextService: UserContextService,) {}
-    
+            , private userContextService: UserContextService,) {
+                console.log('AuthService instantiated');
+            }
+     private readonly logger = new Logger(AuthService.name);
+
     async register(registerUser: RegisterUserReqDto) {
         // bắn event "đăng ký yêu cầu"
         this.eventEmitter.emitAsync('user.register.requested', {
@@ -39,9 +41,11 @@ export class AuthService {
     }
     
     async login(loginUserDto: LoginUserReqDto): Promise<DataResponse<LoginUserResDto>> {
+
+        this.logger.log(">>> BEFORE FIND ONE");
         const user = await this.accountModel.findOne({ email: loginUserDto.email }).exec();
 
-        console.log("Found user:", user?.email);
+        this.logger.log("Found user:", user?.email);
 
         let dataRes: DataResponse<LoginUserResDto> = {
             code: rc.ACCOUNT_NOT_FOUND,
@@ -52,7 +56,7 @@ export class AuthService {
         if (!user) {
             dataRes.message = "User not found";
             dataRes.code = rc.ACCOUNT_NOT_FOUND;
-            console.log(dataRes.message);
+            this.logger.log(dataRes.message);
             return dataRes;
         }
         
@@ -60,14 +64,14 @@ export class AuthService {
         if (!isPasswordValid) {
             dataRes.message = "Invalid password";
             dataRes.code = rc.ERROR;
-            console.log(dataRes.message);
+            this.logger.log(dataRes.message);
             return dataRes;
         }
 
         if (user.status === AccountStatusEnum.INACTIVE) {
             dataRes.message = "User is not activated! Automatically redirect you to verify OTP page...";
             dataRes.code = rc.ERROR;
-            console.log(dataRes.message);
+            this.logger.log(dataRes.message);
             await this.handleOTPSending(loginUserDto.email);
             return dataRes;
         }
@@ -79,6 +83,7 @@ export class AuthService {
         console.log("Creating tokens for user:", user.email);
 
         const refreshTokenRespone = await this.getAccountRefreshToken(user.email); 
+        this.logger.log("Refresh token response:", refreshTokenRespone);
         const accessToken = this.createAccessToken(user.email, user.role, user._id.toString());
         const userCtx = await this.userContextService.getUserContext(user);
         
@@ -295,45 +300,33 @@ export class AuthService {
         return data;
     }
 
-    async getAccountRefreshToken(email: string) : Promise<DataResponse<string>>
-    {
-        const account = await this.accountModel.findOne({email});
-        const dataRes: DataResponse= {
-            message: "",
-            code: rc.SERVER_ERROR,
-            data: ""
-        }
-        if (!account)
-        {
+    async getAccountRefreshToken(email: string) {
+        const account = await this.accountModel.findOne({ email });
+        const dataRes: DataResponse<string> = { code: rc.SERVER_ERROR, message: "", data: "" };
+
+        if (!account) {
             dataRes.code = rc.ACCOUNT_NOT_FOUND;
             dataRes.message = "Account not found";
-            console.log(dataRes.message);
+            // this.logger.warn(dataRes.message);  // Dùng logger thay vì console.log
+        } else {
+        if (account.refreshToken && this.isTokenAlive(account.refreshToken)) {
+            dataRes.code = rc.SUCCESS;
+            dataRes.message = "Successfully get refresh token";
+            dataRes.data = account.refreshToken;
+            // this.logger.log(dataRes.message);
+        } else {
+            const newRefreshToken = this.createRefreshToken(email);
+            account.refreshToken = newRefreshToken;
+            await account.save();
+            dataRes.code = rc.SUCCESS;
+            dataRes.message = "Successfully create new refresh token";
+            dataRes.data = newRefreshToken;
+            // this.logger.log(dataRes.message);
+            // this.logger.debug("New refresh token: " + newRefreshToken);
         }
-        else
-        {
-            if (account.refreshToken)
-            {
-                if (this.isTokenAlive(account.refreshToken))
-                {
-                    dataRes.code = rc.SUCCESS;
-                    dataRes.message = "Successfully get refresh token";
-                    dataRes.data = account.refreshToken;
-                    console.log(dataRes.message);
-                }
-            }
-            else
-            {
-                const newRefreshToken = this.createRefreshToken(email);
-                account.refreshToken = newRefreshToken;
-                await account.save();
-                dataRes.code = rc.SUCCESS;
-                dataRes.message = "Successfully create new refresh token";
-                dataRes.data = newRefreshToken;
-                console.log(dataRes.message);
-                console.log("New refresh token: " + newRefreshToken);
-            }
         }
-        console.log(dataRes.data);
+
+        // this.logger.debug(`dataRes.data: ${dataRes.data}`);
         return dataRes;
     }
 
