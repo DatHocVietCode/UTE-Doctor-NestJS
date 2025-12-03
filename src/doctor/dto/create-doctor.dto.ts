@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsNumber, IsOptional, IsString, ValidateNested, IsArray } from 'class-validator';
 import { Type } from 'class-transformer';
 
 class ProfileDto {
@@ -44,8 +44,9 @@ export class CreateDoctorDto {
   bio?: string;
 
   @IsOptional()
-  @IsString()
-  degree?: string;
+  @IsArray()
+  @IsString({ each: true })
+  degree?: string[];
 
   @IsOptional()
   @IsString()
