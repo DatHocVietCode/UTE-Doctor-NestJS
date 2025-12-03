@@ -15,9 +15,6 @@ export class Doctor {
   accountId: mongoose.Types.ObjectId;
 
   @Prop()
-  avatar: string;
-
-  @Prop()
   doctorName: string;
 
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: ChuyenKhoa.name, required: false })
@@ -32,7 +29,7 @@ export class Doctor {
   @Prop()
   bio: string;
 
-  @Prop()
+  @Prop({ type: [String], default: [] })
   achievements: string;
 
   @Prop()

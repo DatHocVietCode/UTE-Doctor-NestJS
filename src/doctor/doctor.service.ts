@@ -6,6 +6,12 @@ import { Model, Types } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
+import { Account, AccountDocument } from 'src/account/schemas/account.schema';
+import { MailService } from 'src/mail/mail.service';
+import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
+import { RoleEnum } from 'src/common/enum/role.enum';
+import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { TimeSlotDto } from 'src/timeslot/dtos/timeslot.dto';
 import { TimeSlotStatusEnum } from 'src/timeslot/enums/timeslot-status.enum';
 import { emitTyped } from 'src/utils/helpers/event.helper';
@@ -18,7 +24,10 @@ import { Doctor, DoctorDocument } from './schema/doctor.schema';
 export class DoctorService {
   constructor(
     @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
-    private readonly eventEmitter: EventEmitter2
+    @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
+    @InjectModel(Account.name) private readonly accountModel: Model<AccountDocument>,
+    private readonly eventEmitter: EventEmitter2,
+    private readonly mailService: MailService,
   ) {}
 
   @OnEvent('doctor.createDoctor')
@@ -72,6 +81,103 @@ export class DoctorService {
 
   async findById(id: string): Promise<Doctor | null> {
     return this.doctorModel.findById(id).populate('profileId').populate('chuyenKhoaId').exec();
+  }
+
+  async createWithAccount(createDoctorDto: CreateDoctorDto) {
+    const dataRes: DataResponse<any> = { code: rc.PENDING, message: '', data: null };
+
+    let profileDoc: any = null;
+    let accountDoc: any = null;
+    let savedDoctor: any = null;
+
+    try {
+      // check email uniqueness
+      const email = createDoctorDto.profile?.email;
+      if (!email) throw new Error('Doctor email is required');
+      const exists = await this.accountModel.exists({ email });
+      if (exists) throw new Error('Account with this email already exists');
+
+      // create profile
+      profileDoc = await this.profileModel.create({
+        name: createDoctorDto.profile.name,
+        address: createDoctorDto.profile.address ?? '',
+        phone: createDoctorDto.profile.phone ?? '',
+        email: createDoctorDto.profile.email,
+        gender: createDoctorDto.profile.gender ?? '',
+        dob: createDoctorDto.profile.dob ? new Date(createDoctorDto.profile.dob) : null,
+        avatarUrl: createDoctorDto.profile.avatarUrl ?? '',
+      });
+
+      // generate random password
+      const rawPassword = crypto.randomBytes(6).toString('hex');
+      const hashed = await bcrypt.hash(rawPassword, 10);
+
+      // create account
+      accountDoc = await this.accountModel.create({
+        email: email,
+        password: hashed,
+        role: RoleEnum.DOCTOR,
+        profileId: profileDoc._id,
+        status: AccountStatusEnum.INACTIVE,
+      } as any);
+
+      // prepare doctor fields
+      const doctorPayload: any = {
+        profileId: profileDoc._id,
+        accountId: accountDoc._id,
+        doctorName: createDoctorDto.doctorName,
+        chuyenKhoaId: createDoctorDto.specialty ?? undefined,
+        bio: createDoctorDto.bio ?? undefined,
+        academic: createDoctorDto.academic ?? undefined,
+        achievements: createDoctorDto.achievements ?? undefined,
+        yearsOfExperience: createDoctorDto.yearsOfExperience ?? undefined,
+      };
+      if (createDoctorDto.degree) {
+        doctorPayload.degree = Array.isArray(createDoctorDto.degree) ? createDoctorDto.degree : [createDoctorDto.degree];
+      }
+
+      const doctorDoc = new this.doctorModel(doctorPayload);
+      savedDoctor = await doctorDoc.save();
+
+      // send email with raw password (let errors propagate to trigger rollback)
+      await this.mailService.sendAccountCreatedMail({ toEmail: email, password: rawPassword });
+
+      dataRes.code = rc.SUCCESS;
+      dataRes.message = 'Doctor created successfully';
+      dataRes.data = savedDoctor;
+      return dataRes;
+    } catch (error) {
+      // rollback created resources
+      const cleanupErrors: string[] = [];
+      try {
+        if (savedDoctor && savedDoctor._id) {
+          await this.doctorModel.deleteOne({ _id: savedDoctor._id });
+        }
+      } catch (e) {
+        cleanupErrors.push(`doctor:${e.message}`);
+      }
+      try {
+        if (accountDoc && accountDoc._id) {
+          await this.accountModel.deleteOne({ _id: accountDoc._id });
+        }
+      } catch (e) {
+        cleanupErrors.push(`account:${e.message}`);
+      }
+      try {
+        if (profileDoc && profileDoc._id) {
+          await this.profileModel.deleteOne({ _id: profileDoc._id });
+        }
+      } catch (e) {
+        cleanupErrors.push(`profile:${e.message}`);
+      }
+
+      console.error('[DoctorService] Rollback cleanup errors:', cleanupErrors);
+
+      dataRes.code = rc.ERROR;
+      dataRes.message = error.message || 'Error creating doctor';
+      dataRes.data = { cleanupErrors: cleanupErrors.length ? cleanupErrors : undefined };
+      return dataRes;
+    }
   }
 
 
@@ -236,4 +342,51 @@ export class DoctorService {
     return dataRes;
   }
 
+  async getDoctors(query: any) {
+    const {
+      name,
+      chuyenKhoaId,
+      page = 1,
+      limit = 10,
+    } = query;
+
+    const filter: any = {};
+
+    if (name) {
+      filter.doctorName = { $regex: name, $options: "i" }; // tìm gần đúng
+    }
+
+    if (chuyenKhoaId) {
+      filter.chuyenKhoaId = chuyenKhoaId;
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [doctors, total] = await Promise.all([
+      this.doctorModel
+        .find(filter)
+        .populate('profileId')
+        .populate('accountId')
+        .populate('chuyenKhoaId')
+        .skip(skip)
+        .limit(Number(limit))
+        .exec(),
+
+      this.doctorModel.countDocuments(filter),
+    ]);
+
+    return {
+      code: 200,
+      message: "Lấy danh sách bác sĩ thành công",
+      data: {
+        doctors,
+        pagination: {
+          total,
+          page: Number(page),
+          limit: Number(limit),
+          totalPages: Math.ceil(total / limit),
+        },
+      },
+    };
+  }
 }

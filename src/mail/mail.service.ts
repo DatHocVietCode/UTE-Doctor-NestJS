@@ -28,6 +28,19 @@ export class MailService {
     console.log(`[MailService] Mail sent to ${to} | Subject: ${subject}`);
   }
 
+  async sendAccountCreatedMail(payload: { toEmail: string; password: string }) {
+    const { toEmail, password } = payload;
+    const html = `
+      <h2>Xin chào,</h2>
+      <p>Tài khoản bác sĩ của bạn đã được tạo.</p>
+      <p><b>Email:</b> ${toEmail}</p>
+      <p><b>Mật khẩu tạm thời:</b> <code>${password}</code></p>
+      <p>Vui lòng đăng nhập và đổi mật khẩu sau khi đăng nhập lần đầu.</p>
+    `;
+
+    await this.sendMail(toEmail, 'Tài khoản bác sĩ - UTE Doctor', html);
+  }
+
   /** === OTP === */
   @OnEvent("mail.otp.send")
   async sendOtpMail(payload: { toEmail: string; otp: string }) {

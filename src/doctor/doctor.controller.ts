@@ -4,10 +4,23 @@ import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { Doctor } from './schema/doctor.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { TimeSlotStatusEnum } from 'src/timeslot/enums/timeslot-status.enum';
+import { GetDoctorDto } from 'src/doctor/dto/get-doctor.dto';
 
 @Controller('doctors')
 export class DoctorController {
   constructor(private readonly doctorService: DoctorService) {}
+
+  @Post()
+  async createDoctor(@Body() dto: CreateDoctorDto) {
+    const res = await this.doctorService.createWithAccount(dto);
+    return res;
+  }
+
+    @Get('/admin')
+    async getDoctors(@Query() query: GetDoctorDto) {
+      return this.doctorService.getDoctors(query);
+    }
+
 
   // @Post()
   // async create(@Body() createDoctorDto: CreateDoctorDto): Promise<Doctor> {
@@ -51,4 +64,6 @@ export class DoctorController {
   async getDoctorByAccountId(@Param('accountId') accountId: string) {
     return this.doctorService.getDoctorByAccountId(accountId);
   }
+
+
 }
