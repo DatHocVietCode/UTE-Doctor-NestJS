@@ -1,14 +1,21 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { DoctorService } from './doctor.service';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { Doctor } from './schema/doctor.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { TimeSlotStatusEnum } from 'src/timeslot/enums/timeslot-status.enum';
 import { GetDoctorDto } from 'src/doctor/dto/get-doctor.dto';
+import { Types } from 'mongoose';
+import { UpdateDoctorDto } from 'src/doctor/dto/update-doctor.dto';
 
 @Controller('doctors')
 export class DoctorController {
   constructor(private readonly doctorService: DoctorService) {}
+
+    @Get('/active')
+    async getActiveDoctors(@Query() query) {
+      return this.doctorService.findActiveDoctors(query);
+    }
 
   @Post()
   async createDoctor(@Body() dto: CreateDoctorDto) {
@@ -65,5 +72,16 @@ export class DoctorController {
     return this.doctorService.getDoctorByAccountId(accountId);
   }
 
+  @Patch(":id")
+  async updateDoctor(
+    @Param("id") id: string,
+    @Body() dto: UpdateDoctorDto
+  ) {
+    if (!Types.ObjectId.isValid(id)) {
+      return { code: 400, message: "Invalid doctor ID", data: null };
+    }
+
+    return this.doctorService.updateDoctor(id, dto);
+  }
 
 }

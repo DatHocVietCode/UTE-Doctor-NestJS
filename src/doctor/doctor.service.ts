@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import Fuse from 'fuse.js';
-import { Model, Types } from 'mongoose';
+import mongoose, { Model, Types } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
@@ -18,6 +18,7 @@ import { emitTyped } from 'src/utils/helpers/event.helper';
 import { getProfileByEntity } from 'src/utils/helpers/profile.helper';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { Doctor, DoctorDocument } from './schema/doctor.schema';
+import { UpdateDoctorDto } from 'src/doctor/dto/update-doctor.dto';
 
 
 @Injectable()
@@ -126,7 +127,7 @@ export class DoctorService {
         profileId: profileDoc._id,
         accountId: accountDoc._id,
         doctorName: createDoctorDto.doctorName,
-        chuyenKhoaId: createDoctorDto.specialty ?? undefined,
+        chuyenKhoaId: createDoctorDto.specialty ? new Types.ObjectId(createDoctorDto.specialty) : undefined,
         bio: createDoctorDto.bio ?? undefined,
         academic: createDoctorDto.academic ?? undefined,
         achievements: createDoctorDto.achievements ?? undefined,
@@ -432,4 +433,152 @@ export class DoctorService {
       },
     };
   }
+
+  async updateDoctor(id: string, dto: UpdateDoctorDto) {
+    const doctor = await this.doctorModel
+      .findById(id)
+      .populate("profileId")
+      .exec();
+
+    if (!doctor) {
+      return { code: 404, message: "Doctor not found", data: null };
+    }
+
+    // Cập nhật thông tin doctor
+    if (dto.doctorName) doctor.doctorName = dto.doctorName;
+    if (dto.specialty) doctor.chuyenKhoaId = new Types.ObjectId(dto.specialty);
+    if (dto.bio) doctor.bio = dto.bio;
+    if (dto.degree) doctor.degree = dto.degree;
+    if (dto.academic) doctor.academic = dto.academic;
+    if (dto.achievements) doctor.achievements = dto.achievements;
+    if (dto.yearsOfExperience !== undefined)
+      doctor.yearsOfExperience = dto.yearsOfExperience;
+
+    await doctor.save();
+
+    // Nếu có cập nhật profile
+    if (dto.profile) {
+      const profile = doctor.profileId as any;
+
+      if (dto.profile.name) profile.name = dto.profile.name;
+      if (dto.profile.email) profile.email = dto.profile.email;
+      if (dto.profile.phone) profile.phone = dto.profile.phone;
+      if (dto.profile.address) profile.address = dto.profile.address;
+      if (dto.profile.gender) profile.gender = dto.profile.gender;
+      if (dto.profile.dob) profile.dob = dto.profile.dob;
+      if (dto.profile.avatarUrl) profile.avatarUrl = dto.profile.avatarUrl;
+
+      await profile.save();
+    }
+
+    return {
+      code: 200,
+      message: "Doctor updated successfully",
+      data: doctor,
+    };
+  }
+
+  async findActiveDoctors(query: any): Promise<DataResponse<any>> {
+    const { page = 1, limit = 10, chuyenKhoaId } = query;
+
+    const skip = (page - 1) * limit;
+
+    const matchStage: any = {
+      'account.status': 'ACTIVE'
+    };
+
+    if (chuyenKhoaId) {
+      matchStage['chuyenKhoaId'] = new mongoose.Types.ObjectId(chuyenKhoaId);
+    }
+
+    const doctors = await this.doctorModel.aggregate([
+      // Join account
+      {
+        $lookup: {
+          from: 'accounts',
+          localField: 'accountId',
+          foreignField: '_id',
+          as: 'account'
+        }
+      },
+      { $unwind: '$account' },
+
+      // Lọc account active + filter chuyên khoa
+      { $match: matchStage },
+
+      // Join profile
+      {
+        $lookup: {
+          from: 'profiles',
+          localField: 'profileId',
+          foreignField: '_id',
+          as: 'profile'
+        }
+      },
+      { $unwind: '$profile' },
+
+      // Join chuyên khoa
+      {
+        $lookup: {
+          from: 'chuyenkhoas',
+          localField: 'chuyenKhoaId',
+          foreignField: '_id',
+          as: 'chuyenKhoa'
+        }
+      },
+      { $unwind: { path: '$chuyenKhoa', preserveNullAndEmptyArrays: true } },
+
+      // Join review doctor
+      {
+        $lookup: {
+          from: 'reviews',
+          localField: '_id',
+          foreignField: 'doctorId',
+          as: 'reviews'
+        }
+      },
+
+      // Lấy top 5 review rating cao nhất
+      {
+        $addFields: {
+          topReviews: {
+            $slice: [
+              {
+                $sortArray: {
+                  input: '$reviews',
+                  sortBy: { rating: -1 }
+                }
+              },
+              5
+            ]
+          }
+        }
+      },
+
+      // Không trả full review
+      { $project: { reviews: 0 } },
+
+      // Phân trang
+      { $skip: skip },
+      { $limit: Number(limit) }
+    ]);
+
+    // Tổng số bác sĩ để trả pagination
+    const total = await this.doctorModel.countDocuments();
+
+    return {
+      code: rc.SUCCESS,
+      message: 'Lấy danh sách bác sĩ active thành công',
+      data: {
+        items: doctors,
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total
+        }
+      }
+    };
+  }
+
+
 }

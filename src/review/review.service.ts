@@ -31,8 +31,18 @@ export class ReviewService {
   async findAll(): Promise<DataResponse<any>> {
     const result = await this.reviewModel
       .find()
-      .populate('doctorId')
-      .populate('patientId')
+      .populate({
+        path: 'doctorId',
+        select: 'doctorName',
+      })
+      .populate({
+        path: 'patientId',
+        select: 'profileId',      
+        populate: {
+          path: 'profileId',
+          select: 'name',           
+        },
+      })
       .exec();
 
     return {
@@ -41,6 +51,7 @@ export class ReviewService {
       data: result,
     };
   }
+
 
   async findById(id: string): Promise<DataResponse<any>> {
     if (!Types.ObjectId.isValid(id)) {
