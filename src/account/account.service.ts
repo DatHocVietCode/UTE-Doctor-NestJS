@@ -9,6 +9,7 @@ import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { Account, AccountDocument } from './schemas/account.schema';
+import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 @Injectable()
 export class AccountService {
     constructor(
@@ -297,4 +298,26 @@ export class AccountService {
     //     }
     //     return dataRes;
     // }
+
+    async updateStatus(accountId: string, status: AccountStatusEnum) {
+        const account = await this.accountModel.findById(accountId);
+
+        if (!account) {
+            return {
+            code: 404,
+            message: "Account not found",
+            data: null
+            };
+        }
+
+        account.status = status;
+        await account.save();
+
+        return {
+            code: 200,
+            message: "Status updated successfully",
+            data: account
+        };
+    }
+
 }

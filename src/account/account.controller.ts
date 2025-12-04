@@ -7,6 +7,8 @@ import { AccountService } from './account.service';
 import { AccountProfileDto } from './dto/account.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { Account } from './schemas/account.schema';
+import { Types } from 'mongoose';
+import { UpdateAccountStatusDto } from 'src/account/dto/update-account-status.dto';
 
 @Controller('users')
 export class AccountController {
@@ -69,6 +71,22 @@ export class AccountController {
     @Delete(':id')
     remove(@Param('id') id: string) {
         return this.accountService.remove(id);
+    }
+
+    @Patch(":id/status")
+    async updateStatus(
+        @Param("id") id: string,
+        @Body() dto: UpdateAccountStatusDto
+    ) {
+        if (!Types.ObjectId.isValid(id)) {
+        return {
+            code: 400,
+            message: "Invalid account ID",
+            data: null
+        };
+        }
+
+        return this.accountService.updateStatus(id, dto.status);
     }
 
 

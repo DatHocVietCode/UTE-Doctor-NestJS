@@ -353,7 +353,7 @@ export class DoctorService {
     const filter: any = {};
 
     if (name) {
-      filter.doctorName = { $regex: name, $options: "i" }; // tìm gần đúng
+      // We'll perform fuzzy search below using Fuse.js, so don't add regex filter here
     }
 
     if (chuyenKhoaId) {
@@ -361,7 +361,50 @@ export class DoctorService {
     }
 
     const skip = (page - 1) * limit;
+    // If name is provided, perform fuzzy search using Fuse.js on populated profile name and doctorName
+    if (name) {
+      // load candidates (apply specialty filter if present)
+      const candidates: any[] = await this.doctorModel
+        .find(filter)
+        .populate('profileId')
+        .populate('accountId')
+        .populate('chuyenKhoaId')
+        .lean()
+        .exec();
 
+      const fuse = new Fuse(candidates, {
+        keys: [
+          { name: 'doctorName', weight: 0.6 },
+          { name: 'profileId.name', weight: 0.9 },
+        ],
+        threshold: 0.4,
+        includeScore: true,
+        ignoreLocation: true,
+      });
+
+      const results = fuse.search(name || '');
+      const matched = results.map((r) => r.item);
+      const total = matched.length;
+
+      // pagination on matched results
+      const paged = matched.slice(skip, skip + Number(limit));
+
+      return {
+        code: 200,
+        message: 'Lấy danh sách bác sĩ thành công',
+        data: {
+          doctors: paged,
+          pagination: {
+            total,
+            page: Number(page),
+            limit: Number(limit),
+            totalPages: Math.ceil(total / limit),
+          },
+        },
+      };
+    }
+
+    // No name => use database pagination
     const [doctors, total] = await Promise.all([
       this.doctorModel
         .find(filter)
@@ -377,7 +420,7 @@ export class DoctorService {
 
     return {
       code: 200,
-      message: "Lấy danh sách bác sĩ thành công",
+      message: 'Lấy danh sách bác sĩ thành công',
       data: {
         doctors,
         pagination: {
