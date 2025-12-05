@@ -5,7 +5,7 @@ import mongoose, { Model } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { RoleEnum } from 'src/common/enum/role.enum';
-import { ProfileDocument } from 'src/profile/schema/profile.schema';
+import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
 import { getProfileByEntity } from 'src/utils/helpers/profile.helper';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { PatientProfileDTO } from './dto/patient.dto';
@@ -16,6 +16,7 @@ export class PatientService {
     
   constructor(
     @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
+    @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
     private readonly eventEmitter: EventEmitter2
   ) {}
 
@@ -170,6 +171,57 @@ export class PatientService {
       .findById(id)
       .populate('profileId')   // lấy thông tin Profile
       .exec();
+  }
+
+  async findAll(page: number = 1, limit: number = 5, keyword?: string) {
+    const skip = (page - 1) * limit;
+
+    let profileFilter = {};
+
+    if (keyword) {
+      profileFilter = {
+        name: { $regex: keyword, $options: 'i' } // fuzzy search không phân biệt hoa/thường
+      };
+    }
+
+    const matchedProfiles = await this.profileModel.find(profileFilter, '_id');
+
+    const profileIds = matchedProfiles.map(p => p._id);
+
+    const query: any = {};
+    if (keyword) {
+      query.profileId = { $in: profileIds };
+    }
+
+    const [data, total] = await Promise.all([
+      this.patientModel
+        .find(query)
+        .skip(skip)
+        .limit(limit)
+        .populate({
+          path: 'profileId',
+          select: 'name phone email gender dob avatarUrl'
+        })
+        .populate({
+          path: 'accountId',
+          select: 'email role status'
+        })
+        .exec(),
+
+      this.patientModel.countDocuments(query),
+    ]);
+
+    return {
+      code: 200,
+      message: 'Get patients successfully',
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
 }

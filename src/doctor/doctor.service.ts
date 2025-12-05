@@ -353,9 +353,7 @@ export class DoctorService {
 
     const filter: any = {};
 
-    if (name) {
-      // We'll perform fuzzy search below using Fuse.js, so don't add regex filter here
-    }
+
 
     if (chuyenKhoaId) {
       filter.chuyenKhoaId = chuyenKhoaId;
@@ -405,7 +403,6 @@ export class DoctorService {
       };
     }
 
-    // No name => use database pagination
     const [doctors, total] = await Promise.all([
       this.doctorModel
         .find(filter)

@@ -7,6 +7,20 @@ import { Types } from 'mongoose';
 export class PatientController {
   constructor(private readonly patientService: PatientService) {}
 
+  @Get('/admin/')
+  async getAllPatients(
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+    @Query('keyword') keyword?: string
+  ) {
+    return this.patientService.findAll(
+      Number(page) || 1,
+      Number(limit) || 10,
+      keyword || ''
+    );
+  }
+
+
   @Get('/me')
   async getPatientProfile(@Query('email') email: string) : Promise<DataResponse> {
     return await this.patientService.getPatientProfileByEmail(email);
