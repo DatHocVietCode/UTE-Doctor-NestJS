@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { DoctorService } from './doctor.service';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { Doctor } from './schema/doctor.schema';
@@ -7,6 +7,8 @@ import { TimeSlotStatusEnum } from 'src/timeslot/enums/timeslot-status.enum';
 import { GetDoctorDto } from 'src/doctor/dto/get-doctor.dto';
 import { Types } from 'mongoose';
 import { UpdateDoctorDto } from 'src/doctor/dto/update-doctor.dto';
+import { FileInterceptor } from '@nestjs/platform-express';
+import * as multer from 'multer';
 
 @Controller('doctors')
 export class DoctorController {
@@ -18,8 +20,22 @@ export class DoctorController {
     }
 
   @Post()
-  async createDoctor(@Body() dto: CreateDoctorDto) {
-    const res = await this.doctorService.createWithAccount(dto);
+  @UseInterceptors(FileInterceptor('avatar', { storage: multer.memoryStorage() }))
+  async createDoctor(
+    @Body() body: any,
+    @UploadedFile() avatar?: Express.Multer.File,
+  ) {
+    if (typeof body.profile === 'string') {
+      body.profile = JSON.parse(body.profile);
+    }
+    if (typeof body.degree === 'string') {
+      body.degree = JSON.parse(body.degree);
+    }
+    if (typeof body.yearsOfExperience === 'string') {
+      body.yearsOfExperience = Number(body.yearsOfExperience);
+    }
+
+    const res = await this.doctorService.createWithAccount(body, avatar);
     return res;
   }
 
@@ -72,16 +88,24 @@ export class DoctorController {
     return this.doctorService.getDoctorByAccountId(accountId);
   }
 
-  @Patch(":id")
-  async updateDoctor(
-    @Param("id") id: string,
-    @Body() dto: UpdateDoctorDto
+  @Patch(':id')
+  @UseInterceptors(FileInterceptor('avatar', { storage: multer.memoryStorage() }))
+  updateDoctor(
+    @Param('id') id: string,
+    @Body() body: any,
+    @UploadedFile() avatar?: Express.Multer.File,
   ) {
-    if (!Types.ObjectId.isValid(id)) {
-      return { code: 400, message: "Invalid doctor ID", data: null };
+    if (typeof body.profile === 'string') {
+      body.profile = JSON.parse(body.profile);
+    }
+    if (typeof body.degree === 'string') {
+      body.degree = JSON.parse(body.degree);
+    }
+    if (typeof body.yearsOfExperience === 'string') {
+      body.yearsOfExperience = Number(body.yearsOfExperience);
     }
 
-    return this.doctorService.updateDoctor(id, dto);
+    return this.doctorService.updateDoctor(id, body, avatar);
   }
 
 }

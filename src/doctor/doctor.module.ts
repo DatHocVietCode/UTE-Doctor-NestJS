@@ -8,6 +8,7 @@ import { DoctorSeeder } from './doctor.seeder';
 import { DoctorListener } from './listenners/doctor.listernner';
 import { Account, AccountSchema } from 'src/account/schemas/account.schema';
 import { MailModule } from 'src/mail/mail.module';
+import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { MailModule } from 'src/mail/mail.module';
       { name: Account.name, schema: AccountSchema },
     ]),
     MailModule,
+    CloudinaryModule,
   ],
   providers: [DoctorService, DoctorSeeder, DoctorListener],
   controllers: [DoctorController],

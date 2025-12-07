@@ -399,11 +399,8 @@ export class AppointmentService {
             totalPages: Math.ceil(total / limit),
         },
     };
-/**
-     * Reschedule an appointment to a new date and time slot
-     * Emits event with refund information (80% of consultation fee as coins)
-     */
-    async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId: string, reason?: string) {
+}
+async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId: string, reason?: string) {
         const appointment = await this.appointmentModel.findById(appointmentId);
         if (!appointment) {
             throw new NotFoundException('Appointment not found');
@@ -463,9 +460,7 @@ export class AppointmentService {
         };
     }
 
-    /**
-     * Cancel an appointment and refund 100% of consultation fee as coins
-     */
+
     async cancelAppointment(appointmentId: string, reason?: string) {
         const appointment = await this.appointmentModel.findById(appointmentId);
         if (!appointment) {
@@ -513,6 +508,5 @@ export class AppointmentService {
             },
         };
     }
-}
 
 }

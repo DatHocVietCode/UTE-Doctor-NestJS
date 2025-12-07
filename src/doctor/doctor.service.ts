@@ -3,11 +3,13 @@ import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import Fuse from 'fuse.js';
 import mongoose, { Model, Types } from 'mongoose';
+import { Express } from 'express';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
 import { Account, AccountDocument } from 'src/account/schemas/account.schema';
 import { MailService } from 'src/mail/mail.service';
+import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { RoleEnum } from 'src/common/enum/role.enum';
@@ -29,6 +31,7 @@ export class DoctorService {
     @InjectModel(Account.name) private readonly accountModel: Model<AccountDocument>,
     private readonly eventEmitter: EventEmitter2,
     private readonly mailService: MailService,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   @OnEvent('doctor.createDoctor')
@@ -84,7 +87,7 @@ export class DoctorService {
     return this.doctorModel.findById(id).populate('profileId').populate('chuyenKhoaId').exec();
   }
 
-  async createWithAccount(createDoctorDto: CreateDoctorDto) {
+  async createWithAccount(createDoctorDto: CreateDoctorDto, avatar?: Express.Multer.File) {
     const dataRes: DataResponse<any> = { code: rc.PENDING, message: '', data: null };
 
     let profileDoc: any = null;
@@ -98,6 +101,16 @@ export class DoctorService {
       const exists = await this.accountModel.exists({ email });
       if (exists) throw new Error('Account with this email already exists');
 
+      // If avatar file provided, upload to Cloudinary first
+      let uploadedAvatarUrl: string | undefined;
+      if (avatar) {
+        uploadedAvatarUrl = await this.cloudinaryService.uploadFileBuffer(
+          avatar.buffer,
+          avatar.mimetype,
+          'profiles',
+        );
+      }
+
       // create profile
       profileDoc = await this.profileModel.create({
         name: createDoctorDto.profile.name,
@@ -106,7 +119,7 @@ export class DoctorService {
         email: createDoctorDto.profile.email,
         gender: createDoctorDto.profile.gender ?? '',
         dob: createDoctorDto.profile.dob ? new Date(createDoctorDto.profile.dob) : null,
-        avatarUrl: createDoctorDto.profile.avatarUrl ?? '',
+        avatarUrl: uploadedAvatarUrl ?? createDoctorDto.profile.avatarUrl ?? '',
       });
 
       // generate random password
@@ -431,46 +444,60 @@ export class DoctorService {
     };
   }
 
-  async updateDoctor(id: string, dto: UpdateDoctorDto) {
+  async updateDoctor(id: string, dto: UpdateDoctorDto, avatar?: Express.Multer.File) {
     const doctor = await this.doctorModel
       .findById(id)
-      .populate("profileId")
+      .populate('profileId')
       .exec();
 
     if (!doctor) {
-      return { code: 404, message: "Doctor not found", data: null };
+      return { code: 404, message: 'Doctor not found', data: null };
     }
 
-    // Cập nhật thông tin doctor
+    // Update doctor core fields
     if (dto.doctorName) doctor.doctorName = dto.doctorName;
     if (dto.specialty) doctor.chuyenKhoaId = new Types.ObjectId(dto.specialty);
     if (dto.bio) doctor.bio = dto.bio;
     if (dto.degree) doctor.degree = dto.degree;
     if (dto.academic) doctor.academic = dto.academic;
     if (dto.achievements) doctor.achievements = dto.achievements;
-    if (dto.yearsOfExperience !== undefined)
-      doctor.yearsOfExperience = dto.yearsOfExperience;
+    if (dto.yearsOfExperience !== undefined) doctor.yearsOfExperience = dto.yearsOfExperience;
 
     await doctor.save();
 
-    // Nếu có cập nhật profile
-    if (dto.profile) {
+    // Update profile fields and avatar upload
+    if (dto.profile || avatar) {
       const profile = doctor.profileId as any;
 
-      if (dto.profile.name) profile.name = dto.profile.name;
-      if (dto.profile.email) profile.email = dto.profile.email;
-      if (dto.profile.phone) profile.phone = dto.profile.phone;
-      if (dto.profile.address) profile.address = dto.profile.address;
-      if (dto.profile.gender) profile.gender = dto.profile.gender;
-      if (dto.profile.dob) profile.dob = dto.profile.dob;
-      if (dto.profile.avatarUrl) profile.avatarUrl = dto.profile.avatarUrl;
+      if (dto.profile) {
+        if (dto.profile.name) profile.name = dto.profile.name;
+        if (dto.profile.email) profile.email = dto.profile.email;
+        if (dto.profile.phone) profile.phone = dto.profile.phone;
+        if (dto.profile.address) profile.address = dto.profile.address;
+        if (dto.profile.gender) profile.gender = dto.profile.gender;
+        if (dto.profile.dob) profile.dob = dto.profile.dob;
+        if (dto.profile.avatarUrl) profile.avatarUrl = dto.profile.avatarUrl;
+      }
+
+      if (avatar) {
+        try {
+          const uploadedUrl = await this.cloudinaryService.uploadFileBuffer(
+            avatar.buffer,
+            avatar.mimetype,
+            'profiles',
+          );
+          profile.avatarUrl = uploadedUrl;
+        } catch (error) {
+          console.error('[DoctorService]: Failed to upload avatar to Cloudinary', error);
+        }
+      }
 
       await profile.save();
     }
 
     return {
       code: 200,
-      message: "Doctor updated successfully",
+      message: 'Doctor updated successfully',
       data: doctor,
     };
   }
@@ -481,7 +508,7 @@ export class DoctorService {
     const skip = (page - 1) * limit;
 
     const matchStage: any = {
-      'account.status': 'ACTIVE'
+      'account.status': 'ACTIVE',
     };
 
     if (chuyenKhoaId) {
@@ -489,53 +516,47 @@ export class DoctorService {
     }
 
     const doctors = await this.doctorModel.aggregate([
-      // Join account
       {
         $lookup: {
           from: 'accounts',
           localField: 'accountId',
           foreignField: '_id',
-          as: 'account'
-        }
+          as: 'account',
+        },
       },
       { $unwind: '$account' },
 
-      // Lọc account active + filter chuyên khoa
       { $match: matchStage },
 
-      // Join profile
       {
         $lookup: {
           from: 'profiles',
           localField: 'profileId',
           foreignField: '_id',
-          as: 'profile'
-        }
+          as: 'profile',
+        },
       },
       { $unwind: '$profile' },
 
-      // Join chuyên khoa
       {
         $lookup: {
           from: 'chuyenkhoas',
           localField: 'chuyenKhoaId',
           foreignField: '_id',
-          as: 'chuyenKhoa'
-        }
+          as: 'chuyenKhoa',
+        },
       },
       { $unwind: { path: '$chuyenKhoa', preserveNullAndEmptyArrays: true } },
 
-      // Join review doctor
       {
         $lookup: {
           from: 'reviews',
           localField: '_id',
           foreignField: 'doctorId',
-          as: 'reviews'
-        }
+          as: 'reviews',
+        },
       },
 
-      // Lấy top 5 review rating cao nhất
       {
         $addFields: {
           topReviews: {
@@ -543,24 +564,21 @@ export class DoctorService {
               {
                 $sortArray: {
                   input: '$reviews',
-                  sortBy: { rating: -1 }
-                }
+                  sortBy: { rating: -1 },
+                },
               },
-              5
-            ]
-          }
-        }
+              5,
+            ],
+          },
+        },
       },
 
-      // Không trả full review
       { $project: { reviews: 0 } },
 
-      // Phân trang
       { $skip: skip },
-      { $limit: Number(limit) }
+      { $limit: Number(limit) },
     ]);
 
-    // Tổng số bác sĩ để trả pagination
     const total = await this.doctorModel.countDocuments();
 
     return {
@@ -571,9 +589,9 @@ export class DoctorService {
         pagination: {
           page: Number(page),
           limit: Number(limit),
-          total
-        }
-      }
+          total,
+        },
+      },
     };
   }
 
