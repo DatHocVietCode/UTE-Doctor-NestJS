@@ -1,9 +1,10 @@
-import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { Types } from "mongoose";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
+import { JwtAuthGuard } from "src/common/guards/jws-auth.guard";
 import { AppointmentService } from "./appointment.service";
-import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
+import { AppointmentBookingDto, CompleteAppointmentDto, RescheduleAppointmentDto } from "./dto/appointment-booking.dto";
 
 @Controller('appointment')
 export class AppointmentController {
@@ -20,15 +21,30 @@ export class AppointmentController {
     }
 
     @Get('/patient')
-    async getAppointmentsByPatient(@Query('patientEmail') patientEmail: string) {
-        const data = await this.appointmentService.getAppointmentsByPatientEmail(patientEmail);
-        const res : DataResponse = {
-            code: ResponseCode.SUCCESS,
-            message: "Fetched appointments successfully",
-            data: data
-        }
-        return res;
+    @UseGuards(JwtAuthGuard)
+    async getAppointmentsByPatient(
+    @Req() req: any,
+    @Query('page') page: string = '1',
+    @Query('limit') limit: string = '10'
+    ) {
+        const pageNum = Math.max(1, parseInt(page) || 1);
+        const limitNum = Math.max(1, Math.min(50, parseInt(limit) || 10));
+
+        const patientEmail = req.user.email;
+
+        const data = await this.appointmentService.getAppointmentsByPatientEmail(
+        patientEmail,
+        pageNum,
+        limitNum
+        );
+
+        return {
+        code: ResponseCode.SUCCESS,
+        message: "Fetched appointments successfully",
+        data,
+        };
     }
+
 
     @Post('/book')
     async bookAppointment(@Body() bookingAppointment: AppointmentBookingDto) {
@@ -69,5 +85,36 @@ export class AppointmentController {
 
         return appointment;
     }
+    @Patch('/reschedule')
+    @UseGuards(JwtAuthGuard)
+    async rescheduleAppointment(@Body() dto: RescheduleAppointmentDto, @Req() req: any) {
+        try {
+            const newDate = new Date(dto.newDate);
+            const result = await this.appointmentService.rescheduleAppointment(
+                dto.appointmentId,
+                newDate,
+                dto.newTimeSlotId,
+                dto.reason
+            );
+            return result;
+        } catch (error: any) {
+            throw new Error(`Failed to reschedule appointment: ${error.message}`);
+        }
+    }
+
+    @Patch('/cancel')
+    @UseGuards(JwtAuthGuard)
+    async cancelAppointment(@Body() dto: { appointmentId: string; reason?: string }, @Req() req: any) {
+        try {
+            const result = await this.appointmentService.cancelAppointment(
+                dto.appointmentId,
+                dto.reason
+            );
+            return result;
+        } catch (error: any) {
+            throw new Error(`Failed to cancel appointment: ${error.message}`);
+        }
+    }
+
     
 }

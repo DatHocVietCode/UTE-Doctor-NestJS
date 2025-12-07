@@ -1,14 +1,14 @@
 import { Body, Controller, Delete, Get, Param, Patch, Put, Req, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Types } from 'mongoose';
 import * as multer from 'multer';
+import { UpdateAccountStatusDto } from 'src/account/dto/update-account-status.dto';
 import { CloudinaryService } from 'src/cloudinary/cloudinary.service';
 import { JwtAuthGuard } from 'src/common/guards/jws-auth.guard';
 import { AccountService } from './account.service';
 import { AccountProfileDto } from './dto/account.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { Account } from './schemas/account.schema';
-import { Types } from 'mongoose';
-import { UpdateAccountStatusDto } from 'src/account/dto/update-account-status.dto';
 
 @Controller('users')
 export class AccountController {
@@ -48,7 +48,7 @@ export class AccountController {
             }
         }
 
-        return this.accountService.updateUserProfile(req.user.id, updateProfileDto);
+        return this.accountService.updateUserProfile(req.user.accountId, updateProfileDto);
     }
 
     @Put('password')

@@ -84,9 +84,9 @@ export class AuthService {
 
         const refreshTokenRespone = await this.getAccountRefreshToken(user.email); 
         this.logger.log("Refresh token response:", refreshTokenRespone);
-        const accessToken = this.createAccessToken(user.email, user.role, user._id.toString());
         const userCtx = await this.userContextService.getUserContext(user);
-        
+        const accessToken = this.createAccessToken(user, userCtx);
+
         if (dataRes.data) {
             dataRes.data.accessToken = accessToken;
             dataRes.data.refreshToken = refreshTokenRespone?.data ?? "";
@@ -217,18 +217,40 @@ export class AuthService {
         return dataRes;
     }
 
-    createAccessToken(email: string, role: string, id: string): string {
-        // Implement JWT token creation logic here
-        const payload = { sub: email, role, id };
-        console.log("Creating access token with payload:", payload);
-        const token = this.jwtService.sign(payload, 
-            {
-                secret: process.env.JWT_SECRET,
-                expiresIn: process.env.JWT_EXPIRES_IN
-            }
-        );
-        return token;
-    }
+    // createAccessToken(email: string, role: string, id: string): string {
+    //     // Implement JWT token creation logic here
+    //     const payload = { sub: email, role, id };
+    //     console.log("Creating access token with payload:", payload);
+    //     const token = this.jwtService.sign(payload, 
+    //         {
+    //             secret: process.env.JWT_SECRET,
+    //             expiresIn: process.env.JWT_EXPIRES_IN
+    //         }
+    //     );
+    //     return token;
+    // }
+
+    createAccessToken(user: Account, ctx: any): string {
+    const payload = {
+        sub: user._id.toString(),
+        email: user.email,
+        role: user.role,
+        accountId: user._id.toString(),
+
+        // từ userContext
+        patientId: ctx.patientId ?? null,
+        doctorId: ctx.doctorId ?? null,
+        profileId: ctx.profileId ? ctx.profileId.toString() : null
+    };
+
+    console.log("Creating access token with payload:", payload);
+
+    return this.jwtService.sign(payload, {
+        secret: process.env.JWT_SECRET,
+        expiresIn: process.env.JWT_EXPIRES_IN
+    });
+}
+
 
     createRefreshToken(email: string): string {
         // Implement JWT refresh token creation logic here
@@ -365,11 +387,13 @@ export class AuthService {
                 return dataRes;
             }
 
-            // verify refresh token using refresh secret
+            // 1. Verify refresh token
             let payload: any;
             try {
                 console.log("Verifying refresh token", refreshToken);
-                payload = await this.jwtService.verifyAsync(refreshToken, { secret: process.env.JWT_REFRESH_SECRET });
+                payload = await this.jwtService.verifyAsync(refreshToken, { 
+                    secret: process.env.JWT_REFRESH_SECRET 
+                });
             } catch (err) {
                 dataRes.message = 'Refresh token invalid or expired';
                 return dataRes;
@@ -381,6 +405,7 @@ export class AuthService {
                 return dataRes;
             }
 
+            // 2. Find account by email
             const account = await this.accountModel.findOne({ email }).exec();
             if (!account) {
                 dataRes.message = 'Account not found';
@@ -388,29 +413,39 @@ export class AuthService {
                 return dataRes;
             }
 
-            // Ensure provided refresh token matches stored value
+            // 3. Ensure refresh token matches DB
             if (!account.refreshToken || account.refreshToken !== refreshToken) {
                 dataRes.message = 'Refresh token does not match';
                 return dataRes;
             }
 
-            // Optionally refresh the refresh token if needed; for now reuse existing
-            const accessToken = this.createAccessToken(account.email, account.role, account._id.toString());
+            // 4. Load userContext (patientId / doctorId / profileId)
+            const userCtx = await this.userContextService.getUserContext(account);
 
+            // 5. Create new access token (full info)
+            const accessToken = this.createAccessToken(account, userCtx);
+
+            // 6. Build response
             dataRes.code = rc.SUCCESS;
             dataRes.message = 'Access token refreshed';
+
             dataRes.data = {
                 accessToken,
-                refreshToken: account.refreshToken,
+                refreshToken: account.refreshToken,   // giữ refresh token cũ
                 role: account.role,
                 id: account._id.toString(),
+                patientId: userCtx.patientId ?? undefined,
+                doctorId: userCtx.doctorId ?? undefined,
+                profileId: userCtx.profileId ? userCtx.profileId.toString() : undefined
             };
 
             return dataRes;
+
         } catch (error) {
             console.error('[AuthService] Error refreshing token', error);
             dataRes.message = 'Server error while refreshing token';
             return dataRes;
         }
     }
+
 }

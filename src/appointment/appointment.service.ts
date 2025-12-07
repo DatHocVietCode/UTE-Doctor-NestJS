@@ -11,7 +11,6 @@ import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment
 import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
-import path from "path";
 import { Doctor, DoctorDocument } from "src/doctor/schema/doctor.schema";
 import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 
@@ -255,29 +254,50 @@ export class AppointmentService {
         return this.appointmentModel.find().exec();
     }
 
-    async getAppointmentsByPatientEmail(patientEmail: string): Promise<AppointmentDto[]> {
-        return this.appointmentModel
-            .find({ patientEmail })
-            .populate('timeSlot', 'start end label shift status')
-            .populate({
-            path: 'doctorId',
-            select: 'profileId',
-            populate: {
-                path: 'profileId',
-                select: 'name email phone',
-            },
-            })
-            .populate({
-                path: 'patientId',
-                select: 'profileId',
-                populate: {
-                    path: 'profileId',
-                    select: 'name email phone',
-                },
-            })
-            .sort({ date: -1 }) 
-            .lean()
-            .exec() as unknown as AppointmentDto[];
+    async getAppointmentsByPatientEmail(
+        patientEmail: string,
+        page: number = 1,
+        limit: number = 10
+    ): Promise<{ data: AppointmentDto[]; total: number; page: number; limit: number; totalPages: number }> {
+        const skip = (page - 1) * limit;
+
+        const [appointments, total] = await Promise.all([
+            this.appointmentModel
+                .find({ patientEmail })
+                .populate('timeSlot', 'start end label shift status')
+                .populate({
+                    path: 'doctorId',
+                    select: 'profileId',
+                    populate: {
+                        path: 'profileId',
+                        select: 'name email phone',
+                    },
+                })
+                .populate({
+                    path: 'patientId',
+                    select: 'profileId',
+                    populate: {
+                        path: 'profileId',
+                        select: 'name email phone',
+                    },
+                })
+                .sort({ date: -1 })
+                .skip(skip)
+                .limit(limit)
+                .lean()
+                .exec() as unknown as AppointmentDto[],
+            this.appointmentModel.countDocuments({ patientEmail }),
+        ]);
+
+        const totalPages = Math.ceil(total / limit);
+
+        return {
+            data: appointments,
+            total,
+            page,
+            limit,
+            totalPages,
+        };
     }
 
     async updateAppointmentStatus(appointmentId: string, status: AppointmentStatus) {
@@ -379,6 +399,120 @@ export class AppointmentService {
             totalPages: Math.ceil(total / limit),
         },
     };
+/**
+     * Reschedule an appointment to a new date and time slot
+     * Emits event with refund information (80% of consultation fee as coins)
+     */
+    async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId: string, reason?: string) {
+        const appointment = await this.appointmentModel.findById(appointmentId);
+        if (!appointment) {
+            throw new NotFoundException('Appointment not found');
+        }
+
+        // Only allow rescheduling for PENDING or CONFIRMED appointments
+        if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(appointment.appointmentStatus)) {
+            throw new Error(`Cannot reschedule appointment with status ${appointment.appointmentStatus}`);
+        }
+
+        const oldTimeSlotId = appointment.timeSlot;
+        const consultationFee = appointment.consultationFee || 0;
+        const refundAmount = Math.ceil(consultationFee * 0.8); // 80% refund as coins
+
+        // Update appointment
+        appointment.date = newDate;
+        appointment.timeSlot = new Types.ObjectId(newTimeSlotId);
+        appointment.appointmentStatus = AppointmentStatus.RESCHEDULED;
+        await appointment.save();
+
+        // Release old time slot
+        const oldTimeSlot = await this.timeSlotLogModel.findById(oldTimeSlotId);
+        if (oldTimeSlot) {
+            oldTimeSlot.status = 'available';
+            await oldTimeSlot.save();
+        }
+
+        // Book new time slot
+        const newTimeSlot = await this.timeSlotLogModel.findById(newTimeSlotId);
+        if (newTimeSlot) {
+            newTimeSlot.status = 'booked';
+            await newTimeSlot.save();
+        }
+
+        // Emit reschedule event for wallet refund processing
+        this.eventEmitter.emit('appointment.rescheduled', {
+            appointmentId,
+            patientId: appointment.patientId.toString(),
+            consultationFee,
+            refundAmount,
+            reason: reason || 'Appointment rescheduled',
+            oldTimeSlotId: oldTimeSlotId.toString(),
+            newTimeSlotId,
+            newDate,
+        });
+
+        console.log(`[AppointmentService] Rescheduled appointment ${appointmentId} from slot ${oldTimeSlotId} to ${newTimeSlotId}, refund: ${refundAmount} coins`);
+
+        return {
+            code: 'SUCCESS',
+            message: 'Appointment rescheduled successfully',
+            data: {
+                appointmentId,
+                refundAmount,
+                newDate,
+            },
+        };
+    }
+
+    /**
+     * Cancel an appointment and refund 100% of consultation fee as coins
+     */
+    async cancelAppointment(appointmentId: string, reason?: string) {
+        const appointment = await this.appointmentModel.findById(appointmentId);
+        if (!appointment) {
+            throw new NotFoundException('Appointment not found');
+        }
+
+        // Only allow cancelling for PENDING or CONFIRMED appointments
+        if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(appointment.appointmentStatus)) {
+            throw new Error(`Cannot cancel appointment with status ${appointment.appointmentStatus}`);
+        }
+
+        const timeSlotId = appointment.timeSlot;
+        const consultationFee = appointment.consultationFee || 0;
+        const refundAmount = consultationFee; // 100% refund as coins
+
+        // Update appointment
+        appointment.appointmentStatus = AppointmentStatus.CANCELLED;
+        await appointment.save();
+
+        // Release time slot
+        const timeSlot = await this.timeSlotLogModel.findById(timeSlotId);
+        if (timeSlot) {
+            timeSlot.status = 'available';
+            await timeSlot.save();
+        }
+
+        // Emit cancel event for wallet refund processing
+        this.eventEmitter.emit('appointment.cancelled', {
+            appointmentId,
+            patientId: appointment.patientId.toString(),
+            consultationFee,
+            refundAmount,
+            reason: reason || 'Appointment cancelled',
+            timeSlotId: timeSlotId.toString(),
+        });
+
+        console.log(`[AppointmentService] Cancelled appointment ${appointmentId}, refund: ${refundAmount} coins`);
+
+        return {
+            code: 'SUCCESS',
+            message: 'Appointment cancelled successfully',
+            data: {
+                appointmentId,
+                refundAmount,
+            },
+        };
+    }
 }
 
 }
