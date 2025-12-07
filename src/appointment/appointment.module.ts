@@ -8,6 +8,8 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
 import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-log.schema";
 import { AppointmentListenner } from "./listenners/appointment.listenner";
 import { Patient, PatientSchema } from "src/patient/schema/patient.schema";
+import { Doctor, DoctorSchema } from "src/doctor/schema/doctor.schema";
+import { Profile, ProfileSchema } from "src/profile/schema/profile.schema";
 
 
 @Module({
@@ -16,6 +18,8 @@ import { Patient, PatientSchema } from "src/patient/schema/patient.schema";
           { name: Appointment.name, schema: AppointmentSchema },
           { name: TimeSlotLog.name, schema: TimeSlotLogSchema }, // thêm model để inject vào AppointmentService
           { name: Patient.name, schema: PatientSchema },
+          { name: Doctor.name, schema: DoctorSchema },
+          { name: Profile.name, schema: ProfileSchema },
         ]),
         MedicineModule,
     ],

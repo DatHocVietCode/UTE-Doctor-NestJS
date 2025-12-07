@@ -9,6 +9,11 @@ import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment
 export class AppointmentController {
     constructor(private readonly appointmentService: AppointmentService) {}
 
+    @Get('admin')
+    async getAppointments(@Query() query: any) {
+        return this.appointmentService.findAll(query);
+    }
+
     @Get()
     async getAllAppointments() {
         return await this.appointmentService.getAllAppointments();
@@ -64,6 +69,5 @@ export class AppointmentController {
 
         return appointment;
     }
-
     
 }

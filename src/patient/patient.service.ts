@@ -10,6 +10,7 @@ import { getProfileByEntity } from 'src/utils/helpers/profile.helper';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { PatientProfileDTO } from './dto/patient.dto';
 import { Patient, PatientDocument } from './schema/patient.schema';
+import { Account, AccountDocument } from 'src/account/schemas/account.schema';
 
 @Injectable()
 export class PatientService {
@@ -17,6 +18,8 @@ export class PatientService {
   constructor(
     @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
     @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
+    @InjectModel(Account.name) private readonly accountModel: Model<AccountDocument>,
+
     private readonly eventEmitter: EventEmitter2
   ) {}
 
@@ -175,22 +178,37 @@ export class PatientService {
 
   async findAll(page: number = 1, limit: number = 5, keyword?: string) {
     const skip = (page - 1) * limit;
-
-    let profileFilter = {};
+    let query: any = {};
 
     if (keyword) {
-      profileFilter = {
-        name: { $regex: keyword, $options: 'i' } // fuzzy search không phân biệt hoa/thường
+      const regex = { $regex: keyword, $options: "i" };
+
+      const matchedProfiles = await this.profileModel.find(
+        {
+          $or: [
+            { name: regex },
+            { phone: regex },
+            { email: regex },
+          ],
+        },
+        "_id"
+      );
+
+      const profileIds = matchedProfiles.map((p) => p._id);
+
+      const matchedAccounts = await this.accountModel.find(
+        { email: regex },
+        "_id"
+      );
+
+      const accountIds = matchedAccounts.map((a) => a._id);
+
+      query = {
+        $or: [
+          { profileId: { $in: profileIds } },
+          { accountId: { $in: accountIds } },
+        ],
       };
-    }
-
-    const matchedProfiles = await this.profileModel.find(profileFilter, '_id');
-
-    const profileIds = matchedProfiles.map(p => p._id);
-
-    const query: any = {};
-    if (keyword) {
-      query.profileId = { $in: profileIds };
     }
 
     const [data, total] = await Promise.all([
@@ -199,12 +217,12 @@ export class PatientService {
         .skip(skip)
         .limit(limit)
         .populate({
-          path: 'profileId',
-          select: 'name phone email gender dob avatarUrl'
+          path: "profileId",
+          select: "name phone email gender dob avatarUrl",
         })
         .populate({
-          path: 'accountId',
-          select: 'email role status'
+          path: "accountId",
+          select: "email role status",
         })
         .exec(),
 
@@ -213,7 +231,7 @@ export class PatientService {
 
     return {
       code: 200,
-      message: 'Get patients successfully',
+      message: "Get patients successfully",
       data,
       pagination: {
         total,
@@ -223,5 +241,6 @@ export class PatientService {
       },
     };
   }
+
 
 }

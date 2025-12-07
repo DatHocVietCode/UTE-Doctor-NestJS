@@ -12,6 +12,8 @@ import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
 import path from "path";
+import { Doctor, DoctorDocument } from "src/doctor/schema/doctor.schema";
+import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 
 @Injectable()
 export class AppointmentService {
@@ -21,6 +23,8 @@ export class AppointmentService {
         @InjectModel(TimeSlotLog.name) private readonly timeSlotLogModel: Model<TimeSlotLogDocument>,
         @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
         @InjectModel(Medicine.name) private readonly medicineModel: Model<MedicineDocument>,
+        @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
+        @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
     ) {}
 
     async bookAppointment(bookingAppointment: AppointmentBookingDto) {
@@ -285,4 +289,96 @@ export class AppointmentService {
         await appointment.save();
         console.log(`[AppointmentService] Updated appointment ${appointmentId} status to ${status}`);    
     }
+
+    async findAll(query: any) {
+    const {
+        doctorId,
+        patientId,
+        appointmentStatus,
+        keyword,
+        page = 1,
+        limit = 10,
+    } = query;
+
+    const filter: any = {};
+
+    if (doctorId) filter.doctorId = doctorId;
+    if (patientId) filter.patientId = patientId;
+    if (appointmentStatus) filter.appointmentStatus = appointmentStatus;
+
+    if (keyword) {
+        const regex = new RegExp(keyword, "i");
+
+        // Tìm bác sĩ theo doctorName
+        const doctorMatches = await this.doctorModel.find(
+            { doctorName: regex },
+            "_id"
+        );
+
+        // Tìm profile bệnh nhân theo name
+        const profileMatches = await this.profileModel.find(
+            { name: regex },
+            "_id"
+        );
+
+        // Tìm patientId theo profileId
+        const patientMatches = await this.patientModel.find(
+            { profileId: { $in: profileMatches.map(p => p._id) } },
+            "_id"
+        );
+
+        filter.$or = [
+            { _id: keyword.match(/^[0-9a-fA-F]{24}$/) ? keyword : undefined },
+            { doctorId: { $in: doctorMatches.map(d => d._id) } },
+            { patientId: { $in: patientMatches.map(p => p._id) } },
+        ];
+    }
+
+    const skip = (page - 1) * limit;
+
+    const data = await this.appointmentModel
+        .find(filter)
+        .populate('timeSlot')
+        .populate({
+            path: 'patientId',
+            select: 'profileId',
+            populate: {
+                path: 'profileId',
+                select: 'name email phone avatarUrl',
+            },
+        })
+        .populate({
+            path: 'doctorId',
+            populate: [
+                {
+                    path: 'profileId',
+                    select: 'name email phone avatarUrl',
+                },
+                {
+                    path: 'chuyenKhoaId',
+                    select: 'name',
+                }
+            ]
+        })
+
+        .skip(skip)
+        .limit(Number(limit))
+        .sort({ createdAt: -1 })
+        .exec();
+
+    const total = await this.appointmentModel.countDocuments(filter);
+
+    return {
+        code: 200,
+        message: "Get appointments successfully",
+        data,
+        pagination: {
+            total,
+            page: Number(page),
+            limit: Number(limit),
+            totalPages: Math.ceil(total / limit),
+        },
+    };
+}
+
 }
