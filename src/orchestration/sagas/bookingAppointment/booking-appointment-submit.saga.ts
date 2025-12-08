@@ -1,8 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { AppointmentBookingDto } from "src/appointment/dto/appointment-booking.dto";
+import { buildEnrichedAppointmentPayload } from "src/appointment/schemas/appointment-enriched";
 import { AppointmentDocument } from "src/appointment/schemas/appointment.schema";
-import { PaymentMethod } from "src/common/enum/paymentMethod.enum";
+import { Doctor } from "src/doctor/schema/doctor.schema";
+import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
+import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
+import { PaymentStatusEnum } from "src/payment/enums/payment-status.enum";
+import { Profile } from "src/profile/schema/profile.schema";
 import { emitTyped } from "src/utils/helpers/event.helper";
 
 @Injectable()
@@ -11,6 +16,8 @@ export class BookingAppointmentSubmitSaga {
     // Impl happy case first, then add more complex logic later
     @OnEvent('appointment.booked') // received through http post
     async handleBookingAppointment(payload: AppointmentBookingDto) {
+
+        // Store booking information first
         const appointment = await emitTyped<AppointmentBookingDto, AppointmentDocument>(
             this.eventEmitter,
                 'appointment.store.booking',
@@ -25,8 +32,8 @@ export class BookingAppointmentSubmitSaga {
 
         let isPaymentSuccess: boolean = false;
 
-        // First, check the payment method, check whether payment method is online or offline
-        if (payload.paymentMethod === PaymentMethod.ONLINE) {
+        // First, check the payment method, check whether payment method is online, coin, or offline
+        if (payload.paymentMethod === PaymentMethodEnum.ONLINE) {
             const amount = payload.amount ?? 0; // nếu undefined thì thành 0
             console.log(`[Saga] Processing online payment for amount: ${amount}`);
             if (amount > 0) {
@@ -57,6 +64,106 @@ export class BookingAppointmentSubmitSaga {
                 console.log('Payment URL created:', paymentUrl);
                 return paymentUrl; // saga/controller có thể trả cho FE
             }
+        } else if (payload.paymentMethod === PaymentMethodEnum.COIN) {
+            const consultationFee = payload.amount ?? 0;
+            const coinsToUse = payload.coinsToUse ?? 0;
+            
+            console.log(`[Saga] Processing coin payment for amount: ${coinsToUse} coins (consultation fee: ${consultationFee})`);
+            
+            // Validate: coins used must not exceed consultation fee
+            if (coinsToUse > consultationFee || coinsToUse < 0 || coinsToUse < consultationFee) {
+                console.log(`[Saga] Invalid coin payment: coins to use (${coinsToUse}) exceeds consultation fee (${consultationFee})`);
+                // Emit payment failed event
+                this.eventEmitter.emit('appointment.payment.failed', { 
+                    dto: payload, 
+                    reason: `Coins to use (${coinsToUse}) cannot exceed consultation fee (${consultationFee})`
+                });
+                return;
+            }
+            
+            if (payload.useCoin && payload.coinsToUse && payload.coinsToUse > 0) {
+                // Emit event để deduct coins
+                this.eventEmitter.emit('appointment.booking.coin-deduction', {
+                    appointmentId,
+                    patientId: payload.patientId,
+                    coinsUsed: payload.coinsToUse,
+                    consultationFee: consultationFee,
+                });
+
+                // Fetch doctor and patient data to build enriched payload
+                const doctor: Doctor = await emitTyped<string, Doctor>(
+                    this.eventEmitter,
+                    'doctor.get.byId',
+                    appointment.doctorId?.toString()
+                );
+
+                const patient: Patient = await emitTyped<string, PatientDocument>(
+                    this.eventEmitter,
+                    'patient.get.byEmail',
+                    appointment.patientEmail
+                );
+
+                const doctorProfile = doctor?.profileId as unknown as Profile;
+                const patientProfile = patient?.profileId as unknown as Profile;
+
+                const enrichedPayload = buildEnrichedAppointmentPayload(
+                    appointment,
+                    doctorProfile,
+                    patientProfile,
+                    payload.amount ?? 0,
+                    patientProfile?.name || 'N/A',
+                    appointment.patientEmail
+                );
+
+                enrichedPayload.paymentStatus = PaymentStatusEnum.COMPLETED;
+
+                // Emit success event với enriched payload
+                this.eventEmitter.emit('appointment.booking.success', enrichedPayload);
+                console.log(`[Saga] Coin payment processed for appointment ${appointmentId}`);
+                isPaymentSuccess = true;
+            } else {
+                console.log('Coin payment failed: insufficient coin information');
+                this.eventEmitter.emit('appointment.payment.failed', { dto: payload });
+                return;
+            }
+        } else if (payload.paymentMethod === PaymentMethodEnum.OFFLINE) {
+            console.log(`[Saga] Processing offline payment for appointment ${appointmentId}`);
+            
+            // Fetch doctor and patient data to build enriched payload
+            const doctor: Doctor = await emitTyped<string, Doctor>(
+                this.eventEmitter,
+                'doctor.get.byId',
+                appointment.doctorId?.toString()
+            );
+
+            const patient: Patient = await emitTyped<string, PatientDocument>(
+                this.eventEmitter,
+                'patient.get.byEmail',
+                appointment.patientEmail
+            );
+
+            const doctorProfile = doctor?.profileId as unknown as Profile;
+            const patientProfile = patient?.profileId as unknown as Profile;
+
+            const enrichedPayload = buildEnrichedAppointmentPayload(
+                appointment,
+                doctorProfile,
+                patientProfile,
+                payload.amount ?? 0,
+                patientProfile?.name || 'N/A',
+                appointment.patientEmail
+            );
+
+            enrichedPayload.paymentStatus = PaymentStatusEnum.PENDING;
+
+            // Emit success event với enriched payload
+            this.eventEmitter.emit('appointment.booking.success', enrichedPayload);
+            console.log(`[Saga] Offline appointment pending payment confirmation: ${appointmentId}`);
+            isPaymentSuccess = true;
+        } else {
+            console.log(`[Saga] Unknown payment method: ${payload.paymentMethod}`);
+            this.eventEmitter.emit('appointment.payment.failed', { dto: payload });
+            return;
         }
     }
 

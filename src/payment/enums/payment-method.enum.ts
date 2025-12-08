@@ -1,5 +1,7 @@
 export enum PaymentMethodEnum {
     VNPAY = 'VNPAY',
-    CASH = 'CASH',
-    ONLINE = "ONLINE"
+    ONLINE = 'ONLINE',
+    COIN = 'COIN',
+    OFFLINE = 'OFFLINE',
+    CASH = 'CASH'
 }

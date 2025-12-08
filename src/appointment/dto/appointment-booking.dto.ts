@@ -11,7 +11,7 @@ import {
   ValidateNested
 } from "class-validator";
 import { ServiceType } from "src/appointment/enums/service-type.enum";
-import { PaymentMethod } from "src/common/enum/paymentMethod.enum";
+import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 
 
 export class AppointmentBookingDto {
@@ -36,8 +36,8 @@ export class AppointmentBookingDto {
   @IsEnum(ServiceType)
   serviceType: ServiceType;
 
-  @IsEnum(PaymentMethod)
-  paymentMethod: PaymentMethod;
+  @IsEnum(PaymentMethodEnum)
+  paymentMethod: PaymentMethodEnum;
 
   @IsOptional()
   @IsNumber()
@@ -52,6 +52,13 @@ export class AppointmentBookingDto {
   @IsString()
   @IsOptional()
   reasonForAppointment: string;
+
+  @IsOptional()
+  @IsNumber()
+  coinsToUse?: number; // Number of coins to use for payment
+
+  @IsOptional()
+  useCoin?: boolean; // Whether to use coins for this appointment
 }
 
 export class DoctorDto {
