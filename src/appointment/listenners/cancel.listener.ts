@@ -26,7 +26,9 @@ export class CancelListener {
             await this.walletService.addCoins(
                 payload.patientId,
                 payload.refundAmount,
-                `refund-cancel-${payload.appointmentId}`
+                `refund-cancel-${payload.appointmentId}`,
+                payload.appointmentId,
+                `Hủy lịch khám, hoàn 100% coin`
             );
 
             this.logger.log(

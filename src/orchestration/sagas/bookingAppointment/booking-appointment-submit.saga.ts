@@ -58,18 +58,6 @@ export class BookingAppointmentSubmitSaga {
                 return paymentUrl; // saga/controller có thể trả cho FE
             }
         }
-
-        // // Cân nhắc bỏ, chờ FE thanh toán xong mới book
-        // if (this.isBookingInformationEnough(payload) && isPaymentSuccess)
-        // {
-        //     this.eventEmitter.emit('appointment.booking.success', payload); // Noti to receptionst, and patient
-        //     console.log('Booking completed');
-        // }
-        // else
-        // {
-        //     this.eventEmitter.emit('', payload); // Noti to receptionist, doctor and patient
-        //     console.log('Booking pending');
-        // }
     }
 
     isBookingInformationEnough(dto: AppointmentBookingDto) {

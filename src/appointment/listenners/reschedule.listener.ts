@@ -28,7 +28,9 @@ export class RescheduleListener {
             await this.walletService.addCoins(
                 payload.patientId,
                 payload.refundAmount,
-                `refund-reschedule-${payload.appointmentId}`
+                `refund-reschedule-${payload.appointmentId}`,
+                payload.appointmentId,
+                `Hoãn lịch khám từ ${new Date(payload.oldTimeSlotId).toLocaleString('vi-VN')} sang ${new Date(payload.newDate).toLocaleString('vi-VN')}`
             );
 
             this.logger.log(
