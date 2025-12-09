@@ -29,6 +29,7 @@ export class AppointmentService {
     async bookAppointment(bookingAppointment: AppointmentBookingDto) {
         // emit event
         this.eventEmitter.emit('appointment.booked', bookingAppointment);
+
         const dataResponse : DataResponse = {
             code: ResponseCode.PENDING,
             message: 'Appointment booking is being processed',
