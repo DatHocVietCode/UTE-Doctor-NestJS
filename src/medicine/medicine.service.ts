@@ -18,19 +18,50 @@ export class MedicineService {
     return medicine.save();
   }
 
-  // Lấy danh sách tất cả thuốc
-  async findAll(): Promise<Medicine[]> {
-    return this.medicineModel.find().exec();
+  async findAll(
+    page: number = 1,
+    limit: number = 10,
+    keyword?: string,
+    sort: 'asc' | 'desc' = 'asc',
+  ) {
+    const skip = (page - 1) * limit;
+
+    const filter: any = {};
+
+    if (keyword) {
+      filter.name = { $regex: keyword, $options: 'i' };
+    }
+
+    const sortOrder = sort === 'asc' ? 1 : -1;
+
+    const [data, total] = await Promise.all([
+      this.medicineModel
+        .find(filter)
+        .collation({ locale: 'en', strength: 1 })
+        .sort({ name: sortOrder })
+        .skip(skip)
+        .limit(limit)
+        .exec(),
+
+      this.medicineModel.countDocuments(filter),
+    ]);
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
-  // Lấy 1 thuốc theo id
+
   async findOne(id: string): Promise<Medicine> {
     const medicine = await this.medicineModel.findById(id).exec();
     if (!medicine) throw new NotFoundException(`Medicine ${id} not found`);
     return medicine;
   }
 
-  // Cập nhật thuốc
   async update(id: string, updateMedicineDto: UpdateMedicineDto): Promise<Medicine> {
     const medicine = await this.medicineModel.findByIdAndUpdate(
       id,
