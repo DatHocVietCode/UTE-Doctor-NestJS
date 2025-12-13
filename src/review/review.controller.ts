@@ -19,9 +19,16 @@ export class ReviewController {
   }
 
   @Get()
-  async findAll() {
-    return this.reviewService.findAll();
+  findAll(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.reviewService.findAll(
+      Number(page) || 1,
+      Number(limit) || 10,
+    );
   }
+
 
   @Get(':id')
   async findById(@Param('id') id: string) {

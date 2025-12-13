@@ -28,29 +28,46 @@ export class ReviewService {
     };
   }
 
-  async findAll(): Promise<DataResponse<any>> {
-    const result = await this.reviewModel
-      .find()
-      .populate({
-        path: 'doctorId',
-        select: 'doctorName',
-      })
-      .populate({
-        path: 'patientId',
-        select: 'profileId',      
-        populate: {
-          path: 'profileId',
-          select: 'name',           
-        },
-      })
-      .exec();
+  async findAll(
+    page: number = 1,
+    limit: number = 10,
+  ){
+
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.reviewModel
+        .find()
+        .skip(skip)
+        .limit(limit)
+        .populate({
+          path: 'doctorId',
+          select: 'doctorName',
+        })
+        .populate({
+          path: 'patientId',
+          select: 'profileId',
+          populate: {
+            path: 'profileId',
+            select: 'name',
+          },
+        })
+        .exec(),
+
+      this.reviewModel.countDocuments(),
+    ]);
 
     return {
       code: rc.SUCCESS,
-      message: 'Lấy tất cả đánh giá thành công',
-      data: result,
+      message: 'Lấy danh sách đánh giá thành công',
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     };
   }
+
 
 
   async findById(id: string): Promise<DataResponse<any>> {

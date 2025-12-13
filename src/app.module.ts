@@ -25,6 +25,8 @@ import { SocketModule } from './socket/socket.module';
 import { TimeSlotModule } from './timeslot/timeslot.module';
 import { UserContextModule } from './user-context/user-context.module';
 import { OtpModule } from './utils/otp/otp.module';
+import { News } from 'src/news/schemas/news.schema';
+import { NewsModule } from 'src/news/news.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -58,6 +60,7 @@ import { OtpModule } from './utils/otp/otp.module';
     ReviewModule,
     UserContextModule,
     CloudinaryModule,
+    NewsModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
   controllers: [AppController],

@@ -156,6 +156,8 @@ export class DoctorService {
       // send email with raw password (let errors propagate to trigger rollback)
       await this.mailService.sendAccountCreatedMail({ toEmail: email, password: rawPassword });
 
+      console.log('[DoctorService]: Created doctor with account password', rawPassword);
+
       dataRes.code = rc.SUCCESS;
       dataRes.message = 'Doctor created successfully';
       dataRes.data = savedDoctor;
