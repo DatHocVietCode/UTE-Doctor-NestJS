@@ -19,6 +19,11 @@ import { UpdateNewsDto } from './dto/update-news.dto';
 export class NewsController {
   constructor(private readonly newsService: NewsService) {}
 
+    @Get('/public')
+    findPublic() {
+    return this.newsService.findPublic();
+    }
+
   @Post()
   @UseInterceptors(
     FileInterceptor('image', {
@@ -62,9 +67,4 @@ export class NewsController {
     return this.newsService.delete(id);
   }
   
-  @Get('public')
-    findPublic() {
-    return this.newsService.findPublic();
-    }
-
 }
