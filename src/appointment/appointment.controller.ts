@@ -116,5 +116,9 @@ export class AppointmentController {
         }
     }
 
-    
+    @Patch(':id/confirm')
+    confirmAppointment(@Param('id') id: string) {
+        return this.appointmentService.confirmAppointment(id);
+    }
+
 }

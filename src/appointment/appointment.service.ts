@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
@@ -509,5 +509,30 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
             },
         };
     }
+
+    async confirmAppointment(id: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid appointment id');
+    }
+
+    const appointment = await this.appointmentModel.findById(id);
+
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    if (appointment.appointmentStatus !== AppointmentStatus.PENDING) {
+      throw new BadRequestException('Appointment cannot be confirmed');
+    }
+
+    appointment.appointmentStatus = AppointmentStatus.CONFIRMED;
+
+    await appointment.save();
+
+    return {
+      message: 'Appointment confirmed successfully',
+      data: appointment,
+    };
+  }
 
 }
