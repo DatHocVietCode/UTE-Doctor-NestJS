@@ -1,6 +1,6 @@
 import { OnEvent } from '@nestjs/event-emitter';
 import { WebSocketGateway } from '@nestjs/websockets';
-import { AppointmentBookingDto } from 'src/appointment/dto/appointment-booking.dto';
+import type { AppointmentEnriched } from 'src/appointment/schemas/appointment-enriched';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode } from 'src/common/enum/reponse-code.enum';
 import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
@@ -15,14 +15,14 @@ export class AppointmentGateway extends BaseGateway {
     }
 
   @OnEvent('socket.appointment.success')
-  handleCompleted(payload: AppointmentBookingDto) {
+  handleCompleted(payload: AppointmentEnriched) {
     const res: DataResponse = {
       code: ResponseCode.SUCCESS,
       message: 'Appointment booking completed',
       data: payload,
     };
     console.log('[Socket][Appointment] Push COMPLETED to doctor');
-    this.emitToRoom(payload.doctor!.email, SocketEventsEnum.APPOINTMENT_COMPLETED, res); // Emit to doctor
+    this.emitToRoom(payload.doctorEmail!, SocketEventsEnum.APPOINTMENT_COMPLETED, res); // Emit to doctor
     console.log('[Socket][Appointment] Push COMPLETED to patient');
     this.emitToRoom(payload.patientEmail, SocketEventsEnum.APPOINTMENT_COMPLETED, res); // Emit to patient
   }
@@ -36,5 +36,28 @@ export class AppointmentGateway extends BaseGateway {
     };
     console.log('[Socket][Appointment] Push PENDING to receptionist');
     this.emitToRoom(payload.receptionistEmail, SocketEventsEnum.APPOINTMENT_PENDING, res);
+  }
+
+  @OnEvent('socket.shift.cancelled')
+  handleShiftCancelled(payload: {
+    appointmentId: string;
+    patientEmail: string;
+    doctorEmail?: string;
+    date: string;
+    timeSlot: string;
+    hospitalName?: string;
+    reason?: string;
+  }) {
+    const res: DataResponse = {
+      code: ResponseCode.SUCCESS,
+      message: 'Shift cancelled',
+      data: payload,
+    };
+    console.log('[Socket][Appointment] Push SHIFT_CANCELLED to patient');
+    this.emitToRoom(payload.patientEmail, SocketEventsEnum.SHIFT_CANCELLED, res);
+    if (payload.doctorEmail) {
+      console.log('[Socket][Appointment] Push SHIFT_CANCELLED to doctor');
+      this.emitToRoom(payload.doctorEmail, SocketEventsEnum.SHIFT_CANCELLED, res);
+    }
   }
 }

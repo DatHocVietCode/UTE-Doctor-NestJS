@@ -1,8 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { InjectModel } from "@nestjs/mongoose";
-import { Model, Types } from "mongoose";
-import { AppointmentBookingDto } from "src/appointment/dto/appointment-booking.dto";
+import { Model } from "mongoose";
+import { AppointmentStatus } from "src/appointment/enums/Appointment-status.enum";
+import { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
+import { Appointment, AppointmentDocument } from "src/appointment/schemas/appointment.schema";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode as rc } from "src/common/enum/reponse-code.enum";
 import { TimeSlotDto } from "src/timeslot/dtos/timeslot.dto";
@@ -20,7 +22,8 @@ export class ShiftService {
     private readonly eventEmitter: EventEmitter2,
     @InjectModel(Shift.name) private readonly shiftModel: Model<Shift>,
     @InjectModel(TimeSlotLog.name) private readonly timeSlotLogModel: Model<TimeSlotLog>,
-    @InjectModel(TimeSlotData.name) private readonly timeSlotDataModel: Model<TimeSlotData>
+    @InjectModel(TimeSlotData.name) private readonly timeSlotDataModel: Model<TimeSlotData>,
+    @InjectModel(Appointment.name) private readonly appointmentModel: Model<AppointmentDocument>,
   ) {}
 
   async registerShift(dto: RegisterShiftDto): Promise<DataResponse> {
@@ -181,8 +184,8 @@ export class ShiftService {
   }
 
   @OnEvent("shift.create.requested")
-  async handleCreateShift(event: { dto: RegisterShiftDto }): Promise<any> {
-    const { dto } = event;
+  async handleCreateShift(event: { dto: RegisterShiftDto; timeSlotIds?: string[] }): Promise<any> {
+    const { dto, timeSlotIds: providedTimeSlotIds } = event;
     console.log("🟢 [ShiftService] Nhận yêu cầu tạo ca:", dto);
 
     try {
@@ -193,8 +196,21 @@ export class ShiftService {
         throw new Error(`Không tìm thấy TimeSlotData cho shift: ${dto.shift}`);
       }
 
-      // 2️⃣ Tạo các TimeSlotLog từ TimeSlotData
-      const timeSlotLogs = await this.createTimeSlotLogsFromData(timeSlotDataList);
+      // 2️⃣ Nếu saga đã tạo TimeSlotLog trước đó và truyền vào IDs, dùng lại
+      let timeSlotLogs: any[] = [];
+      if (Array.isArray(providedTimeSlotIds) && providedTimeSlotIds.length > 0) {
+        console.log("[ShiftService] Sử dụng TimeSlotLog đã có từ saga, IDs:", providedTimeSlotIds);
+        // Lấy chi tiết từ DB để đảm bảo có đầy đủ trường
+        timeSlotLogs = await this.timeSlotLogModel.find({ _id: { $in: providedTimeSlotIds } }).lean().exec();
+        // Nếu DB không trả đủ, fallback tạo các TimeSlotLog mới từ data
+        if (!Array.isArray(timeSlotLogs) || timeSlotLogs.length !== providedTimeSlotIds.length) {
+          console.warn("[ShiftService] Không tìm thấy toàn bộ TimeSlotLog được cung cấp, sẽ tạo mới từ data");
+          timeSlotLogs = await this.createTimeSlotLogsFromData(timeSlotDataList);
+        }
+      } else {
+        // 2️⃣ Tạo các TimeSlotLog từ TimeSlotData (thao tác cũ)
+        timeSlotLogs = await this.createTimeSlotLogsFromData(timeSlotDataList);
+      }
 
       // 3️⃣ Lấy danh sách ID của TimeSlotLog
       const timeSlotIds = timeSlotLogs.map(log => log._id);
@@ -367,7 +383,7 @@ export class ShiftService {
     }
   }
 
-  async cancelShiftById(id: string, reason: string): Promise<DataResponse> {
+  async cancelShiftById(id: string, reason: string, user?: any): Promise<DataResponse> {
     console.log("[ShiftService] Yêu cầu hủy ca:", id, "Lý do:", reason);
     try {
       const shift = await this.shiftModel.findById(id).exec();
@@ -377,6 +393,15 @@ export class ShiftService {
           code: rc.ERROR,
           message: "Không tìm thấy ca để hủy.",
           data: null,
+        };
+      }
+
+      // Authorization: only owning doctor can cancel
+      if (user?.doctorId && shift.doctorId?.toString?.() && shift.doctorId.toString() !== user.doctorId) {
+        return {
+          code: rc.ERROR,
+          message: "Không có quyền hủy ca này.",
+          data: shift.toObject(),
         };
       }
 
@@ -392,13 +417,71 @@ export class ShiftService {
       shift.reasonForCancellation = reason;
       await shift.save();
 
-      // Cập nhật tất cả TimeSlotLog liên quan thành 'canceled'
+      // Xóa tất cả TimeSlotLog liên quan khi hủy ca
       if (shift.timeSlots && shift.timeSlots.length > 0) {
-        await this.timeSlotLogModel.updateMany(
-          { _id: { $in: shift.timeSlots } },
-          { $set: { status: 'canceled' } }
-        ).exec();
-        console.log(`[ShiftService] Đã cập nhật ${shift.timeSlots.length} TimeSlotLog thành canceled`);
+        await this.timeSlotLogModel.deleteMany({
+          _id: { $in: shift.timeSlots }
+        }).exec();
+        console.log(`[ShiftService] Đã xóa ${shift.timeSlots.length} TimeSlotLog khi hủy ca`);
+      }
+
+      // Tìm tất cả lịch hẹn bị ảnh hưởng để gửi thông báo + email cho bệnh nhân và hoàn coin
+      try {
+        const affectedAppointments = await this.appointmentModel
+          .find({
+            timeSlot: { $in: shift.timeSlots },
+            appointmentStatus: { $in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED] },
+          })
+          .populate({ path: 'doctorId' })
+          .lean()
+          .exec();
+
+        console.log(`[ShiftService] Có ${affectedAppointments.length} lịch hẹn bị ảnh hưởng bởi hủy ca.`);
+
+        for (const appt of affectedAppointments) {
+          const payload = {
+            appointmentId: appt._id?.toString?.() ?? String(appt._id),
+            patientEmail: appt.patientEmail,
+            doctorEmail: user?.email,
+            doctorName: (appt as any).doctorId?.doctorName ?? undefined,
+            date: typeof shift.date === 'string' ? shift.date : new Date(shift.date).toISOString().split('T')[0],
+            timeSlot: appt.timeSlot?.toString?.() ?? String(appt.timeSlot),
+            hospitalName: appt.hospitalName,
+            reason,
+          };
+
+          // Emit sự kiện để module notification và mail xử lý cho bệnh nhân
+          this.eventEmitter.emit('notify.patient.shift.cancelled', payload);
+          this.eventEmitter.emit('mail.patient.shift.cancelled', payload);
+          // Push socket to patient (and optionally doctor room)
+          this.eventEmitter.emit('socket.shift.cancelled', payload);
+
+          // Hoàn coin cho bệnh nhân
+          const refundAmount = appt.consultationFee || 100000; // Mặc định 100k nếu không có
+          this.eventEmitter.emit('wallet.refund.shift.cancelled', {
+            appointmentId: appt._id?.toString?.() ?? String(appt._id),
+            patientId: appt.patientId?.toString?.() ?? String(appt.patientId),
+            refundAmount,
+            reason: `Hoàn tiền do bác sĩ hủy ca${reason ? `: ${reason}` : ''}`,
+          });
+        }
+
+        // Gửi thông báo + email cho bác sĩ về việc hủy ca
+        if (user?.email) {
+          const doctorPayload = {
+            doctorEmail: user.email,
+            doctorName: (affectedAppointments[0] as any)?.doctorId?.doctorName,
+            date: typeof shift.date === 'string' ? shift.date : new Date(shift.date).toISOString().split('T')[0],
+            shift: shift.shift,
+            reason,
+            affectedAppointmentsCount: affectedAppointments.length,
+          };
+          this.eventEmitter.emit('notify.doctor.shift.cancelled', doctorPayload);
+          this.eventEmitter.emit('mail.doctor.shift.cancelled', doctorPayload);
+        }
+      } catch (sideEffectErr: any) {
+        console.error('[ShiftService] Lỗi khi xử lý thông báo/email hủy ca:', sideEffectErr?.message ?? sideEffectErr);
+        // Không throw để tránh làm hủy ca thất bại; chỉ log lỗi
       }
 
       console.log("[ShiftService] Đã hủy ca thành công:", shift._id.toString());
@@ -483,11 +566,78 @@ export class ShiftService {
     return slots;
 
     }
-  
-  async handleDoctorUpdateSchedule(payload: AppointmentBookingDto): Promise<boolean> {
+
+  /**
+   * Lấy shift theo bác sĩ và ngày, kèm thông tin TimeSlotLog và nếu có lịch hẹn cho từng timeSlot thì attach thông tin bệnh nhân
+   */
+  async getShiftByDoctorAndDate(doctorId: string, date: string) : Promise<any> {
     try {
-      const { doctor, date, timeSlotId } = payload;
-      const doctorId = doctor?.id;
+      console.log('[ShiftService] getShiftByDoctorAndDate', { doctorId, date });
+      const shift = await this.shiftModel.findOne({ doctorId, date }).populate('timeSlots').lean().exec();
+      if (!shift) {
+        return {
+          code: 'SUCCESS',
+          message: 'Không tìm thấy ca',
+          data: null,
+        };
+      }
+
+      // Tìm tất cả appointment liên quan tới các timeSlot của shift
+      const timeSlotIds = (shift.timeSlots || []).map((t: any) => t._id?.toString ? t._id.toString() : t._id);
+
+        const appointments = await this.appointmentModel.find({ timeSlot: { $in: timeSlotIds } })
+          .populate({ path: 'patientId', select: 'profileId' })
+          .populate({ path: 'patientId', populate: { path: 'profileId', select: 'name phone address email gender dob' } })
+        .lean()
+        .exec();
+
+      // Map appointments theo timeSlot id
+      const apptMap: Record<string, any> = {};
+      for (const a of appointments) {
+        const tsId = a.timeSlot?.toString?.();
+        if (tsId) apptMap[tsId] = a;
+      }
+
+      // Attach patient info to each timeSlot entry
+      const timeSlotDetails = (shift.timeSlots || []).map((t: any) => {
+        const appt = apptMap[t._id?.toString?.()] ?? null;
+        const patient = appt?.patientId ? {
+          id: appt.patientId._id?.toString?.() ?? appt.patientId,
+          name: appt.patientId?.profileId?.name ?? null,
+          phone: appt.patientId?.profileId?.phone ?? null,
+        } : null;
+        return {
+          ...t,
+          patient,
+        };
+      });
+
+      const result = {
+        ...shift,
+        timeSlotDetails,
+      };
+
+      return {
+        code: 'SUCCESS',
+        message: 'Lấy ca theo ngày thành công',
+        data: result,
+      };
+    } catch (error) {
+      console.error('[ShiftService] Lỗi getShiftByDoctorAndDate:', error?.message ?? error);
+      return {
+        code: 'ERROR',
+        message: error?.message ?? 'Lỗi',
+        data: null,
+      };
+    }
+  }
+  
+  async handleDoctorUpdateSchedule(payload: AppointmentEnriched): Promise<boolean> {
+    try {
+      // const { doc, date, timeSlotId } = payload;
+      const doctorId = payload.doctorId;
+      const date = payload.date;
+      const timeSlotId = payload.timeSlot._id.toString();
       const dateOnly = new Date(date).toISOString().split("T")[0];
 
       // 1️⃣ Tìm tất cả shift của bác sĩ trong ngày đó

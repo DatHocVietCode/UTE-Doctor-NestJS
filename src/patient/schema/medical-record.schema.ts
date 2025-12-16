@@ -1,15 +1,16 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
-import { HydratedDocument } from "mongoose";
+import mongoose, { HydratedDocument } from "mongoose";
 import { BloodType } from "src/common/enum/blood-type.enum";
+
 
 export type VitalSignRecordDocument = HydratedDocument<VitalSignRecord>;
 @Schema()
 export class VitalSignRecord {
   @Prop({ type: Number, required: false })
-  value?: number; // dùng cho nhịp tim
+  value?: number;
 
   @Prop({ type: Object, required: false })
-  bloodPressure?: { systolic: number; diastolic: number }; // dùng cho huyết áp
+  bloodPressure?: { systolic: number; diastolic: number };
 
   @Prop({ type: Date, required: true })
   dateRecord: Date;
@@ -19,14 +20,35 @@ export const VitalSignRecordSchema = SchemaFactory.createForClass(VitalSignRecor
 export type MedicalRecordDescriptionDocument = HydratedDocument<MedicalRecordDescription>;
 @Schema()
 export class MedicalRecordDescription {
-  @Prop()
-  name: string;
+  @Prop({ required: true })
+  diagnosis: string;
 
-  @Prop()
-  description: string;
+  @Prop({
+    type: [
+      {
+        medicineId: { type: mongoose.Schema.Types.ObjectId, required: false },
+        name: { type: String, required: true },
+        quantity: { type: Number, required: true },
+        note: { type: String, required: false },
+        _id: false,
+      }
+    ],
+    default: []
+  })
+  prescriptions: Array<{
+    medicineId: mongoose.Types.ObjectId;
+    name: string;
+    quantity: number;
+  }>;
 
-  @Prop()
+  @Prop({ type: String })
+  note: string;
+
+  @Prop({ type: Date, required: true })
   dateRecord: Date;
+
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', required: true })
+  appointmentId: mongoose.Types.ObjectId;
 }
 export const MedicalRecordDescriptionSchema = SchemaFactory.createForClass(MedicalRecordDescription);
 
@@ -34,10 +56,10 @@ export type MedicalRecordDocument = HydratedDocument<MedicalRecord>;
 @Schema()
 export class MedicalRecord {
   @Prop()
-  height: number; // cm
+  height: number;
 
   @Prop()
-  weight: number; // kg
+  weight: number;
 
   @Prop({ enum: BloodType })
   bloodType: BloodType;

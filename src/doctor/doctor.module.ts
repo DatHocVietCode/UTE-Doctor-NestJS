@@ -5,12 +5,22 @@ import { DoctorService } from './doctor.service';
 import { DoctorController } from './doctor.controller';
 import { Profile, ProfileSchema } from 'src/profile/schema/profile.schema';
 import { DoctorSeeder } from './doctor.seeder';
+import { DoctorListener } from './listenners/doctor.listernner';
+import { Account, AccountSchema } from 'src/account/schemas/account.schema';
+import { MailModule } from 'src/mail/mail.module';
+import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
 
 @Module({
-  imports: [MongooseModule.forFeature([{ name: Doctor.name, schema: DoctorSchema },
-    { name: Profile.name, schema: ProfileSchema }
-  ])],
-  providers: [DoctorService, DoctorSeeder],
+  imports: [
+    MongooseModule.forFeature([
+      { name: Doctor.name, schema: DoctorSchema },
+      { name: Profile.name, schema: ProfileSchema },
+      { name: Account.name, schema: AccountSchema },
+    ]),
+    MailModule,
+    CloudinaryModule,
+  ],
+  providers: [DoctorService, DoctorSeeder, DoctorListener],
   controllers: [DoctorController],
   exports: [DoctorService],
 })

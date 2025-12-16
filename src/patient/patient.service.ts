@@ -2,17 +2,24 @@ import { Injectable } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import mongoose, { Model } from 'mongoose';
-import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { DataResponse } from 'src/common/dto/data-respone';
+import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
+import { RoleEnum } from 'src/common/enum/role.enum';
+import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
+import { getProfileByEntity } from 'src/utils/helpers/profile.helper';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { PatientProfileDTO } from './dto/patient.dto';
 import { Patient, PatientDocument } from './schema/patient.schema';
-import { RoleEnum } from 'src/common/enum/role.enum';
+import { Account, AccountDocument } from 'src/account/schemas/account.schema';
 
 @Injectable()
 export class PatientService {
+    
   constructor(
     @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
+    @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
+    @InjectModel(Account.name) private readonly accountModel: Model<AccountDocument>,
+
     private readonly eventEmitter: EventEmitter2
   ) {}
 
@@ -47,7 +54,7 @@ export class PatientService {
     console.log(dataRes.message)
     return dataRes;
   }
-  async getPatientByEmail(email: string) : Promise<DataResponse> {
+  async getPatientProfileByEmail(email: string) : Promise<DataResponse> {
     const res : DataResponse = {
       code: rc.PENDING,
       message: "Server received request!",
@@ -90,10 +97,14 @@ export class PatientService {
   //   };
   // }
 
-   async findByProfileId(profileId: string): Promise<Patient | null> {
+  async findByProfileId(profileId: string): Promise<Patient | null> {
     return this.patientModel
       .findOne({ profileId: new mongoose.Types.ObjectId(profileId) })
       .lean(); // chỉ cần data thô
+  }
+
+  findById(patientId: string) {
+    return this.patientModel.findById(patientId).lean();
   }
 
  @OnEvent('patient.getByProfileId')
@@ -114,5 +125,122 @@ export class PatientService {
     
     return dto;
   }
+
+  async getPatientProfile(patientId: string): Promise<DataResponse<ProfileDocument | null>> {
+    const patient = await getProfileByEntity<PatientDocument>(
+      this.patientModel,
+      patientId
+    );
+    if (!patient) {
+      return {
+        code: rc.ERROR,
+        message: 'Patient profile not found',
+        data: null,
+      };
+    }
+    return {
+      code: rc.SUCCESS,
+      message: 'Fetched patient profile successfully',
+      data: patient,
+    };
+  }
+
+  async getPatientByEmail(email: string): Promise<Patient | null> {
+    // Tìm patient và populate luôn profile
+    const patient = await this.patientModel
+      .findOne()                      // không filter gì trước
+      .populate({
+        path: 'profileId',            // populate field profileId
+        match: { email },             // filter profile theo email
+      })
+      .exec();
+
+    // Nếu không có patient hoặc profile bị null do match
+    if (!patient || !patient.profileId) {
+      console.log('[PatientService] No patient found with email:', email);
+      return null;
+    }
+
+    console.log('[PatientService] Patient found:', JSON.stringify(patient, null, 2));
+    return patient;
+  }
+
+  async findByAccountId(accountId: string) {
+    return this.patientModel.findOne({ accountId }).populate('profileId').exec();
+  }
+
+  async findProfileById(id: string) {
+    return this.patientModel
+      .findById(id)
+      .populate('profileId')   // lấy thông tin Profile
+      .exec();
+  }
+
+  async findAll(page: number = 1, limit: number = 5, keyword?: string) {
+    const skip = (page - 1) * limit;
+    let query: any = {};
+
+    if (keyword) {
+      const regex = { $regex: keyword, $options: "i" };
+
+      const matchedProfiles = await this.profileModel.find(
+        {
+          $or: [
+            { name: regex },
+            { phone: regex },
+            { email: regex },
+          ],
+        },
+        "_id"
+      );
+
+      const profileIds = matchedProfiles.map((p) => p._id);
+
+      const matchedAccounts = await this.accountModel.find(
+        { email: regex },
+        "_id"
+      );
+
+      const accountIds = matchedAccounts.map((a) => a._id);
+
+      query = {
+        $or: [
+          { profileId: { $in: profileIds } },
+          { accountId: { $in: accountIds } },
+        ],
+      };
+    }
+
+    const [data, total] = await Promise.all([
+      this.patientModel
+        .find(query)
+        .skip(skip)
+        .limit(limit)
+        .populate({
+          path: "profileId",
+          select: "name phone email gender dob avatarUrl",
+        })
+        .populate({
+          path: "accountId",
+          select: "email role status",
+        })
+        .exec(),
+
+      this.patientModel.countDocuments(query),
+    ]);
+
+    return {
+      code: 200,
+      message: "Get patients successfully",
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
 
 }

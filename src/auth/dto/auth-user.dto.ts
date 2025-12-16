@@ -39,4 +39,7 @@ export class LoginUserResDto {
   refreshToken: string;
   role: string;
   id: string;
+  patientId?: string | null;
+  doctorId?: string | null;
+  profileId?: string | null;
 }

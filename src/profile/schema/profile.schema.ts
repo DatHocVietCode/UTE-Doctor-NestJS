@@ -26,6 +26,9 @@ export class Profile {
 
   @Prop({ default: null })
   dob: Date;
+
+  @Prop({ default: '' })
+  avatarUrl: string;
 }
 
 export const ProfileSchema = SchemaFactory.createForClass(Profile);

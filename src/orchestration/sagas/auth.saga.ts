@@ -85,12 +85,14 @@ export class AuthSaga {
       console.log("This is res from patient:", res)
       childEntityResult = res as DataResponse<Patient>;
     } else if (registerUser.role === RoleEnum.DOCTOR) {
-      const createdDoctorDto: CreateDoctorDto = {
+      // createDoctor payload needs to include profileId (existing profile created above).
+      // Use `any` to avoid TypeScript excess property check because CreateDoctorDto expects a nested `profile`.
+      const createdDoctorDto: any = {
         profileId,
         chuyenKhoaId: registerUser.chuyenKhoaId,
         degree: registerUser.degree,
         yearsOfExperience: registerUser.yearsOfExperience,
-    };
+      };
 
       const [res] = await this.eventEmitter.emitAsync('doctor.createDoctor', createdDoctorDto);
       childEntityResult = res as DataResponse<Doctor>;

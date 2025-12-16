@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
@@ -9,18 +9,22 @@ import { Model } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
+import { UserContextService } from 'src/user-context/user-context.service';
 import { emitTyped } from 'src/utils/helpers/event.helper';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
 import { Account } from '../account/schemas/account.schema';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
 
-
 @Injectable()
 export class AuthService {
     constructor(@InjectModel(Account.name) private accountModel: Model<Account>
                 , private jwtService: JwtService
-                , private readonly eventEmitter: EventEmitter2) {}
-    
+                , private readonly eventEmitter: EventEmitter2
+            , private userContextService: UserContextService,) {
+                console.log('AuthService instantiated');
+            }
+     private readonly logger = new Logger(AuthService.name);
+
     async register(registerUser: RegisterUserReqDto) {
         // bắn event "đăng ký yêu cầu"
         this.eventEmitter.emitAsync('user.register.requested', {
@@ -37,7 +41,12 @@ export class AuthService {
     }
     
     async login(loginUserDto: LoginUserReqDto): Promise<DataResponse<LoginUserResDto>> {
+
+        this.logger.log(">>> BEFORE FIND ONE");
         const user = await this.accountModel.findOne({ email: loginUserDto.email }).exec();
+
+        this.logger.log("Found user:", user?.email);
+
         let dataRes: DataResponse<LoginUserResDto> = {
             code: rc.ACCOUNT_NOT_FOUND,
             message: "",
@@ -47,6 +56,7 @@ export class AuthService {
         if (!user) {
             dataRes.message = "User not found";
             dataRes.code = rc.ACCOUNT_NOT_FOUND;
+            this.logger.log(dataRes.message);
             return dataRes;
         }
         
@@ -54,12 +64,14 @@ export class AuthService {
         if (!isPasswordValid) {
             dataRes.message = "Invalid password";
             dataRes.code = rc.ERROR;
+            this.logger.log(dataRes.message);
             return dataRes;
         }
 
         if (user.status === AccountStatusEnum.INACTIVE) {
             dataRes.message = "User is not activated! Automatically redirect you to verify OTP page...";
             dataRes.code = rc.ERROR;
+            this.logger.log(dataRes.message);
             await this.handleOTPSending(loginUserDto.email);
             return dataRes;
         }
@@ -68,14 +80,21 @@ export class AuthService {
         dataRes.code = rc.SUCCESS;
         dataRes.message = "Login Successful";
 
+        console.log("Creating tokens for user:", user.email);
+
         const refreshTokenRespone = await this.getAccountRefreshToken(user.email); 
-        const accessToken = this.createAccessToken(user.email, user.role, user._id.toString());
+        this.logger.log("Refresh token response:", refreshTokenRespone);
+        const userCtx = await this.userContextService.getUserContext(user);
+        const accessToken = this.createAccessToken(user, userCtx);
 
         if (dataRes.data) {
             dataRes.data.accessToken = accessToken;
             dataRes.data.refreshToken = refreshTokenRespone?.data ?? "";
             dataRes.data.role = user.role;
             dataRes.data.id = user._id.toString();
+            dataRes.data.patientId = userCtx.patientId ?? undefined;
+            dataRes.data.doctorId = userCtx.doctorId ?? undefined;
+            dataRes.data.profileId = userCtx.profileId ? userCtx.profileId.toString() : undefined;
         }
 
         return dataRes;
@@ -198,18 +217,40 @@ export class AuthService {
         return dataRes;
     }
 
-    createAccessToken(email: string, role: string, id: string): string {
-        // Implement JWT token creation logic here
-        const payload = { sub: email, role, id };
-        console.log("Creating access token with payload:", payload);
-        const token = this.jwtService.sign(payload, 
-            {
-                secret: process.env.JWT_SECRET,
-                expiresIn: process.env.JWT_EXPIRES_IN
-            }
-        );
-        return token;
-    }
+    // createAccessToken(email: string, role: string, id: string): string {
+    //     // Implement JWT token creation logic here
+    //     const payload = { sub: email, role, id };
+    //     console.log("Creating access token with payload:", payload);
+    //     const token = this.jwtService.sign(payload, 
+    //         {
+    //             secret: process.env.JWT_SECRET,
+    //             expiresIn: process.env.JWT_EXPIRES_IN
+    //         }
+    //     );
+    //     return token;
+    // }
+
+    createAccessToken(user: Account, ctx: any): string {
+    const payload = {
+        sub: user._id.toString(),
+        email: user.email,
+        role: user.role,
+        accountId: user._id.toString(),
+
+        // từ userContext
+        patientId: ctx.patientId ?? null,
+        doctorId: ctx.doctorId ?? null,
+        profileId: ctx.profileId ? ctx.profileId.toString() : null
+    };
+
+    console.log("Creating access token with payload:", payload);
+
+    return this.jwtService.sign(payload, {
+        secret: process.env.JWT_SECRET,
+        expiresIn: process.env.JWT_EXPIRES_IN
+    });
+}
+
 
     createRefreshToken(email: string): string {
         // Implement JWT refresh token creation logic here
@@ -281,40 +322,33 @@ export class AuthService {
         return data;
     }
 
-    async getAccountRefreshToken(email: string) : Promise<DataResponse<string>>
-    {
-        const account = await this.accountModel.findOne({email});
-        const dataRes: DataResponse= {
-            message: "",
-            code: rc.SERVER_ERROR,
-            data: ""
-        }
-        if (!account)
-        {
+    async getAccountRefreshToken(email: string) {
+        const account = await this.accountModel.findOne({ email });
+        const dataRes: DataResponse<string> = { code: rc.SERVER_ERROR, message: "", data: "" };
+
+        if (!account) {
             dataRes.code = rc.ACCOUNT_NOT_FOUND;
             dataRes.message = "Account not found";
+            // this.logger.warn(dataRes.message);  // Dùng logger thay vì console.log
+        } else {
+        if (account.refreshToken && this.isTokenAlive(account.refreshToken)) {
+            dataRes.code = rc.SUCCESS;
+            dataRes.message = "Successfully get refresh token";
+            dataRes.data = account.refreshToken;
+            // this.logger.log(dataRes.message);
+        } else {
+            const newRefreshToken = this.createRefreshToken(email);
+            account.refreshToken = newRefreshToken;
+            await account.save();
+            dataRes.code = rc.SUCCESS;
+            dataRes.message = "Successfully create new refresh token";
+            dataRes.data = newRefreshToken;
+            // this.logger.log(dataRes.message);
+            // this.logger.debug("New refresh token: " + newRefreshToken);
         }
-        else
-        {
-            if (account.refreshToken)
-            {
-                if (this.isTokenAlive(account.refreshToken))
-                {
-                    dataRes.code = rc.SUCCESS;
-                    dataRes.message = "Successfully get refresh token";
-                    dataRes.data = account.refreshToken;
-                }
-            }
-            else
-            {
-                const newRefreshToken = this.createRefreshToken(email);
-                account.refreshToken = newRefreshToken;
-                await account.save();
-                dataRes.code = rc.SUCCESS;
-                dataRes.message = "Successfully create new refresh token";
-                dataRes.data = newRefreshToken;
-            }
         }
+
+        // this.logger.debug(`dataRes.data: ${dataRes.data}`);
         return dataRes;
     }
 
@@ -339,4 +373,79 @@ export class AuthService {
             return false;
         }
     }
+
+    async refresh(refreshToken: string): Promise<DataResponse<LoginUserResDto>> {
+        const dataRes: DataResponse<LoginUserResDto> = {
+            code: rc.ERROR,
+            message: 'Invalid refresh token',
+            data: { accessToken: '', refreshToken: '', role: '', id: '' },
+        };
+
+        try {
+            if (!refreshToken) {
+                dataRes.message = 'Missing refresh token';
+                return dataRes;
+            }
+
+            // 1. Verify refresh token
+            let payload: any;
+            try {
+                console.log("Verifying refresh token", refreshToken);
+                payload = await this.jwtService.verifyAsync(refreshToken, { 
+                    secret: process.env.JWT_REFRESH_SECRET 
+                });
+            } catch (err) {
+                dataRes.message = 'Refresh token invalid or expired';
+                return dataRes;
+            }
+
+            const email = payload?.sub;
+            if (!email) {
+                dataRes.message = 'Invalid token payload';
+                return dataRes;
+            }
+
+            // 2. Find account by email
+            const account = await this.accountModel.findOne({ email }).exec();
+            if (!account) {
+                dataRes.message = 'Account not found';
+                dataRes.code = rc.ACCOUNT_NOT_FOUND;
+                return dataRes;
+            }
+
+            // 3. Ensure refresh token matches DB
+            if (!account.refreshToken || account.refreshToken !== refreshToken) {
+                dataRes.message = 'Refresh token does not match';
+                return dataRes;
+            }
+
+            // 4. Load userContext (patientId / doctorId / profileId)
+            const userCtx = await this.userContextService.getUserContext(account);
+
+            // 5. Create new access token (full info)
+            const accessToken = this.createAccessToken(account, userCtx);
+
+            // 6. Build response
+            dataRes.code = rc.SUCCESS;
+            dataRes.message = 'Access token refreshed';
+
+            dataRes.data = {
+                accessToken,
+                refreshToken: account.refreshToken,   // giữ refresh token cũ
+                role: account.role,
+                id: account._id.toString(),
+                patientId: userCtx.patientId ?? undefined,
+                doctorId: userCtx.doctorId ?? undefined,
+                profileId: userCtx.profileId ? userCtx.profileId.toString() : undefined
+            };
+
+            return dataRes;
+
+        } catch (error) {
+            console.error('[AuthService] Error refreshing token', error);
+            dataRes.message = 'Server error while refreshing token';
+            return dataRes;
+        }
+    }
+
 }

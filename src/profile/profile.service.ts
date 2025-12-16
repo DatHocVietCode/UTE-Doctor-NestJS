@@ -1,13 +1,12 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Profile, ProfileDocument } from './schema/profile.schema';
-import { UpdateProfileDto } from './dto/update-profile.dto';
-import { DataResponse } from 'src/common/dto/data-respone';
-import { CreateProfileDto } from './dto/create-profile.dto';
 import { OnEvent } from '@nestjs/event-emitter';
+import { InjectModel } from '@nestjs/mongoose';
+import mongoose, { Model } from 'mongoose';
+import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
-import mongoose from 'mongoose';
+import { CreateProfileDto } from './dto/create-profile.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
+import { Profile, ProfileDocument } from './schema/profile.schema';
 
 
 @Injectable()
@@ -86,6 +85,39 @@ export class ProfileService {
       name: profile.name,
       gender: profile.gender,
       phoneNumber: profile.phone,
+      dateOfBirth: profile.dob,
+      address: profile.address,
+      avatarUrl: profile.avatarUrl,
+      createdAt: (profile as any).createdAt,  // type assertion
+      updatedAt: (profile as any).updatedAt
     };
+  }
+
+  async handleProfileUpdate(payload: { profileId: string; data: any }): Promise<Profile | null> {
+    try {
+      const { profileId, data } = payload;
+      
+      if (!mongoose.Types.ObjectId.isValid(profileId)) {
+        console.error('[ProfileService]: Invalid profile ID format', profileId);
+        return null;
+      }
+
+      const updatedProfile = await this.profileModel.findByIdAndUpdate(
+        profileId,
+        data,
+        { new: true }
+      ).exec();
+
+      if (!updatedProfile) {
+        console.error('[ProfileService]: Profile not found', profileId);
+        return null;
+      }
+
+      console.log('[ProfileService]: Profile updated successfully', profileId);
+      return updatedProfile;
+    } catch (error) {
+      console.error('[ProfileService]: Error updating profile', error);
+      return null;
+    }
   }
 }

@@ -5,6 +5,7 @@ import { ShiftService } from "./shift.service";
 import { stat } from "fs";
 import { TimeSlotStatusEnum } from "src/timeslot/enums/timeslot-status.enum";
 import { AppointmentBookingDto } from "src/appointment/dto/appointment-booking.dto";
+import type { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
 
 @Injectable()
 export class ShiftListener {
@@ -22,13 +23,13 @@ export class ShiftListener {
     }
 
     @OnEvent("doctor.update-schedule")
-    async handleDoctorUpdateSchedule(payload: AppointmentBookingDto) {
+    async handleDoctorUpdateSchedule(payload: AppointmentEnriched) : Promise<void> {
         console.log("[ShiftListener] Nhận sự kiện doctor.update-schedule với payload:", payload);
         const isUpdated: boolean = await this.shiftService.handleDoctorUpdateSchedule(payload);
         if (isUpdated) {
-            console.log(`[ShiftListener] Cập nhật trạng thái TimeSlot ${payload.timeSlotId} thành BOOKED thành công.`);
+            console.log(`[ShiftListener] Cập nhật trạng thái TimeSlot ${payload.timeSlot._id.toString()} thành BOOKED thành công.`);
         } else {
-            console.log(`[ShiftListener] Cập nhật trạng thái TimeSlot ${payload.timeSlotId} thành BOOKED thất bại.`);
+            console.log(`[ShiftListener] Cập nhật trạng thái TimeSlot ${payload.timeSlot._id.toString()} thành BOOKED thất bại.`);
         }
     }
 }

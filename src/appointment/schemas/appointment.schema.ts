@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import mongoose, { HydratedDocument } from "mongoose";
+import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 import { AppointmentStatus } from "../enums/Appointment-status.enum";
 import { ServiceType } from "../enums/service-type.enum";
 
@@ -24,7 +25,10 @@ export class Appointment {
     timeSlot: mongoose.Types.ObjectId;
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true })
-    patientId: mongoose.Types.ObjectId;
+    patientId: mongoose.Types.ObjectId; // This is account Id, not patient Id (To be fixed later)
+
+    @Prop()
+    patientEmail: string;
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Doctor' })
     doctorId: mongoose.Types.ObjectId;
@@ -34,6 +38,12 @@ export class Appointment {
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'ChuyenKhoa' })
     specialtyId: string;
+
+    @Prop({ type: String, enum: PaymentMethodEnum })
+    paymentMethod:PaymentMethodEnum;
+
+    @Prop()
+    hospitalName: string;
 }
 
 export const AppointmentSchema = SchemaFactory.createForClass(Appointment);
