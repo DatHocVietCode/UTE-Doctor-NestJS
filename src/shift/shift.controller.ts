@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from "@nestjs/common";
+import { JwtAuthGuard } from "src/common/guards/jws-auth.guard";
 import { RegisterShiftDto } from "./dto/register-shift.dto";
 import { ShiftService } from "./shift.service";
 
@@ -50,9 +51,10 @@ export class ShiftController {
   }
 
   @Put("/cancel/:id")
-  async cancelShift(@Param("id") id: string, @Body("reason") reason: string) {
+  @UseGuards(JwtAuthGuard)
+  async cancelShift(@Param("id") id: string, @Body("reason") reason: string, @Req() req: any) {
     console.log("🟠 [Controller] Yêu cầu hủy ca:", id, "Lý do:", reason);
-    return await this.shiftService.cancelShiftById(id, reason);
+    return await this.shiftService.cancelShiftById(id, reason, req.user);
   }
 
 }

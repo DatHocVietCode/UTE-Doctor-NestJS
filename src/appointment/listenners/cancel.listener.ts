@@ -43,4 +43,37 @@ export class CancelListener {
             // Admin can manually process refund later if needed
         }
     }
+
+    @OnEvent('wallet.refund.shift.cancelled')
+    async handleShiftCancelledRefund(payload: {
+        appointmentId: string;
+        patientId: string;
+        refundAmount: number;
+        reason: string;
+    }) {
+        try {
+            this.logger.debug(
+                `Processing refund for shift cancellation (appointment ${payload.appointmentId}): ${payload.refundAmount} coins`
+            );
+
+            // Add coins to patient's wallet
+            await this.walletService.addCoins(
+                payload.patientId,
+                payload.refundAmount,
+                `refund-shift-cancel-${payload.appointmentId}`,
+                payload.appointmentId,
+                payload.reason
+            );
+
+            this.logger.log(
+                `Successfully credited ${payload.refundAmount} coins to patient ${payload.patientId} for shift cancellation (appointment ${payload.appointmentId})`
+            );
+        } catch (error: any) {
+            this.logger.error(
+                `Failed to process refund for shift cancellation (appointment ${payload.appointmentId}): ${error.message}`,
+                error.stack
+            );
+            // Log error but don't throw
+        }
+    }
 }

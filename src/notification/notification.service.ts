@@ -136,5 +136,46 @@ export class NotificationService {
         if (!notif) throw new NotFoundException('[NotificationService] Notification not found');
         return notif;
     }
+
+    async createPatientShiftCancellationNotification(payload: {
+        patientEmail: string;
+        doctorName?: string;
+        date: string;
+        timeSlot: string;
+        hospitalName?: string;
+        reason?: string;
+    }) {
+        const timeSlotName = await emitTyped<string, string>(
+            this.eventEmitter,
+            'timeslot.get.name.by.id',
+            payload.timeSlot
+        );
+
+        const title = 'Thông báo hủy ca khám';
+        const message = `Ca khám ngày ${payload.date} lúc ${timeSlotName}${payload.hospitalName ? ` tại ${payload.hospitalName}` : ''} đã bị hủy${payload.doctorName ? ` bởi bác sĩ ${payload.doctorName}` : ''}${payload.reason ? `. Lý do: ${payload.reason}` : ''}. Vui lòng đặt lại lịch hoặc liên hệ hỗ trợ.`;
+
+        await this.storeNewNotification({
+            receiverEmail: [payload.patientEmail],
+            title,
+            message,
+        });
+    }
+
+    async createDoctorShiftCancellationNotification(payload: {
+        doctorEmail: string;
+        date: string;
+        shift: string;
+        reason?: string;
+        affectedAppointmentsCount: number;
+    }) {
+        const title = 'Xác nhận hủy ca trực';
+        const message = `Bạn đã hủy ca ${payload.shift === 'morning' ? 'sáng' : payload.shift === 'afternoon' ? 'trưa' : 'ngoài giờ'} ngày ${payload.date}${payload.reason ? `. Lý do: ${payload.reason}` : ''}. Có ${payload.affectedAppointmentsCount} lịch hẹn bị ảnh hưởng. Bệnh nhân đã được thông báo và hoàn coin.`;
+
+        await this.storeNewNotification({
+            receiverEmail: [payload.doctorEmail],
+            title,
+            message,
+        });
+    }
 }
 
