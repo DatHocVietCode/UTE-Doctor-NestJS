@@ -16,14 +16,22 @@ export class ChatController {
   async createConversation(
     @Body() body: { participants: { accountId: string; email?: string; role: string }[]; title?: string },
   ): Promise<DataResponse<any>> {
+    console.log('[ChatController] POST /conversations called with:', body);
     const conv = await this.chatService.upsertDirectConversation(body.participants, body.title);
+    console.log('[ChatController] Returning conversation:', conv._id);
     return { code: rc.SUCCESS, message: 'Conversation created', data: conv };
   }
 
   @Get('/conversations')
-  async listConversations(@Query('accountId') accountId: string): Promise<DataResponse<any>> {
-    const list = await this.chatService.listConversationsByUser(accountId);
-    return { code: rc.SUCCESS, message: 'Fetched conversations', data: list };
+  async listConversations(
+    @Query('accountId') accountId: string,
+    @Query('skip') skip?: string,
+    @Query('limit') limit?: string,
+  ): Promise<DataResponse<any>> {
+    const skipNum = skip ? parseInt(skip, 10) : 0;
+    const limitNum = limit ? parseInt(limit, 10) : 20;
+    const result = await this.chatService.listConversationsByUser(accountId, skipNum, limitNum);
+    return { code: rc.SUCCESS, message: 'Fetched conversations', data: result };
   }
 
   @Get('/conversations/:id/messages')
@@ -32,7 +40,9 @@ export class ChatController {
     @Query('before') before?: string,
     @Query('limit') limit?: string,
   ): Promise<DataResponse<any>> {
+    console.log('[ChatController] GET /conversations/:id/messages called:', { id, before, limit });
     const msgs = await this.chatService.getMessages(id, before, limit ? parseInt(limit) : 20);
+    console.log('[ChatController] Returning messages count:', msgs.length);
     return { code: rc.SUCCESS, message: 'Fetched messages', data: msgs };
   }
 
