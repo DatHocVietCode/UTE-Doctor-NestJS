@@ -29,13 +29,98 @@ export class BookingListener {
     }
 
     @OnEvent('appointment.booking.pending')
-    handleBookingPending(payload: AppointmentBookingDto) {
-        // Todo: emit tiếp các side-effect
+    handleBookingPending(payload: appointmentEnriched.AppointmentEnriched) {
+        this.logger.debug(`Processing pending booking for appointment ${payload._id}`);
+        
+        // Update appointment status to PENDING
+        this.appointmentService.updateAppointmentStatus(payload._id.toString(), AppointmentStatus.PENDING);
+        
+        // Notify patient
+        this.eventEmitter.emit('notify.patient.booking.pending', payload);
+        
+        // Send email confirmation to patient
+        this.eventEmitter.emit('mail.patient.booking.pending', payload);
+        
+        // TODO: Notify active receptionist when receptionist module is implemented
+        // this.eventEmitter.emit('notify.receptionist.booking.pending', payload);
+        
+        // Notify client via socket
+        this.eventEmitter.emit('socket.appointment.pending', payload);
+        
+        this.logger.log(`Pending booking processed for appointment ${payload._id}`);
     }
 
     @OnEvent('appointment.store.booking')
     handleStoreBooking(payload: AppointmentBookingDto) {
         return this.appointmentService.storeBookingInformation(payload);
+    }
+
+    @OnEvent('appointment.booking.failed')
+    handleBookingValidationFailed(payload: { dto?: AppointmentBookingDto; reason?: string; appointmentId?: string }) {
+        this.logger.warn(`Processing booking validation failure:`, payload);
+        
+        const patientEmail = payload.dto?.patientEmail;
+        const appointmentId = payload.appointmentId;
+        
+        if (patientEmail) {
+            // Notify patient of booking failure
+            this.eventEmitter.emit('notify.patient.booking.failed', {
+                patientEmail,
+                reason: payload.reason || 'Booking validation failed',
+                appointmentId
+            });
+            
+            // Send failure email to patient
+            this.eventEmitter.emit('mail.patient.booking.failed', {
+                patientEmail,
+                reason: payload.reason || 'Booking validation failed',
+                appointmentId
+            });
+        }
+        
+        // Notify client via socket about booking failure
+        this.eventEmitter.emit('socket.appointment.failed', {
+            success: false,
+            error: payload.reason || 'Booking validation failed',
+            appointmentId,
+            patientEmail
+        });
+        
+        this.logger.log(`Booking validation failure notification sent for ${patientEmail}`);
+    }
+
+    @OnEvent('appointment.payment.failed')
+    handlePaymentFailed(payload: { dto?: AppointmentBookingDto; reason?: string; appointmentId?: string }) {
+        this.logger.warn(`Processing payment failure:`, payload);
+        
+        const patientEmail = payload.dto?.patientEmail;
+        const appointmentId = payload.appointmentId;
+        
+        if (patientEmail) {
+            // Notify patient of payment failure
+            this.eventEmitter.emit('notify.patient.booking.failed', {
+                patientEmail,
+                reason: payload.reason || 'Payment processing failed',
+                appointmentId
+            });
+            
+            // Send failure email to patient
+            this.eventEmitter.emit('mail.patient.booking.failed', {
+                patientEmail,
+                reason: payload.reason || 'Payment processing failed',
+                appointmentId
+            });
+        }
+        
+        // Notify client via socket about payment failure
+        this.eventEmitter.emit('socket.appointment.failed', {
+            success: false,
+            error: payload.reason || 'Payment processing failed',
+            appointmentId,
+            patientEmail
+        });
+        
+        this.logger.log(`Payment failure notification sent for ${patientEmail}`);
     }
 
     /**
