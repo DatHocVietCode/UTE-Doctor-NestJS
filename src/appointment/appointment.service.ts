@@ -54,7 +54,7 @@ export class AppointmentService {
             patientId: payload.patientId, // This is account Id, not patient Id (To be fixed later)
             doctorId: payload.doctor?.id ?? undefined, // nếu null thì bỏ qua
             reasonForAppointment: payload.reasonForAppointment,
-            specialtyId: payload.specialty,
+            specialtyId: payload.specialty ? payload.specialty : null,
             paymentMethod: payload.paymentMethod,
             hospitalName: payload.hospitalName,
             patientEmail: payload.patientEmail,
