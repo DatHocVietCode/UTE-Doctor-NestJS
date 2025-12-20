@@ -17,7 +17,14 @@ export class BookingAppointmentSubmitSaga {
     @OnEvent('appointment.booked') // received through http post
     async handleBookingAppointment(payload: AppointmentBookingDto) {
 
-        // Store booking information first
+        // Validate booking information completeness first
+        if (!this.isBookingInformationEnough(payload)) {
+            console.log('[Saga] Booking information insufficient. Rejecting booking:', payload);
+            this.eventEmitter.emit('appointment.booking.failed', { dto: payload, reason: 'Insufficient booking information' });
+            return;
+        }
+
+        // Store booking information next
         const appointment = await emitTyped<AppointmentBookingDto, AppointmentDocument>(
             this.eventEmitter,
                 'appointment.store.booking',
@@ -70,13 +77,13 @@ export class BookingAppointmentSubmitSaga {
             
             console.log(`[Saga] Processing coin payment for amount: ${coinsToUse} coins (consultation fee: ${consultationFee})`);
             
-            // Validate: coins used must not exceed consultation fee
-            if (coinsToUse > consultationFee || coinsToUse < 0 || coinsToUse < consultationFee) {
-                console.log(`[Saga] Invalid coin payment: coins to use (${coinsToUse}) exceeds consultation fee (${consultationFee})`);
+            // Validate: must pay full consultation fee using coins (no partials)
+            if (coinsToUse < 0 || coinsToUse !== consultationFee) {
+                console.log(`[Saga] Invalid coin payment: coins to use (${coinsToUse}) must equal consultation fee (${consultationFee})`);
                 // Emit payment failed event
                 this.eventEmitter.emit('appointment.payment.failed', { 
                     dto: payload, 
-                    reason: `Coins to use (${coinsToUse}) cannot exceed consultation fee (${consultationFee})`
+                    reason: `Coins to use (${coinsToUse}) must equal consultation fee (${consultationFee})`
                 });
                 return;
             }
@@ -127,39 +134,10 @@ export class BookingAppointmentSubmitSaga {
                 return;
             }
         } else if (payload.paymentMethod === PaymentMethodEnum.OFFLINE) {
-            console.log(`[Saga] Processing offline payment for appointment ${appointmentId}`);
-            
-            // Fetch doctor and patient data to build enriched payload
-            const doctor: Doctor = await emitTyped<string, Doctor>(
-                this.eventEmitter,
-                'doctor.get.byId',
-                appointment.doctorId?.toString()
-            );
-
-            const patient: Patient = await emitTyped<string, PatientDocument>(
-                this.eventEmitter,
-                'patient.get.byEmail',
-                appointment.patientEmail
-            );
-
-            const doctorProfile = doctor?.profileId as unknown as Profile;
-            const patientProfile = patient?.profileId as unknown as Profile;
-
-            const enrichedPayload = buildEnrichedAppointmentPayload(
-                appointment,
-                doctorProfile,
-                patientProfile,
-                payload.amount ?? 0,
-                patientProfile?.name || 'N/A',
-                appointment.patientEmail
-            );
-
-            enrichedPayload.paymentStatus = PaymentStatusEnum.PENDING;
-
-            // Emit success event với enriched payload
-            this.eventEmitter.emit('appointment.booking.success', enrichedPayload);
-            console.log(`[Saga] Offline appointment pending payment confirmation: ${appointmentId}`);
-            isPaymentSuccess = true;
+            // Offline flow is deprecated; do not mark booking as success
+            console.log(`[Saga] Offline payment is deprecated. Booking will not be marked as success: ${appointmentId}`);
+            this.eventEmitter.emit('appointment.payment.failed', { dto: payload, reason: 'OFFLINE payment not supported' });
+            return;
         } else {
             console.log(`[Saga] Unknown payment method: ${payload.paymentMethod}`);
             this.eventEmitter.emit('appointment.payment.failed', { dto: payload });
@@ -181,7 +159,7 @@ export class BookingAppointmentSubmitSaga {
         if (!dto.paymentMethod) return false;
 
         // Nếu thanh toán online mà không có amount hoặc <= 0 → thiếu thông tin
-        if (dto.patientEmail === 'ONLINE' && (!dto.amount || dto.amount <= 0))
+        if (dto.paymentMethod === PaymentMethodEnum.ONLINE && (!dto.amount || dto.amount <= 0))
             return false;
 
         // Nếu có bác sĩ (optional) thì kiểm tra id và name có đầy đủ không
@@ -192,6 +170,13 @@ export class BookingAppointmentSubmitSaga {
         else
         {
             return false; // Bác sĩ là thông tin bắt buộc trong trường hợp này
+        }
+
+        // Ràng buộc bổ sung theo hình thức thanh toán
+        if (dto.paymentMethod === PaymentMethodEnum.COIN) {
+            const consultationFee = dto.amount ?? 0;
+            const coinsToUse = dto.coinsToUse ?? 0;
+            if (!dto.useCoin || coinsToUse <= 0 || coinsToUse !== consultationFee) return false;
         }
 
         // Mọi thứ hợp lệ

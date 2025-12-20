@@ -5,6 +5,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
 import { DoctorModule } from 'src/doctor/doctor.module';
 import { MedicineModule } from 'src/medicine/medicine.module';
+import { NewsModule } from 'src/news/news.module';
 import { PatientModule } from 'src/patient/patient.module';
 import { PrescriptionModule } from 'src/prescription/prescription.module';
 import { ProfileModule } from 'src/profile/profile.module';
@@ -15,6 +16,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AppointmentModule } from './appointment/appointment.module';
 import { AuthModule } from './auth/auth.module';
+import { ChatModule } from './chat/chat.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import { MailModule } from './mail/mail.module';
@@ -25,8 +27,6 @@ import { SocketModule } from './socket/socket.module';
 import { TimeSlotModule } from './timeslot/timeslot.module';
 import { UserContextModule } from './user-context/user-context.module';
 import { OtpModule } from './utils/otp/otp.module';
-import { News } from 'src/news/schemas/news.schema';
-import { NewsModule } from 'src/news/news.module';
 import { DoctorPostModule } from 'src/post/post.module';
 @Module({
   imports: [
@@ -62,7 +62,8 @@ import { DoctorPostModule } from 'src/post/post.module';
     UserContextModule,
     CloudinaryModule,
     NewsModule,
-    DoctorPostModule,
+	DoctorPostModule,
+    ChatModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
   controllers: [AppController],

@@ -1,10 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
-import { AppointmentBookingDto } from "src/appointment/dto/appointment-booking.dto";
-import { NotificationService } from "../notification.service";
-import type { AppointmentDocument } from "src/appointment/schemas/appointment.schema";
 import * as appointmentEnriched from "src/appointment/schemas/appointment-enriched";
-import { App } from "supertest/types";
+import { NotificationService } from "../notification.service";
 
 
 @Injectable()
@@ -22,5 +19,28 @@ export class AppointmentNotificationListener
     @OnEvent('notify.doctor.booking.success')
     handleDoctorNotification(payload: appointmentEnriched.AppointmentEnriched) {
         this.notificationService.createDoctorAppointmentNotification(payload);
+    }
+
+    @OnEvent('notify.patient.shift.cancelled')
+    handlePatientShiftCancelled(payload: {
+        patientEmail: string;
+        doctorName?: string;
+        date: string;
+        timeSlot: string;
+        hospitalName?: string;
+        reason?: string;
+    }) {
+        this.notificationService.createPatientShiftCancellationNotification(payload);
+    }
+
+    @OnEvent('notify.doctor.shift.cancelled')
+    handleDoctorShiftCancelled(payload: {
+        doctorEmail: string;
+        date: string;
+        shift: string;
+        reason?: string;
+        affectedAppointmentsCount: number;
+    }) {
+        this.notificationService.createDoctorShiftCancellationNotification(payload);
     }
 }
