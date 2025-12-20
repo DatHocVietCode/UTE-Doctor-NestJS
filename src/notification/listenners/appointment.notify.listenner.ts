@@ -43,4 +43,16 @@ export class AppointmentNotificationListener
     }) {
         this.notificationService.createDoctorShiftCancellationNotification(payload);
     }
+
+    @OnEvent('notify.patient.appointment.cancelled')
+    handlePatientAppointmentCancelled(payload: {
+        patientEmail: string;
+        doctorName?: string;
+        date: string;
+        timeSlot: string;
+        hospitalName?: string;
+        reason?: string;
+    }) {
+        this.notificationService.createPatientAppointmentCancellationNotification(payload);
+    }
 }

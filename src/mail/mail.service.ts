@@ -138,4 +138,39 @@ export class MailService {
     `;
     await this.sendMail(payload.doctorEmail, "Xác nhận hủy ca trực - UTE Doctor", html);
   }
+
+  /** === APPOINTMENT CANCELLATION: PATIENT === */
+  async sendPatientAppointmentCancellationMail(payload: {
+    patientEmail: string;
+    doctorName?: string;
+    date: string;
+    timeSlot: string;
+    hospitalName?: string;
+    reason?: string;
+    refundAmount?: number;
+    shouldRefund?: boolean;
+  }) {
+    const timeSlotName = await emitTyped<string, string>(
+      this.eventEmitter,
+      'timeslot.get.name.by.id',
+      payload.timeSlot
+    );
+
+    const refundLine = payload.shouldRefund && payload.refundAmount !== undefined
+      ? `<p>Số coin hoàn: <b>${payload.refundAmount}</b></p>`
+      : '<p>Đơn hủy không phát sinh hoàn coin.</p>';
+
+    const html = `
+      <h2>Xin chào ${payload.patientEmail},</h2>
+      <p>Lịch khám của bạn đã bị hủy.</p>
+      ${payload.doctorName ? `<p><b>Bác sĩ:</b> ${payload.doctorName}</p>` : ''}
+      <p><b>Thời gian:</b> ${payload.date} - ${timeSlotName}</p>
+      ${payload.hospitalName ? `<p>Địa điểm: ${payload.hospitalName}</p>` : ''}
+      ${payload.reason ? `<p><b>Lý do:</b> ${payload.reason}</p>` : ''}
+      ${refundLine}
+      <p>Nếu cần hỗ trợ, vui lòng liên hệ bộ phận hỗ trợ của UTE Doctor.</p>
+    `;
+
+    await this.sendMail(payload.patientEmail, "Thông báo hủy lịch khám - UTE Doctor", html);
+  }
 }

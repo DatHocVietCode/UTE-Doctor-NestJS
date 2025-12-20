@@ -41,4 +41,18 @@ export class MailListener {
     }) {
         this.mailService.sendDoctorShiftCancellationMail(payload);
     }
+
+    @OnEvent('mail.patient.appointment.cancelled')
+    handlePatientAppointmentCancelled(payload: {
+        patientEmail: string;
+        doctorName?: string;
+        date: string;
+        timeSlot: string;
+        hospitalName?: string;
+        reason?: string;
+        refundAmount?: number;
+        shouldRefund?: boolean;
+    }) {
+        this.mailService.sendPatientAppointmentCancellationMail(payload);
+    }
 }

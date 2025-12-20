@@ -4,15 +4,15 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
+import { Doctor, DoctorDocument } from "src/doctor/schema/doctor.schema";
 import { Medicine, MedicineDocument } from "src/medicine/schema/medicine.schema";
 import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
+import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
 import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
-import { Doctor, DoctorDocument } from "src/doctor/schema/doctor.schema";
-import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 
 @Injectable()
 export class AppointmentService {
@@ -468,14 +468,41 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
             throw new NotFoundException('Appointment not found');
         }
 
+        const previousStatus = appointment.appointmentStatus;
+
         // Only allow cancelling for PENDING or CONFIRMED appointments
-        if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(appointment.appointmentStatus)) {
-            throw new Error(`Cannot cancel appointment with status ${appointment.appointmentStatus}`);
+        if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(previousStatus)) {
+            throw new Error(`Cannot cancel appointment with status ${previousStatus}`);
         }
 
         const timeSlotId = appointment.timeSlot;
         const consultationFee = appointment.consultationFee || 0;
-        const refundAmount = consultationFee; // 100% refund as coins
+        const shouldRefund = previousStatus === AppointmentStatus.CONFIRMED;
+        const refundAmount = shouldRefund ? consultationFee : 0;
+
+        const doctorProfile = appointment.doctorId
+            ? await this.doctorModel.findById(appointment.doctorId).populate('profileId', 'name email').lean()
+            : null;
+        const doctorEmail = (doctorProfile as any)?.profileId?.email as string | undefined;
+        const doctorName = (doctorProfile as any)?.profileId?.name as string | undefined;
+
+        const timeSlotDoc = await this.timeSlotLogModel.findById(timeSlotId).lean();
+        const timeSlotLabel = (timeSlotDoc as any)?.label ?? `${(timeSlotDoc as any)?.start ?? ''}-${(timeSlotDoc as any)?.end ?? ''}`;
+        const cancellationPayload = {
+            appointmentId,
+            patientId: appointment.patientId?.toString?.() ?? '',
+            patientEmail: appointment.patientEmail,
+            doctorEmail,
+            doctorName,
+            date: appointment.date,
+            timeSlot: timeSlotId.toString(),
+            timeSlotLabel,
+            hospitalName: appointment.hospitalName,
+            reason: reason || 'Appointment cancelled',
+            refundAmount,
+            shouldRefund,
+            status: AppointmentStatus.CANCELLED,
+        };
 
         // Update appointment
         appointment.appointmentStatus = AppointmentStatus.CANCELLED;
@@ -488,21 +515,31 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
             await timeSlot.save();
         }
 
-        // Emit cancel event for wallet refund processing
-        this.eventEmitter.emit('appointment.cancelled', {
-            appointmentId,
-            patientId: appointment.patientId.toString(),
-            consultationFee,
-            refundAmount,
-            reason: reason || 'Appointment cancelled',
-            timeSlotId: timeSlotId.toString(),
-        });
+        if (shouldRefund && refundAmount > 0) {
+            // Emit cancel event for wallet refund processing
+            this.eventEmitter.emit('appointment.cancelled', {
+                appointmentId,
+                patientId: appointment.patientId.toString(),
+                consultationFee,
+                refundAmount,
+                reason: reason || 'Appointment cancelled',
+                timeSlotId: timeSlotId.toString(),
+            });
+            console.log(`[AppointmentService] Cancelled appointment ${appointmentId}, refund: ${refundAmount} coins`);
+        } else {
+            console.log(`[AppointmentService] Cancelled appointment ${appointmentId} with no refund (status was ${previousStatus})`);
+        }
 
-        console.log(`[AppointmentService] Cancelled appointment ${appointmentId}, refund: ${refundAmount} coins`);
+        // Notify patient via notification, mail, and socket
+        this.eventEmitter.emit('notify.patient.appointment.cancelled', cancellationPayload);
+        this.eventEmitter.emit('mail.patient.appointment.cancelled', cancellationPayload);
+        this.eventEmitter.emit('socket.appointment.cancelled', cancellationPayload);
 
         return {
             code: 'SUCCESS',
-            message: 'Appointment cancelled successfully',
+            message: shouldRefund
+                ? 'Appointment cancelled and refunded'
+                : 'Appointment cancelled (no refund for pending appointments)',
             data: {
                 appointmentId,
                 refundAmount,
