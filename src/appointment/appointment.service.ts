@@ -4,8 +4,10 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
+import { RoleEnum } from "src/common/enum/role.enum";
 import { Doctor, DoctorDocument } from "src/doctor/schema/doctor.schema";
 import { Medicine, MedicineDocument } from "src/medicine/schema/medicine.schema";
+import { MedicalEncounter, MedicalEncounterDocument } from "src/patient/schema/medical-record.schema";
 import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
 import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
@@ -21,6 +23,7 @@ export class AppointmentService {
         @InjectModel(Appointment.name) private readonly appointmentModel: Model<Appointment>,
         @InjectModel(TimeSlotLog.name) private readonly timeSlotLogModel: Model<TimeSlotLogDocument>,
         @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
+        @InjectModel(MedicalEncounter.name) private readonly medicalEncounterModel: Model<MedicalEncounterDocument>,
         @InjectModel(Medicine.name) private readonly medicineModel: Model<MedicineDocument>,
         @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
         @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
@@ -168,75 +171,31 @@ export class AppointmentService {
         };
     }));
 
-    const newRecord = {
-        diagnosis: dto.diagnosis,
-        note: dto.note ?? '',
-        dateRecord: new Date(),
-        appointmentId: appointment._id,
-        prescriptions: mappedPrescriptions,
-    };
-
-    console.log('[AppointmentService] Adding medical record:', JSON.stringify(newRecord, null, 2));
-
-    // Ensure medicalRecord structure exists on the document so subdocuments save with schema casting
-    if (!patient.medicalRecord) {
-        patient.medicalRecord = {
-            medicalHistory: [],
-            drugAllergies: [],
-            foodAllergies: [],
-            bloodPressure: [],
-            heartRate: []
-        } as any;
+    if (!appointment.doctorId) {
+        throw new NotFoundException('Doctor not assigned to appointment');
     }
 
-    // Sanitize existing medicalHistory entries and their prescriptions so Mongoose validation won't fail
-    patient.medicalRecord.medicalHistory = patient.medicalRecord.medicalHistory || [];
-    patient.medicalRecord.medicalHistory = (patient.medicalRecord.medicalHistory as any[]).map((rec: any) => {
-        rec = rec || {};
-        rec.diagnosis = rec.diagnosis ?? '';
-        rec.note = rec.note ?? '';
-        // Normalize dateRecord to Date or current date
-        try {
-            rec.dateRecord = rec.dateRecord ? new Date(rec.dateRecord) : new Date();
-        } catch (err) {
-            rec.dateRecord = new Date();
-        }
-        rec.appointmentId = rec.appointmentId ?? null;
-
-        // Ensure prescriptions is an array of full objects
-        rec.prescriptions = Array.isArray(rec.prescriptions) ? rec.prescriptions : [];
-        rec.prescriptions = rec.prescriptions.map((pr: any) => {
-            pr = pr || {};
-            // preserve existing ObjectId values but cast strings to ObjectId
-            try {
-                pr.medicineId = pr.medicineId ? ((typeof pr.medicineId === 'string') ? new Types.ObjectId(pr.medicineId) : pr.medicineId) : undefined;
-            } catch (e) {
-                pr.medicineId = pr.medicineId;
-            }
-            pr.name = pr.name ?? 'Unknown medicine';
-            pr.quantity = (typeof pr.quantity === 'number' && pr.quantity > 0) ? pr.quantity : 1;
-            pr.note = pr.note ?? '';
-            return pr;
-        });
-
-        return rec;
+    const encounter = await this.medicalEncounterModel.create({
+        appointmentId: appointment._id,
+        patientId: appointment.patientId,
+        createdByDoctorId: appointment.doctorId,
+        createdByRole: RoleEnum.DOCTOR,
+        diagnosis: dto.diagnosis,
+        note: dto.note ?? '',
+        prescriptions: mappedPrescriptions,
+        vitalSigns: [],
+        dateRecord: new Date(),
     });
 
-    // Push the new record onto the document and save so Mongoose will cast subdocuments correctly
-    patient.medicalRecord.medicalHistory.push(newRecord as any);
-
-    const savedPatient = await patient.save();
-
-    // Verify last record was saved with full fields
-    const lastRecord = (savedPatient as any).medicalRecord?.medicalHistory?.slice(-1)[0];
-    console.log('[AppointmentService] Last record after save:', JSON.stringify(lastRecord, null, 2));
+    console.log('[AppointmentService] Medical encounter saved:', JSON.stringify(encounter.toObject(), null, 2));
 
     return {
         code: 'SUCCESS',
-        message: 'Appointment completed and medical record updated',
+        message: 'Appointment completed and encounter stored',
         data: {
             appointmentId: appointment._id,
             patientId: patient._id,
+            encounterId: encounter._id,
         },
     };
 
