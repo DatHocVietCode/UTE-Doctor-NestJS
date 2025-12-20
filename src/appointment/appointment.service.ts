@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { InjectModel } from "@nestjs/mongoose";
-import { Model, Types } from "mongoose";
+import mongoose, { Model, Types } from "mongoose";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { Medicine, MedicineDocument } from "src/medicine/schema/medicine.schema";
@@ -96,7 +96,7 @@ export class AppointmentService {
             .populate({
                 path: 'patientId',
                 populate: [
-                    { path: 'profileId', select: 'name phone address email gender dob' },
+                    { path: 'profileId', select: 'name phone address email gender dob avatarUrl' },
                     // { path: 'appointments', populate: { path: 'timeSlot', select: 'start end label' }, select: '_id date appointmentStatus serviceType consultationFee reasonForAppointment timeSlot' }
                 ]
             })
@@ -534,5 +534,174 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
       data: appointment,
     };
   }
+
+    async findCompletedByDoctor(
+    doctorId: string,
+    page = 1,
+    limit = 10,
+    keyword?: string,
+    patientId?: string,
+    ): Promise<
+    DataResponse<{
+        items: any[];
+        pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+        };
+    }>
+    > {
+    const skip = (page - 1) * limit;
+
+    const buildFuzzyRegex = (keyword: string) => {
+        const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        return new RegExp(escaped.split('').join('.*'), 'i');
+    };
+
+    const regex = keyword ? buildFuzzyRegex(keyword.trim()) : null;
+
+    const matchStage: any = {
+        doctorId: new mongoose.Types.ObjectId(doctorId),
+        appointmentStatus: AppointmentStatus.COMPLETED,
+    };
+
+    if (patientId) {
+        matchStage.patientId = new mongoose.Types.ObjectId(patientId);
+    }
+
+    const pipeline: any[] = [
+    { $match: matchStage },
+
+    {
+        $lookup: {
+        from: 'timeslotslog',
+        localField: 'timeSlot',
+        foreignField: '_id',
+        as: 'timeSlot',
+        },
+    },
+    { $unwind: '$timeSlot' },
+
+    {
+        $lookup: {
+        from: 'patients',
+        localField: 'patientId',
+        foreignField: '_id',
+        as: 'patient',
+        },
+    },
+    { $unwind: '$patient' },
+
+    {
+        $lookup: {
+        from: 'profiles',
+        localField: 'patient.profileId',
+        foreignField: '_id',
+        as: 'patient.profile',
+        },
+    },
+    { $unwind: '$patient.profile' },
+
+    {
+        $addFields: {
+        appointmentMedicalRecord: {
+            $filter: {
+            input: '$patient.medicalRecord.medicalHistory',
+            as: 'history',
+            cond: {
+                $eq: ['$$history.appointmentId', '$_id'],
+            },
+            },
+        },
+        },
+    },
+    {
+        $addFields: {
+        appointmentMedicalRecord: {
+            $arrayElemAt: ['$appointmentMedicalRecord', 0],
+        },
+        },
+    },
+
+    {
+        $lookup: {
+        from: 'reviews',
+        let: { appointmentId: '$_id' },
+        pipeline: [
+            {
+            $match: {
+                $expr: {
+                $eq: ['$appointmentId', '$$appointmentId'],
+                },
+            },
+            },
+            {
+            $project: {
+                _id: 0,
+                rating: 1,
+                comment: 1,
+                createdAt: 1,
+            },
+            },
+        ],
+        as: 'review',
+        },
+    },
+    {
+        $addFields: {
+        review: {
+            $arrayElemAt: ['$review', 0],
+        },
+        },
+    },
+    ];
+
+
+    if (regex) {
+        pipeline.push({
+        $match: {
+            $or: [
+            { 'patient.profile.name': regex },
+            { 'appointmentMedicalRecord.diagnosis': regex },
+            ],
+        },
+        });
+    }
+
+    pipeline.push(
+        { $sort: { date: -1 } },
+        {
+        $facet: {
+            items: [
+            { $skip: skip },
+            { $limit: limit },
+            ],
+            totalCount: [
+            { $count: 'count' },
+            ],
+        },
+        },
+    );
+
+    const result = await this.appointmentModel.aggregate(pipeline);
+
+    const items = result[0]?.items || [];
+    const total = result[0]?.totalCount[0]?.count || 0;
+
+    return {
+        code: ResponseCode.SUCCESS,
+        message: 'Lấy danh sách buổi hẹn đã hoàn thành theo bác sĩ thành công',
+        data: {
+        items,
+        pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+        },
+        },
+    };
+    }
 
 }
