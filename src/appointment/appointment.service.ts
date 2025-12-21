@@ -371,9 +371,28 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
             throw new Error(`Cannot reschedule appointment with status ${appointment.appointmentStatus}`);
         }
 
+        // ⏰ Time-based reschedule restriction: Cannot reschedule if <= 24 hours before appointment
+        const appointmentTime = new Date(appointment.date).getTime();
+        const currentTime = Date.now();
+        const hoursUntilAppointment = (appointmentTime - currentTime) / (1000 * 60 * 60);
+
+        if (hoursUntilAppointment <= 24) {
+            throw new Error(`Cannot reschedule appointment within 24 hours of scheduled time. Hours remaining: ${hoursUntilAppointment.toFixed(1)}`);
+        }
+
+        // 💰 Tiered refund logic for reschedule (same as cancel)
         const oldTimeSlotId = appointment.timeSlot;
         const consultationFee = appointment.consultationFee || 0;
-        const refundAmount = Math.ceil(consultationFee * 0.8); // 80% refund as coins
+        let refundAmount = 0;
+        let refundReason = '';
+
+        if (hoursUntilAppointment > 48) {
+            refundAmount = consultationFee;
+            refundReason = '100% refund (rescheduled > 48 hours before)';
+        } else if (hoursUntilAppointment > 24) {
+            refundAmount = Math.ceil(consultationFee * 0.5); // 50% refund
+            refundReason = '50% refund (rescheduled 24-48 hours before)';
+        }
 
         // Update appointment
         appointment.date = newDate;
@@ -395,27 +414,30 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
             await newTimeSlot.save();
         }
 
-        // Emit reschedule event for wallet refund processing
+        // Emit reschedule event for wallet refund processing (in coins, 1 coin = 1 VND)
         this.eventEmitter.emit('appointment.rescheduled', {
             appointmentId,
             patientId: appointment.patientId.toString(),
             consultationFee,
             refundAmount,
+            refundReason,
             reason: reason || 'Appointment rescheduled',
             oldTimeSlotId: oldTimeSlotId.toString(),
             newTimeSlotId,
             newDate,
         });
 
-        console.log(`[AppointmentService] Rescheduled appointment ${appointmentId} from slot ${oldTimeSlotId} to ${newTimeSlotId}, refund: ${refundAmount} coins`);
+        console.log(`[AppointmentService] Rescheduled appointment ${appointmentId} from slot ${oldTimeSlotId} to ${newTimeSlotId}, refund: ${refundAmount} coins (${refundReason})`);
 
         return {
             code: 'SUCCESS',
-            message: 'Appointment rescheduled successfully',
+            message: `Appointment rescheduled successfully (${refundReason})`,
             data: {
                 appointmentId,
                 refundAmount,
+                refundReason,
                 newDate,
+                hoursUntilAppointment: hoursUntilAppointment.toFixed(1),
             },
         };
     }
@@ -434,10 +456,43 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
             throw new Error(`Cannot cancel appointment with status ${previousStatus}`);
         }
 
+        // ⏰ Time-based cancellation restriction: Cannot cancel if <= 24 hours before appointment
+        const appointmentTime = new Date(appointment.date).getTime();
+        const currentTime = Date.now();
+        const hoursUntilAppointment = (appointmentTime - currentTime) / (1000 * 60 * 60);
+
+        if (hoursUntilAppointment <= 24) {
+            throw new Error(`Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${hoursUntilAppointment.toFixed(1)}`);
+        }
+
+        // 💰 Tiered refund logic based on cancellation timing
         const timeSlotId = appointment.timeSlot;
         const consultationFee = appointment.consultationFee || 0;
-        const shouldRefund = previousStatus === AppointmentStatus.CONFIRMED;
-        const refundAmount = shouldRefund ? consultationFee : 0;
+        let refundAmount = 0;
+        let refundReason = '';
+
+        if (previousStatus === AppointmentStatus.PENDING) {
+            // PENDING appointments get 100% refund if cancelled > 48h before
+            if (hoursUntilAppointment > 48) {
+                refundAmount = consultationFee;
+                refundReason = '100% refund (cancelled > 48 hours before)';
+            } else if (hoursUntilAppointment > 24) {
+                refundAmount = Math.ceil(consultationFee * 0.5); // 50% refund
+                refundReason = '50% refund (cancelled 24-48 hours before)';
+            }
+        } else if (previousStatus === AppointmentStatus.CONFIRMED) {
+            // CONFIRMED appointments follow same tier logic
+            if (hoursUntilAppointment > 48) {
+                refundAmount = consultationFee;
+                refundReason = '100% refund (cancelled > 48 hours before)';
+            } else if (hoursUntilAppointment > 24) {
+                refundAmount = Math.ceil(consultationFee * 0.5); // 50% refund
+                refundReason = '50% refund (cancelled 24-48 hours before)';
+            }
+            // < 24h returns 0 (already blocked above, but for clarity)
+        }
+
+        const shouldRefund = refundAmount > 0;
 
         const doctorProfile = appointment.doctorId
             ? await this.doctorModel.findById(appointment.doctorId).populate('profileId', 'name email').lean()
@@ -459,6 +514,7 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
             hospitalName: appointment.hospitalName,
             reason: reason || 'Appointment cancelled',
             refundAmount,
+            refundReason,
             shouldRefund,
             status: AppointmentStatus.CANCELLED,
         };
@@ -475,18 +531,19 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
         }
 
         if (shouldRefund && refundAmount > 0) {
-            // Emit cancel event for wallet refund processing
+            // Emit cancel event for wallet refund processing (in coins, 1 coin = 1 VND)
             this.eventEmitter.emit('appointment.cancelled', {
                 appointmentId,
                 patientId: appointment.patientId.toString(),
                 consultationFee,
                 refundAmount,
+                refundReason,
                 reason: reason || 'Appointment cancelled',
                 timeSlotId: timeSlotId.toString(),
             });
-            console.log(`[AppointmentService] Cancelled appointment ${appointmentId}, refund: ${refundAmount} coins`);
+            console.log(`[AppointmentService] Cancelled appointment ${appointmentId}, refund: ${refundAmount} coins (${refundReason})`);
         } else {
-            console.log(`[AppointmentService] Cancelled appointment ${appointmentId} with no refund (status was ${previousStatus})`);
+            console.log(`[AppointmentService] Cancelled appointment ${appointmentId} with no refund (${refundReason})`);
         }
 
         // Notify patient via notification, mail, and socket
@@ -497,11 +554,13 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
         return {
             code: 'SUCCESS',
             message: shouldRefund
-                ? 'Appointment cancelled and refunded'
-                : 'Appointment cancelled (no refund for pending appointments)',
+                ? `Appointment cancelled and refunded: ${refundReason}`
+                : 'Appointment cancelled (no refund for cancellations within 24 hours)',
             data: {
                 appointmentId,
                 refundAmount,
+                refundReason,
+                hoursUntilAppointment: (appointmentTime - currentTime) / (1000 * 60 * 60),
             },
         };
     }
