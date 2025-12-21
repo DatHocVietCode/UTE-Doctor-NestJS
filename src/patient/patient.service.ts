@@ -176,18 +176,22 @@ export class PatientService {
   }
 
   async getPatientByEmail(email: string): Promise<Patient | null> {
-    // Tìm patient và populate luôn profile
+    // Step 1: Tìm profile theo email trước
+    const profile = await this.profileModel.findOne({ email }).lean();
+    
+    if (!profile) {
+      console.log('[PatientService] No profile found with email:', email);
+      return null;
+    }
+
+    // Step 2: Dùng profileId để tìm patient
     const patient = await this.patientModel
-      .findOne()                      // không filter gì trước
-      .populate({
-        path: 'profileId',            // populate field profileId
-        match: { email },             // filter profile theo email
-      })
+      .findOne({ profileId: profile._id })
+      .populate('profileId')
       .exec();
 
-    // Nếu không có patient hoặc profile bị null do match
-    if (!patient || !patient.profileId) {
-      console.log('[PatientService] No patient found with email:', email);
+    if (!patient) {
+      console.log('[PatientService] No patient found for profileId:', profile._id);
       return null;
     }
 

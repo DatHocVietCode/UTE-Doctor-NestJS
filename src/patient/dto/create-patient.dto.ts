@@ -4,6 +4,9 @@ import { MedicalRecord } from '../schema/medical-record.schema';
 
 export class CreatePatientDto {
   @IsString()
+  accountId: string; // Liên kết tới account
+
+  @IsString()
   profileId: string; // Liên kết tới profile
 
   @IsOptional()

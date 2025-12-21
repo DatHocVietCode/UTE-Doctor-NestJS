@@ -53,7 +53,7 @@ export class BookingAppointmentPostSubmitSaga {
 
         if (!doctorProfileId || !patientProfileId) {
             console.error('[Saga] Missing profileId', { doctor, patient });
-        return;
+            return;
         }
 
         const doctorProfile: Profile = doctor?.profileId as unknown as Profile;
