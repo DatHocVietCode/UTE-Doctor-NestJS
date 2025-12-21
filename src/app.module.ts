@@ -1,4 +1,4 @@
-import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule, Post } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -27,6 +27,7 @@ import { SocketModule } from './socket/socket.module';
 import { TimeSlotModule } from './timeslot/timeslot.module';
 import { UserContextModule } from './user-context/user-context.module';
 import { OtpModule } from './utils/otp/otp.module';
+import { DoctorPostModule } from 'src/post/post.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -61,6 +62,7 @@ import { OtpModule } from './utils/otp/otp.module';
     UserContextModule,
     CloudinaryModule,
     NewsModule,
+	DoctorPostModule,
     ChatModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],

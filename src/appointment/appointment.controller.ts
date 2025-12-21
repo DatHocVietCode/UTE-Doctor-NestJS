@@ -10,6 +10,21 @@ import { AppointmentBookingDto, CompleteAppointmentDto, RescheduleAppointmentDto
 export class AppointmentController {
     constructor(private readonly appointmentService: AppointmentService) {}
 
+    @Get('completed/doctor/:doctorId')
+        getCompletedAppointmentsByDoctor(
+        @Param('doctorId') doctorId: string,
+        @Query('page') page = 1,
+        @Query('limit') limit = 10,
+        @Query('keyword') keyword?: string,
+        ) {
+        return this.appointmentService.findCompletedByDoctor(
+            doctorId,
+            Number(page),
+            Number(limit),
+            keyword,
+        );
+    }
+
     @Get('admin')
     async getAppointments(@Query() query: any) {
         return this.appointmentService.findAll(query);
@@ -116,5 +131,10 @@ export class AppointmentController {
         }
     }
 
-    
+    @Patch(':id/confirm')
+    confirmAppointment(@Param('id') id: string) {
+        return this.appointmentService.confirmAppointment(id);
+    }
+
+
 }
