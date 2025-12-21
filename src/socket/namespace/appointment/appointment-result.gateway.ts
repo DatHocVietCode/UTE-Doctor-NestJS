@@ -73,4 +73,32 @@ export class AppointmentGateway extends BaseGateway {
       this.emitToRoom(payload.doctorEmail, SocketEventsEnum.SHIFT_CANCELLED, res);
     }
   }
+
+  @OnEvent('socket.appointment.cancelled')
+  handleAppointmentCancelled(payload: {
+    appointmentId: string;
+    patientEmail: string;
+    doctorEmail?: string;
+    date: string;
+    timeSlot: string;
+    timeSlotLabel?: string;
+    hospitalName?: string;
+    reason?: string;
+    refundAmount?: number;
+    shouldRefund?: boolean;
+  }) {
+    const res: DataResponse = {
+      code: ResponseCode.SUCCESS,
+      message: 'Appointment cancelled',
+      data: payload,
+    };
+
+    console.log('[Socket][Appointment] Push APPOINTMENT_CANCELLED to patient');
+    this.emitToRoom(payload.patientEmail, SocketEventsEnum.APPOINTMENT_CANCELLED, res);
+
+    if (payload.doctorEmail) {
+      console.log('[Socket][Appointment] Push APPOINTMENT_CANCELLED to doctor');
+      this.emitToRoom(payload.doctorEmail, SocketEventsEnum.APPOINTMENT_CANCELLED, res);
+    }
+  }
 }

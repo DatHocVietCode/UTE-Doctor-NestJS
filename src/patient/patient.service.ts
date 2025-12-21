@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import mongoose, { Model } from 'mongoose';
+import { Account, AccountDocument } from 'src/account/schemas/account.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { RoleEnum } from 'src/common/enum/role.enum';
@@ -9,8 +10,17 @@ import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
 import { getProfileByEntity } from 'src/utils/helpers/profile.helper';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { PatientProfileDTO } from './dto/patient.dto';
+import {
+  AllergyRecord,
+  AllergyRecordDocument,
+  MedicalEncounter,
+  MedicalEncounterDocument,
+  MedicalHistoryRecord,
+  MedicalHistoryRecordDocument,
+  MedicalProfile,
+  MedicalProfileDocument
+} from './schema/medical-record.schema';
 import { Patient, PatientDocument } from './schema/patient.schema';
-import { Account, AccountDocument } from 'src/account/schemas/account.schema';
 
 @Injectable()
 export class PatientService {
@@ -19,6 +29,10 @@ export class PatientService {
     @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
     @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
     @InjectModel(Account.name) private readonly accountModel: Model<AccountDocument>,
+    @InjectModel(MedicalProfile.name) private readonly medicalProfileModel: Model<MedicalProfileDocument>,
+    @InjectModel(AllergyRecord.name) private readonly allergyRecordModel: Model<AllergyRecordDocument>,
+    @InjectModel(MedicalHistoryRecord.name) private readonly medicalHistoryRecordModel: Model<MedicalHistoryRecordDocument>,
+    @InjectModel(MedicalEncounter.name) private readonly medicalEncounterModel: Model<MedicalEncounterDocument>,
 
     private readonly eventEmitter: EventEmitter2
   ) {}
@@ -100,6 +114,7 @@ export class PatientService {
   async findByProfileId(profileId: string): Promise<Patient | null> {
     return this.patientModel
       .findOne({ profileId: new mongoose.Types.ObjectId(profileId) })
+      .populate('medicalProfileId') // populate new profile if exists
       .lean(); // chỉ cần data thô
   }
 
@@ -115,13 +130,28 @@ export class PatientService {
       return null;
     }
 
+    const patientId = (patient as any)._id;
+
+    // Fetch from new separated collections
+    const [medicalProfile, encounters, allergies, medicalHistory] = await Promise.all([
+      patient.medicalProfileId 
+        ? this.medicalProfileModel.findById(patient.medicalProfileId).lean()
+        : null,
+      this.medicalEncounterModel.find({ patientId }).lean(),
+      this.allergyRecordModel.find({ patientId }).lean(),
+      this.medicalHistoryRecordModel.find({ patientId }).lean(),
+    ]);
+
     const dto: PatientProfileDTO = {
       accountProfileDto: null!, // Sẽ được Saga gán lại
-      medicalRecord: patient.medicalRecord || null
+      medicalRecord: patient.medicalRecord || null, // legacy for backward compatibility
+      medicalProfile: medicalProfile as any,
+      encounters: encounters as any[],
+      allergies: allergies as any[],
+      medicalHistory: medicalHistory as any[],
     };
 
-    // Log đẹp, không còn [Object]
-    console.log("[PatientSubscriber] Patient info fetched:", JSON.stringify(dto, null, 2));
+    console.log("[PatientSubscriber] Patient info fetched with new collections:", JSON.stringify(dto, null, 2));
     
     return dto;
   }
@@ -174,6 +204,61 @@ export class PatientService {
       .findById(id)
       .populate('profileId')   // lấy thông tin Profile
       .exec();
+  }
+
+  async upsertMedicalProfile(patientId: string, payload: Partial<MedicalProfile>): Promise<MedicalProfileDocument> {
+    const doc = await this.medicalProfileModel.findOneAndUpdate(
+      { patientId: new mongoose.Types.ObjectId(patientId) },
+      {
+        $set: {
+          height: payload.height,
+          weight: payload.weight,
+          bloodType: payload.bloodType,
+          createdByRole: payload.createdByRole || RoleEnum.PATIENT,
+          createdByAccountId: payload.createdByAccountId || undefined,
+        },
+      },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    await this.patientModel.updateOne(
+      { _id: new mongoose.Types.ObjectId(patientId) },
+      { $set: { medicalProfileId: doc._id } }
+    );
+
+    return doc;
+  }
+
+  async addAllergyRecord(patientId: string, payload: Partial<AllergyRecord>): Promise<AllergyRecordDocument> {
+    const doc = await this.allergyRecordModel.create({
+      patientId: new mongoose.Types.ObjectId(patientId),
+      type: payload.type,
+      substance: payload.substance,
+      reaction: payload.reaction,
+      severity: payload.severity,
+      reportedBy: payload.reportedBy || 'PATIENT',
+      verifiedByDoctor: payload.verifiedByDoctor ?? false,
+      verifiedByDoctorId: payload.verifiedByDoctorId,
+      createdByRole: payload.createdByRole || RoleEnum.PATIENT,
+      createdByAccountId: payload.createdByAccountId,
+    });
+    return doc;
+  }
+
+  async addMedicalHistoryRecord(patientId: string, payload: Partial<MedicalHistoryRecord>): Promise<MedicalHistoryRecordDocument> {
+    const doc = await this.medicalHistoryRecordModel.create({
+      patientId: new mongoose.Types.ObjectId(patientId),
+      conditionName: payload.conditionName,
+      diagnosisCode: payload.diagnosisCode,
+      diagnosedAt: payload.diagnosedAt,
+      status: payload.status || 'ONGOING',
+      source: payload.source || 'PATIENT',
+      verifiedByDoctor: payload.verifiedByDoctor ?? false,
+      verifiedByDoctorId: payload.verifiedByDoctorId,
+      createdByRole: payload.createdByRole || RoleEnum.PATIENT,
+      createdByAccountId: payload.createdByAccountId,
+    });
+    return doc;
   }
 
   async findAll(page: number = 1, limit: number = 5, keyword?: string) {

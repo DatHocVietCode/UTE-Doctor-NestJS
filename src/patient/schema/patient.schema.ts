@@ -2,9 +2,8 @@ import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import mongoose, { HydratedDocument } from "mongoose";
 import { Account } from "src/account/schemas/account.schema";
 import { BloodType } from "src/common/enum/blood-type.enum";
-import { MedicalRecord, MedicalRecordSchema } from "./medical-record.schema";
 import { Profile } from "src/profile/schema/profile.schema";
-import { Appointment } from "src/appointment/schemas/appointment.schema";
+import { MedicalProfile, MedicalRecord, MedicalRecordSchema } from "./medical-record.schema";
 
 export type PatientDocument = HydratedDocument<Patient>;
 @Schema()
@@ -14,6 +13,9 @@ export class Patient {
 
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: Account.name, required: true})
   accountId: mongoose.Types.ObjectId;
+
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: MedicalProfile.name })
+  medicalProfileId?: mongoose.Types.ObjectId;
 
   @Prop()
   height: number;

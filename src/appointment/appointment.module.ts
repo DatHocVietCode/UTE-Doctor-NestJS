@@ -1,8 +1,11 @@
 import { Module } from "@nestjs/common";
 import { JwtModule } from "@nestjs/jwt";
 import { MongooseModule } from "@nestjs/mongoose";
+import { Doctor, DoctorSchema } from "src/doctor/schema/doctor.schema";
 import { MedicineModule } from "src/medicine/medicine.module";
+import { MedicalEncounter, MedicalEncounterSchema } from "src/patient/schema/medical-record.schema";
 import { Patient, PatientSchema } from "src/patient/schema/patient.schema";
+import { Profile, ProfileSchema } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-log.schema";
 import { WalletModule } from "src/wallet/wallet.module";
 import { AppointmentController } from "./appointment.controller";
@@ -12,8 +15,6 @@ import { BookingListener } from "./listenners/booking.listenner";
 import { CancelListener } from "./listenners/cancel.listener";
 import { RescheduleListener } from "./listenners/reschedule.listener";
 import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
-import { Doctor, DoctorSchema } from "src/doctor/schema/doctor.schema";
-import { Profile, ProfileSchema } from "src/profile/schema/profile.schema";
 
 
 @Module({
@@ -28,6 +29,7 @@ import { Profile, ProfileSchema } from "src/profile/schema/profile.schema";
           { name: Patient.name, schema: PatientSchema },
           { name: Doctor.name, schema: DoctorSchema },
           { name: Profile.name, schema: ProfileSchema },
+          { name: MedicalEncounter.name, schema: MedicalEncounterSchema },
         ]),
         MedicineModule,
         WalletModule,
