@@ -47,7 +47,7 @@ export class DoctorPostService {
     const [items, total] = await Promise.all([
       this.doctorPostModel
         .find({ status: 'ACTIVE' })
-        .populate('doctorId', 'name')
+        .populate('doctorId', 'doctorName')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),
