@@ -216,6 +216,8 @@ export class AccountService {
             data: null,
         };
 
+        console.log('[AccountService]: Changing password for accountId:', accountId);
+
         try {
             const account = await this.accountModel.findById(accountId).exec();
             if (!account) {

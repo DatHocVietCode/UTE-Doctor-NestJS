@@ -241,7 +241,7 @@ export class AppointmentService {
                         select: 'name email phone',
                     },
                 })
-                .sort({ date: -1 })
+                .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
                 .lean()
