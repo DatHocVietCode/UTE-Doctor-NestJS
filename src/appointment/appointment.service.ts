@@ -175,19 +175,67 @@ export class AppointmentService {
         throw new NotFoundException('Doctor not assigned to appointment');
     }
 
-    const encounter = await this.medicalEncounterModel.create({
-        appointmentId: appointment._id,
-        patientId: appointment.patientId,
-        createdByDoctorId: appointment.doctorId,
-        createdByRole: RoleEnum.DOCTOR,
-        diagnosis: dto.diagnosis,
-        note: dto.note ?? '',
-        prescriptions: mappedPrescriptions,
-        vitalSigns: [],
-        dateRecord: new Date(),
-    });
+    const encounter = await this.medicalEncounterModel.findOneAndUpdate(
+        { appointmentId: appointment._id },
+        {
+            $setOnInsert: {
+                appointmentId: appointment._id,
+                patientId: appointment.patientId,
+                createdByDoctorId: appointment.doctorId,
+                createdByRole: RoleEnum.DOCTOR,
+                diagnosis: dto.diagnosis,
+                note: dto.note ?? '',
+                prescriptions: mappedPrescriptions,
+                vitalSigns: [],
+                dateRecord: new Date(),
+            },
+        },
+        {
+            upsert: true,
+            new: true,
+            setDefaultsOnInsert: true,
+        },
+    );
 
     console.log('[AppointmentService] Medical encounter saved:', JSON.stringify(encounter.toObject(), null, 2));
+
+        // Persist legacy embedded medical history for backward-compatible reads
+        // Some queries (e.g. aggregation in findCompletedByDoctor) still read from patient.medicalRecord.medicalHistory
+        try {
+            // Ensure medicalRecord exists
+            if (!patient.medicalRecord) {
+                (patient as any).medicalRecord = {
+                    height: undefined,
+                    weight: undefined,
+                    bloodType: undefined,
+                    medicalHistory: [],
+                    drugAllergies: [],
+                    foodAllergies: [],
+                    bloodPressure: [],
+                    heartRate: [],
+                };
+            }
+
+            const legacyPrescription = mappedPrescriptions.map(p => ({
+                medicineId: p.medicineId,
+                name: p.name,
+                quantity: p.quantity,
+                note: p.note,
+            }));
+
+            (patient as any).medicalRecord.medicalHistory.push({
+                diagnosis: dto.diagnosis,
+                prescriptions: legacyPrescription,
+                note: dto.note ?? '',
+                dateRecord: new Date(),
+                appointmentId: appointment._id,
+            });
+
+            await patient.save();
+            console.log('[AppointmentService] Embedded medicalRecord.medicalHistory updated for patient', String(patient._id));
+        } catch (err) {
+            console.warn('[AppointmentService] Failed to update embedded medical history:', err);
+        }
 
     return {
         code: 'SUCCESS',
