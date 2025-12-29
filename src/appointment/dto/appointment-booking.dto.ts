@@ -73,8 +73,9 @@ export class DoctorDto {
 }
 
 export class PrescriptionItemDto {
+  @IsOptional()
   @IsMongoId()
-  medicineId: string;
+  medicineId?: string;
 
   @IsNotEmpty()
   @IsString()
