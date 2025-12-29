@@ -74,6 +74,7 @@ export class AuthSaga {
     console.log(registerUser.role)
     if (registerUser.role === RoleEnum.PATIENT) {
       const createdPatientDto: CreatePatientDto = {
+        accountId,
         profileId,
         height: registerUser.medicalRecord?.height,
         weight: registerUser.medicalRecord?.weight,

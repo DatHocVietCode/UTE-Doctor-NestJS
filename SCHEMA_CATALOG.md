@@ -1,0 +1,192 @@
+# Schema Catalog
+
+Mục đích: liệt kê toàn bộ schema Mongoose trong dự án để hỗ trợ vẽ class diagram.
+
+## Account & Profile
+- Account (timestamps) — src/account/schemas/account.schema.ts
+  - _id: ObjectId
+  - profileId: ObjectId | null (ref Profile)
+  - role: RoleEnum (default PATIENT)
+  - email: string (unique)
+  - password: string
+  - createdAt, updatedAt: Date (default now)
+  - refreshToken, accessToken: string
+  - status: AccountStatusEnum (default INACTIVE)
+  - otp, otpCreatedAt, otpExpiredAt: misc OTP fields
+- Profile (timestamps) — src/profile/schema/profile.schema.ts
+  - _id: ObjectId
+  - name, address, phone, email, gender: string
+  - dob: Date | null
+  - avatarUrl: string
+
+## Appointment & Payment
+- Appointment (timestamps) — src/appointment/schemas/appointment.schema.ts
+  - _id: ObjectId
+  - date: Date
+  - appointmentStatus: AppointmentStatus (default PENDING)
+  - serviceType: ServiceType
+  - consultationFee: number
+  - timeSlot: ObjectId (ref TimeSlotLog, required)
+  - patientId: ObjectId (ref Patient, required)
+  - patientEmail: string
+  - doctorId: ObjectId (ref Doctor)
+  - reasonForAppointment: string
+  - specialtyId: ObjectId (ref ChuyenKhoa)
+  - paymentMethod: PaymentMethodEnum
+  - hospitalName: string
+- AppointmentEnriched (interface) — src/appointment/schemas/appointment-enriched.ts
+  - Extends Appointment with: appointmentId (string), doctorName/doctorEmail (nullable), patientName/patientEmail, amount, paymentStatus (COMPLETED), paidAt.
+- Payment (timestamps) — src/payment/schemas/payment.schema.ts
+  - _id: ObjectId
+  - amount: number
+  - method: PaymentMethodEnum (default CASH)
+  - appointmentId: ObjectId (ref Appointment, required)
+  - status: PaymentStatusEnum (default PENDING)
+  - transactionId: string
+  - refundTransactionNo: string | undefined
+  - refundedAt, paidAt: Date
+
+## Patient & Medical Records
+- Patient — src/patient/schema/patient.schema.ts
+  - profileId: ObjectId (ref Profile, required)
+  - accountId: ObjectId (ref Account, required)
+  - medicalProfileId: ObjectId | undefined (ref MedicalProfile)
+  - height, weight: number
+  - bloodType: BloodType
+  - medicalRecord: MedicalRecord (embedded)
+- MedicalProfile (timestamps) — src/patient/schema/medical-record.schema.ts
+  - patientId: ObjectId (ref Patient, required, indexed)
+  - height, weight: number
+  - bloodType: BloodType
+  - createdByRole: RoleEnum (default PATIENT)
+  - createdByAccountId: ObjectId | undefined (ref Account)
+- AllergyRecord (timestamps)
+  - patientId: ObjectId (ref Patient, required, indexed)
+  - type: AllergyType (DRUG|FOOD)
+  - substance: string; reaction, severity: string
+  - reportedBy: RecordSource (default PATIENT)
+  - verifiedByDoctor: boolean; verifiedByDoctorId?: ObjectId (ref Doctor)
+  - createdByRole: RoleEnum; createdByAccountId?: ObjectId
+- MedicalHistoryRecord (timestamps)
+  - patientId: ObjectId (ref Patient, required, indexed)
+  - conditionName: string; diagnosisCode?: string; diagnosedAt?: Date
+  - status: ConditionStatus (default ONGOING)
+  - source: RecordSource (default PATIENT)
+  - verifiedByDoctor?: boolean; verifiedByDoctorId?: ObjectId
+  - createdByRole: RoleEnum; createdByAccountId?: ObjectId
+- VitalSignRecord (timestamps)
+  - type: VitalSignType (BP|HR|TEMP|SPO2)
+  - value?: number; bloodPressure?: { systolic, diastolic }
+  - dateRecord: Date (required)
+  - appointmentId?: ObjectId (ref Appointment)
+  - patientId: ObjectId (ref Patient, required, indexed)
+  - createdByRole: RoleEnum; createdByAccountId?: ObjectId
+- MedicalEncounter (timestamps)
+  - appointmentId: ObjectId (ref Appointment, unique, required)
+  - patientId: ObjectId (ref Patient, required, indexed)
+  - createdByDoctorId?: ObjectId (ref Doctor)
+  - diagnosis: string; note?: string
+  - createdByRole: RoleEnum (default DOCTOR); createdByAccountId?: ObjectId
+  - prescriptions: [{ medicineId?: ObjectId (ref Medicine), name, quantity, note? }]
+  - vitalSigns: VitalSignRecord[]
+  - dateRecord: Date (required)
+- Legacy embedded structures (same file)
+  - LegacyVitalSignRecord: { value?: number; bloodPressure?: { systolic, diastolic }; dateRecord: Date }
+  - MedicalRecordDescription: diagnosis, prescriptions[{ medicineId?, name, quantity }], note, dateRecord, appointmentId (ref Appointment)
+  - MedicalRecord: height, weight, bloodType, medicalHistory[], drugAllergies[], foodAllergies[], bloodPressure[], heartRate[] (legacy vital signs)
+
+## Doctor & Specialty
+- Doctor (timestamps) — src/doctor/schema/doctor.schema.ts
+  - profileId: ObjectId (ref Profile, required)
+  - accountId: ObjectId (ref Account, required)
+  - doctorName: string
+  - chuyenKhoaId: ObjectId (ref ChuyenKhoa)
+  - degree: string[]
+  - academic: string; bio: string
+  - achievements: string (stored as array type in schema but typed string)
+  - yearsOfExperience: number
+- ChuyenKhoa (timestamps) — src/chuyen-khoa/schemas/chuyenkhoa.schema.ts
+  - name: string (required)
+  - description: string
+  - status: boolean (default true)
+
+## Content & Communication
+- DoctorPost (timestamps) — src/post/schema/post.schema.ts
+  - doctorId: ObjectId (ref Doctor, required)
+  - postLink: string (required)
+  - viewCount: number (default 0)
+  - title?: string; description?: string
+  - status: 'ACTIVE'|'HIDDEN' (default ACTIVE)
+- News (timestamps) — src/news/schemas/news.schema.ts
+  - title, imageUrl, content: string (required)
+  - startDate, endDate: Date (required)
+  - isActive: boolean (default true)
+- Review (timestamps) — src/review/schema/review.schema.ts
+  - doctorId: ObjectId (ref Doctor, required)
+  - patientId: ObjectId (ref Patient, required)
+  - appointmentId: ObjectId (ref Appointment, required)
+  - rating: number (1–10)
+  - comment: string
+- Conversation (timestamps) — src/chat/schemas/conversation.schema.ts
+  - type: 'direct'|'group' (default direct)
+  - participants: [{ accountId (required), email?, role (required), lastReadAt? }]
+  - title?: string
+  - lastMessage?: any
+  - Index: participants.accountId + updatedAt
+- Message (timestamps) — src/chat/schemas/message.schema.ts
+  - conversationId: ObjectId (ref Conversation, required)
+  - senderId: string; senderEmail?: string
+  - content: string (required)
+  - type: 'text'|'image'|'file'|'system' (default text)
+  - clientMessageId?: string (unique, sparse)
+- Notification (timestamps) — src/notification/schemas/notification.schema.ts
+  - title, message: string (required)
+  - isRead: boolean (default false)
+  - receiverEmail?: string[]
+  - isBroadcast: boolean (default false)
+
+## Scheduling
+- Shift — src/shift/schema/shift.schema.ts
+  - doctorId: ObjectId (ref Doctor, required)
+  - date: string (e.g., "2025-10-05")
+  - shift: 'morning'|'afternoon'|'extra' (required)
+  - status: ShiftStatusEnum (default AVAILABLE)
+  - timeSlots: ObjectId[] (ref TimeSlotLog, required, default [])
+  - reasonForCancellation?: string
+  - Index: doctorId + date
+- TimeSlotLog (timestamps, collection timeslotslog) — src/timeslot/schemas/timeslot-log.schema.ts
+  - _id: ObjectId
+  - start, end: string (required)
+  - label?: string
+  - shift: 'morning'|'afternoon'|'extra'
+  - status: 'available'|'booked'|'completed'|'canceled' (default available)
+- TimeSlotData (collection timeslotsdata) — src/timeslot/schemas/timeslot-data.schema.ts
+  - _id: ObjectId
+  - start, end: string (required)
+  - label?: string
+  - shift?: 'morning'|'afternoon'|'extra'
+
+## Medicine
+- Medicine (timestamps) — src/medicine/schema/medicine.schema.ts
+  - name: string (required)
+  - packaging: string (required)
+
+## Wallet
+- Wallet (timestamps) — src/wallet/schemas/wallet.schema.ts
+  - _id: ObjectId
+  - patientId: ObjectId (ref Patient, required, unique)
+  - coinBalance: number (default 0)
+  - totalCoinEarned: number (default 0)
+  - totalCoinUsed: number (default 0)
+  - createdAt, updatedAt: Date
+- WalletTransaction (timestamps) — src/wallet/schemas/wallet-transaction.schema.ts
+  - _id: ObjectId
+  - patientId: ObjectId (ref Patient, required)
+  - appointmentId?: ObjectId (ref Appointment)
+  - type: 'earn'|'spend' (required)
+  - amount: number (min 0, required)
+  - reason: string (required)
+  - description?: string
+  - status: 'pending'|'completed'|'failed' (default completed)
+  - createdAt, updatedAt: Date
+  - Indexes: patientId+createdAt desc; patientId+type; appointmentId

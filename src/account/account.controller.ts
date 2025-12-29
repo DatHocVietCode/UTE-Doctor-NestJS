@@ -57,7 +57,7 @@ export class AccountController {
         @Req() req: any,
         @Body() body: ChangePasswordDto
     ) {
-        return this.accountService.changePassword(req.user.id, body.currentPassword, body.newPassword);
+        return this.accountService.changePassword(req.user.accountId, body.currentPassword, body.newPassword);
     }
 
     @Patch(':id')
