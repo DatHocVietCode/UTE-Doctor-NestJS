@@ -149,27 +149,48 @@ export class AppointmentService {
 
     // Build prescriptions
     const mappedPrescriptions = await Promise.all((dto.prescriptions || []).map(async (p) => {
-        const medicineIdObj = (typeof p.medicineId === 'string') 
-            ? new Types.ObjectId(p.medicineId) 
-            : p.medicineId;
+        let medicineIdObj: Types.ObjectId | null = null;
         
-        let name = p.name;
-        if (!name) {
+        console.log('[CompleteAppointment] Processing prescription item:', p);
+
+        // Only convert medicineId if it exists
+        if (p.medicineId) {
             try {
-                const med = await this.medicineModel.findById(medicineIdObj).select('name').lean();
-                name = med?.name ?? 'Unknown medicine';
+                medicineIdObj = (typeof p.medicineId === 'string') 
+                    ? new Types.ObjectId(p.medicineId) 
+                    : p.medicineId;
             } catch (err) {
-                name = 'Unknown medicine';
+                console.warn('[CompleteAppointment] Invalid medicineId:', p.medicineId);
+                medicineIdObj = null;
             }
         }
         
-        return {
-            medicineId: medicineIdObj,
+        let name = p.name;
+        // If no name provided but have medicineId, fetch from database
+        if (!name && medicineIdObj) {
+            try {
+                const med = await this.medicineModel.findById(medicineIdObj).select('name').lean();
+                name = med?.name ?? p.name ?? 'Unknown medicine';
+            } catch (err) {
+                name = p.name ?? 'Unknown medicine';
+            }
+        }
+        
+        const prescription: any = {
             name,
             quantity: (typeof p.quantity === 'number' && p.quantity > 0) ? p.quantity : 1,
             note: p.note,
         };
+        
+        // Only add medicineId if it exists
+        if (medicineIdObj) {
+            prescription.medicineId = medicineIdObj;
+        }
+        
+        return prescription;
     }));
+
+    console.log('[AppointmentService] Mapped prescriptions:', mappedPrescriptions);
 
     if (!appointment.doctorId) {
         throw new NotFoundException('Doctor not assigned to appointment');
