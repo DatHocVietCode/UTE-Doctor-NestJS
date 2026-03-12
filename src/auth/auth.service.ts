@@ -9,10 +9,17 @@ import { Model } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
+import { RoleEnum } from 'src/common/enum/role.enum';
 import { UserContextService } from 'src/user-context/user-context.service';
 import { emitTyped } from 'src/utils/helpers/event.helper';
 import { OtpDTO } from 'src/utils/otp/otp-dto';
+import { AccountService } from '../account/account.service';
 import { Account } from '../account/schemas/account.schema';
+import { DoctorService } from '../doctor/doctor.service';
+import { CreatePatientDto } from '../patient/dto/create-patient.dto';
+import { PatientService } from '../patient/patient.service';
+import { CreateProfileDto } from '../profile/dto/create-profile.dto';
+import { ProfileService } from '../profile/profile.service';
 import { LoginUserReqDto, LoginUserResDto, RegisterUserReqDto } from './dto/auth-user.dto';
 
 @Injectable()
@@ -20,24 +27,86 @@ export class AuthService {
     constructor(@InjectModel(Account.name) private accountModel: Model<Account>
                 , private jwtService: JwtService
                 , private readonly eventEmitter: EventEmitter2
-            , private userContextService: UserContextService,) {
+                , private userContextService: UserContextService
+                , private readonly accountService: AccountService
+                , private readonly profileService: ProfileService
+                , private readonly patientService: PatientService
+                , private readonly doctorService: DoctorService
+            ) {
                 console.log('AuthService instantiated');
             }
      private readonly logger = new Logger(AuthService.name);
 
-    async register(registerUser: RegisterUserReqDto) {
-        // bắn event "đăng ký yêu cầu"
-        this.eventEmitter.emitAsync('user.register.requested', {
-            registerUser: registerUser,
-        });
-        console.log('Emitted user.register.requested event for:', registerUser.email);
-        const responseData : DataResponse = {
-            code: rc.PENDING,
-            message: "Received user register request",
-            data: null
+    async register(registerUser: RegisterUserReqDto): Promise<DataResponse> {
+        this.logger.log(`[Register] Start registration for ${registerUser.email}`);
+
+        // Step 1: Create Account
+        const createdAccountRes = await this.accountService.createAccount(registerUser);
+        if (createdAccountRes.code !== rc.SUCCESS) {
+            return { code: rc.ERROR, message: createdAccountRes.message, data: null };
         }
-        // trả requestId ngay cho client
-        return responseData;
+        const accountId = createdAccountRes.data!._id.toString();
+        this.logger.log(`[Register] Account created → ${accountId}`);
+
+        // Step 2: Create Profile
+        const createProfileDto: CreateProfileDto = {
+            email: registerUser.email,
+        };
+        const createdProfileRes = await this.profileService.createProfile(createProfileDto);
+        if (createdProfileRes.code !== rc.SUCCESS) {
+            await this.accountService.deleteByEmail(registerUser.email);
+            return { code: rc.ERROR, message: createdProfileRes.message, data: null };
+        }
+        const profileId = createdProfileRes.data!._id.toString();
+        this.logger.log(`[Register] Profile created → ${profileId}`);
+
+        // Step 3: Link Profile to Account
+        const linkRes = await this.accountService.handleLinkProfile({ accountId, profileId });
+        if (linkRes.code !== rc.SUCCESS) {
+            await this.accountService.deleteByEmail(registerUser.email);
+            return { code: rc.ERROR, message: linkRes.message, data: null };
+        }
+        this.logger.log(`[Register] Linked Profile to Account`);
+
+        // Step 4: Create child entity (Patient / Doctor)
+        const role = registerUser.role ?? RoleEnum.PATIENT;
+        if (role === RoleEnum.PATIENT) {
+            const createPatientDto: CreatePatientDto = {
+                accountId,
+                profileId,
+            };
+            const patientRes = await this.patientService.createPatient(createPatientDto);
+            if (patientRes.code !== rc.SUCCESS) {
+                await this.accountService.deleteByEmail(registerUser.email);
+                return { code: rc.ERROR, message: patientRes.message, data: null };
+            }
+            this.logger.log(`[Register] Patient created`);
+        } else if (role === RoleEnum.DOCTOR) {
+            const createDoctorDto: any = {
+                profileId,
+                chuyenKhoaId: registerUser.chuyenKhoaId,
+                degree: registerUser.degree,
+                yearsOfExperience: registerUser.yearsOfExperience,
+            };
+            const doctorRes = await this.doctorService.createDoctor(createDoctorDto);
+            if (doctorRes.code !== rc.SUCCESS) {
+                await this.accountService.deleteByEmail(registerUser.email);
+                return { code: rc.ERROR, message: doctorRes.message, data: null };
+            }
+            this.logger.log(`[Register] Doctor created`);
+        }
+
+        // Step 5: Send OTP (fire-and-forget, don't block response)
+        this.handleOTPSending(registerUser.email).catch(err =>
+            this.logger.error(`[Register] Failed to send OTP: ${err.message}`),
+        );
+
+        this.logger.log(`[Register] Registration completed for ${registerUser.email}`);
+        return {
+            code: rc.SUCCESS,
+            message: 'User registered successfully',
+            data: null,
+        };
     }
     
     async login(loginUserDto: LoginUserReqDto): Promise<DataResponse<LoginUserResDto>> {

@@ -1,82 +1,52 @@
-import { UnauthorizedException } from '@nestjs/common';
+import { ConnectedSocket, MessageBody, SubscribeMessage, WebSocketGateway } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
-import { ConnectedSocket, MessageBody, OnGatewayInit, SubscribeMessage, WebSocketGateway } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
+import { Socket } from 'socket.io';
 import { ChatService } from 'src/chat/chat.service';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode } from 'src/common/enum/reponse-code.enum';
 import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
 import { BaseGateway } from '../../base/base.gateway';
+import type { JwtSocketPayload } from '../../decorators/ws-user.decorator';
+import { WsUser } from '../../decorators/ws-user.decorator';
 import { SocketRoomService } from '../../socket.service';
 
 /**
- * Best Practice Chat Gateway
- * - JWT verification ở connection level (afterInit → server.use())
- * - KHÔNG dùng @UseGuards() cho event handlers
- * - Token expired → server reject connection → client auto reconnect với token mới
+ * Chat Gateway
+ * - JWT verification is inherited from BaseGateway (connection level)
+ * - Uses @WsUser() decorator to get authenticated user
  */
 @WebSocketGateway({ cors: true, namespace: '/chat' })
-export class ChatGateway extends BaseGateway implements OnGatewayInit {
-  // server inherited from BaseGateway (protected server: Server)
+export class ChatGateway extends BaseGateway {
 
   constructor(
     private readonly chatService: ChatService, 
     socketRoomService: SocketRoomService,
-    private readonly jwtService: JwtService,
+    jwtService: JwtService,
   ) {
-    super(socketRoomService);
+    super(socketRoomService, jwtService);
   }
 
-  /**
-   * Best Practice: Verify JWT ở connection level
-   * Token invalid/expired → reject connection ngay
-   */
-  afterInit(server: Server) {
-    server.use(async (socket: Socket, next) => {
-      try {
-        const tokenFromAuth = (socket.handshake as any)?.auth?.token as string | undefined;
-        const headerAuth = socket.handshake.headers?.authorization as string | undefined;
-        const token = tokenFromAuth || (headerAuth?.startsWith('Bearer ') ? headerAuth.substring(7) : undefined);
-        
-        if (!token) {
-          console.log('[Chat Gateway] No token provided in connection');
-          return next(new UnauthorizedException('Missing auth token'));
-        }
-
-        const payload = await this.jwtService.verifyAsync(token, { 
-          secret: process.env.JWT_SECRET 
-        });
-        
-        // Attach user to socket data for use in handlers
-        (socket.data as any).user = payload;
-        console.log('[Chat Gateway] JWT verified for user:', payload.accountId || payload.sub);
-        next();
-      } catch (e) {
-        console.log('[Chat Gateway] JWT verification failed:', e.message);
-        return next(new UnauthorizedException('Invalid or expired token'));
-      }
-    });
-  }
-
-  // ============= Event Handlers (Không cần @UseGuards nữa) =============
+  // ============= Event Handlers =============
 
   @SubscribeMessage(SocketEventsEnum.CHAT_JOIN_USER)
   async handleJoinUser(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { accountId: string },
+    @WsUser() user: JwtSocketPayload,
   ) {
-    await client.join(`user:${payload.accountId}`);
-    client.emit(SocketEventsEnum.ROOM_JOINED, { room: `user:${payload.accountId}` });
-    console.log(`[Chat Gateway] User ${payload.accountId} joined user room`);
+    const accountId = user.accountId || user.sub;
+    await client.join(`user:${accountId}`);
+    client.emit(SocketEventsEnum.ROOM_JOINED, { room: `user:${accountId}` });
+    console.log(`[Chat Gateway] User ${accountId} joined user room`);
   }
 
   @SubscribeMessage(SocketEventsEnum.CHAT_LEAVE_USER)
   async handleLeaveUser(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { accountId: string },
+    @WsUser() user: JwtSocketPayload,
   ) {
-    await client.leave(`user:${payload.accountId}`);
-    console.log(`[Chat Gateway] User ${payload.accountId} left user room`);
+    const accountId = user.accountId || user.sub;
+    await client.leave(`user:${accountId}`);
+    console.log(`[Chat Gateway] User ${accountId} left user room`);
   }
 
   @SubscribeMessage(SocketEventsEnum.CHAT_JOIN_CONVERSATION)
@@ -101,21 +71,23 @@ export class ChatGateway extends BaseGateway implements OnGatewayInit {
   @SubscribeMessage(SocketEventsEnum.CHAT_MESSAGE_SEND)
   async handleSendMessage(
     @ConnectedSocket() client: Socket,
+    @WsUser() user: JwtSocketPayload,
     @MessageBody()
     payload: {
       conversationId: string;
-      senderId: string;
-      senderEmail?: string;
       content: string;
       clientMessageId?: string;
     },
   ) {
     try {
-      console.log(`[Chat Gateway] Received message for conversation ${payload.conversationId} from ${payload.senderId}`);
+      const senderId = user.accountId || user.sub;
+      const senderEmail = user.email;
+      
+      console.log(`[Chat Gateway] Received message for conversation ${payload.conversationId} from ${senderId}`);
       const saved = await this.chatService.createMessage({
         conversationId: payload.conversationId,
-        senderId: payload.senderId,
-        senderEmail: payload.senderEmail,
+        senderId: senderId!,
+        senderEmail: senderEmail,
         content: payload.content,
         clientMessageId: payload.clientMessageId,
       });
@@ -127,18 +99,15 @@ export class ChatGateway extends BaseGateway implements OnGatewayInit {
       };
 
       console.log('[Chat Gateway] Stored message, broadcasting to rooms');
-      console.log(`[Chat Gateway] Broadcasting to conversation room: conv:${payload.conversationId}`);
 
-      // Broadcast to conversation room (for users already viewing this chat)
+      // Broadcast to conversation room
       this.server.to(`conv:${payload.conversationId}`).emit(SocketEventsEnum.CHAT_MESSAGE_RECEIVED, res);
 
-      // Also broadcast to recipient user room(s) for users not yet viewing
-      // Get conversation to find all other participants
+      // Also broadcast to recipient user room(s)
       const conv = await this.chatService.getConversation(payload.conversationId);
       if (conv && conv.participants) {
         conv.participants.forEach((p: any) => {
-          if (String(p.accountId) !== String(payload.senderId)) {
-            // Send to recipient's user room
+          if (String(p.accountId) !== String(senderId)) {
             this.server.to(`user:${p.accountId}`).emit(SocketEventsEnum.CHAT_MESSAGE_RECEIVED, res);
           }
         });
@@ -154,10 +123,15 @@ export class ChatGateway extends BaseGateway implements OnGatewayInit {
 
   @SubscribeMessage(SocketEventsEnum.CHAT_MESSAGE_READ)
   async handleRead(
-    @MessageBody() payload: { conversationId: string; accountId: string },
+    @WsUser() user: JwtSocketPayload,
+    @MessageBody() payload: { conversationId: string },
   ) {
-    await this.chatService.markRead(payload.conversationId, payload.accountId);
-    this.server.to(`conv:${payload.conversationId}`).emit(SocketEventsEnum.CHAT_MESSAGE_READ, payload);
+    const accountId = user.accountId || user.sub;
+    await this.chatService.markRead(payload.conversationId, accountId!);
+    this.server.to(`conv:${payload.conversationId}`).emit(SocketEventsEnum.CHAT_MESSAGE_READ, {
+      conversationId: payload.conversationId,
+      accountId,
+    });
     console.log(`[Chat Gateway] Messages marked as read in conversation: ${payload.conversationId}`);
   }
 }

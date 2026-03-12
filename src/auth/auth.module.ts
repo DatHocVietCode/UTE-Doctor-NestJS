@@ -1,20 +1,22 @@
-import { Module, forwardRef } from "@nestjs/common";
-import { JwtModule } from "@nestjs/jwt";
+import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
+import { AccountModule } from "src/account/account.module";
 import { Account, AccountSchema } from "src/account/schemas/account.schema";
-import { AuthService } from "./auth.service";
-import { AuthController } from "./auth.controller";
-import { AuthSaga } from "../orchestration/sagas/auth.saga";
+import { DoctorModule } from "src/doctor/doctor.module";
+import { PatientModule } from "src/patient/patient.module";
+import { ProfileModule } from "src/profile/profile.module";
 import { UserContextModule } from "src/user-context/user-context.module";
+import { AuthController } from "./auth.controller";
+import { AuthService } from "./auth.service";
 
 @Module({
   imports: [
-    JwtModule.register({
-      secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: process.env.JWT_EXPIRES_IN }
-    }),
     MongooseModule.forFeature([{ name: Account.name, schema: AccountSchema }]),
     UserContextModule,
+    AccountModule,
+    ProfileModule,
+    PatientModule,
+    DoctorModule,
   ],
   controllers: [AuthController],
   providers: [AuthService],

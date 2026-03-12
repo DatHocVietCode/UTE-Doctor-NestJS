@@ -1,6 +1,7 @@
-import { MiddlewareConsumer, Module, NestModule, Post } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
 import { DoctorModule } from 'src/doctor/doctor.module';
@@ -41,6 +42,11 @@ import { DoctorPostModule } from 'src/post/post.module';
       }),
     }),
     EventEmitterModule.forRoot(),
+    JwtModule.register({
+      global: true,
+      secret: process.env.JWT_SECRET,
+      signOptions: { expiresIn: process.env.JWT_EXPIRES_IN },
+    }),
     AccountModule,
     AuthModule,
     ChuyenKhoaModule,

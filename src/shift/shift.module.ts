@@ -1,5 +1,4 @@
 import { Module } from "@nestjs/common";
-import { JwtModule } from "@nestjs/jwt";
 import { MongooseModule } from "@nestjs/mongoose";
 import { Appointment, AppointmentSchema } from "src/appointment/schemas/appointment.schema";
 import { JwtAuthGuard } from "src/common/guards/jws-auth.guard";
@@ -13,10 +12,6 @@ import { ShiftListener } from "./shift.listenner";
 
 @Module({
   imports: [
-    JwtModule.register({
-      secret: process.env.JWT_SECRET,
-      signOptions: { expiresIn: process.env.JWT_EXPIRES_IN },
-    }),
     MongooseModule.forFeature([
   { name: Shift.name, schema: ShiftSchema },
   { name: TimeSlotLog.name, schema: TimeSlotLogSchema },

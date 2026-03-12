@@ -1,5 +1,6 @@
 import { OnEvent } from '@nestjs/event-emitter';
 import { WebSocketGateway } from '@nestjs/websockets';
+import { JwtService } from '@nestjs/jwt';
 import type { AppointmentEnriched } from 'src/appointment/schemas/appointment-enriched';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode } from 'src/common/enum/reponse-code.enum';
@@ -10,8 +11,8 @@ import { SocketRoomService } from '../../socket.service';
 @WebSocketGateway({ cors: true, namespace: '/appointment' })
 export class AppointmentGateway extends BaseGateway {
 
-   constructor(socketRoomService: SocketRoomService) {
-        super(socketRoomService);
+   constructor(socketRoomService: SocketRoomService, jwtService: JwtService) {
+        super(socketRoomService, jwtService);
     }
 
   @OnEvent('socket.appointment.success')

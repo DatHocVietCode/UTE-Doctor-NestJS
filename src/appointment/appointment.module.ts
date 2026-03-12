@@ -1,5 +1,4 @@
 import { Module } from "@nestjs/common";
-import { JwtModule } from "@nestjs/jwt";
 import { MongooseModule } from "@nestjs/mongoose";
 import { Doctor, DoctorSchema } from "src/doctor/schema/doctor.schema";
 import { MedicineModule } from "src/medicine/medicine.module";
@@ -19,10 +18,6 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
 
 @Module({
     imports: [
-        JwtModule.register({
-          secret: process.env.JWT_SECRET,
-          signOptions: { expiresIn: process.env.JWT_EXPIRES_IN },
-        }),
         MongooseModule.forFeature([
           { name: Appointment.name, schema: AppointmentSchema },
           { name: TimeSlotLog.name, schema: TimeSlotLogSchema }, // thêm model để inject vào AppointmentService
