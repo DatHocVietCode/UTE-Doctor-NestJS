@@ -10,12 +10,17 @@ import {
   UseInterceptors,
   Query,
   Patch,
+  Req,
+  UseGuards,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { CreateDoctorPostDto } from './dto/create-doctor-post.dto';
+import { CreateDoctorPostDto, CreateDoctorPostRequestDto } from './dto/create-doctor-post.dto';
 import { UpdateDoctorPostDto } from './dto/update-doctor-post.dto';
 import { DoctorPostService } from './post.service';
 import { UpdateDoctorPostStatusDto } from 'src/post/dto/update-post-status.dto';
+import { JwtAuthGuard } from 'src/common/guards/jws-auth.guard';
+import { AuthUser } from 'src/common/interfaces/auth-user';
 
 @Controller('doctor-posts')
 export class DoctorPostController {
@@ -23,12 +28,22 @@ export class DoctorPostController {
 
 
   @Post()
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   create(
-    @Body() dto: CreateDoctorPostDto,
+    @Req() req: any,
+    @Body() dto: CreateDoctorPostRequestDto,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    return this.doctorPostService.create(dto, file);
+    const user = req.user as AuthUser;
+    if (!user?.doctorId) {
+      throw new UnauthorizedException('Unable to identify doctor from token');
+    }
+    const payload: CreateDoctorPostDto = {
+      ...dto,
+      doctorId: user.doctorId,
+    };
+    return this.doctorPostService.create(payload, file);
   }
 
   @Get()
@@ -62,6 +77,7 @@ export class DoctorPostController {
   }
 
   @Put(':id')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
   update(
     @Param('id') id: string,
@@ -72,6 +88,7 @@ export class DoctorPostController {
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard)
   remove(@Param('id') id: string) {
     return this.doctorPostService.remove(id);
   }
@@ -82,6 +99,7 @@ export class DoctorPostController {
   }
 
   @Patch(':id/status')
+  @UseGuards(JwtAuthGuard)
   updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateDoctorPostStatusDto,

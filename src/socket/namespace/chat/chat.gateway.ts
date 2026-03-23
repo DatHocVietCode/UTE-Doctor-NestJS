@@ -1,5 +1,5 @@
-import { ConnectedSocket, MessageBody, SubscribeMessage, WebSocketGateway } from '@nestjs/websockets';
 import { JwtService } from '@nestjs/jwt';
+import { ConnectedSocket, MessageBody, SubscribeMessage, WebSocketGateway } from '@nestjs/websockets';
 import { Socket } from 'socket.io';
 import { ChatService } from 'src/chat/chat.service';
 import { DataResponse } from 'src/common/dto/data-respone';
@@ -127,7 +127,7 @@ export class ChatGateway extends BaseGateway {
     @MessageBody() payload: { conversationId: string },
   ) {
     const accountId = user.accountId || user.sub;
-    await this.chatService.markRead(payload.conversationId, accountId!);
+    await this.chatService.markRead(payload.conversationId, user);
     this.server.to(`conv:${payload.conversationId}`).emit(SocketEventsEnum.CHAT_MESSAGE_READ, {
       conversationId: payload.conversationId,
       accountId,

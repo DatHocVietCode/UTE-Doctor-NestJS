@@ -1,15 +1,17 @@
 import { IsString, IsNotEmpty, IsIn } from 'class-validator';
 
-export class RegisterShiftDto {
+export class RegisterShiftRequestDto {
   @IsString()
   @IsNotEmpty()
-  doctorId: string;
-
-  @IsString()
-  @IsNotEmpty()
-  date: string; // Định dạng: YYYY-MM-DD
+  date: string; // �?nh d?ng: YYYY-MM-DD
 
   @IsString()
   @IsIn(['morning', 'afternoon', 'extra'])
   shift: 'morning' | 'afternoon' | 'extra';
+}
+
+export class RegisterShiftDto extends RegisterShiftRequestDto {
+  @IsString()
+  @IsNotEmpty()
+  doctorId: string;
 }

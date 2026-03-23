@@ -5,6 +5,7 @@ import { Account, AccountDocument } from 'src/account/schemas/account.schema';
 import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
 import { Conversation, ConversationDocument } from './schemas/conversation.schema';
 import { Message, MessageDocument } from './schemas/message.schema';
+import { AuthUser } from 'src/common/interfaces/auth-user';
 
 @Injectable()
 export class ChatService {
@@ -36,7 +37,11 @@ export class ChatService {
     return saved;
   }
 
-  async listConversationsByUser(accountId: string, skip = 0, limit = 20) {
+  async listConversationsByUser(user: AuthUser, skip = 0, limit = 20) {
+    const accountId = user?.accountId;
+    if (!accountId) {
+      return { data: [], total: 0, skip, limit };
+    }
     const total = await this.convModel.countDocuments({ 'participants.accountId': accountId });
     const conversations = await this.convModel
       .find({ 'participants.accountId': accountId })
@@ -129,7 +134,11 @@ export class ChatService {
     return saved;
   }
 
-  async markRead(conversationId: string, accountId: string) {
+  async markRead(conversationId: string, user: AuthUser) {
+    const accountId = user?.accountId;
+    if (!accountId) {
+      return null;
+    }
     return this.convModel.findByIdAndUpdate(
       conversationId,
       { $set: { 'participants.$[p].lastReadAt': new Date() } },

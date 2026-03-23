@@ -1,9 +1,6 @@
 import { IsMongoId, IsOptional, IsString } from 'class-validator';
 
-export class CreateDoctorPostDto {
-  @IsMongoId()
-  doctorId: string;
-
+export class CreateDoctorPostRequestDto {
   @IsOptional()
   @IsString()
   title?: string;
@@ -11,4 +8,9 @@ export class CreateDoctorPostDto {
   @IsOptional()
   @IsString()
   description?: string;
+}
+
+export class CreateDoctorPostDto extends CreateDoctorPostRequestDto {
+  @IsMongoId()
+  doctorId: string;
 }

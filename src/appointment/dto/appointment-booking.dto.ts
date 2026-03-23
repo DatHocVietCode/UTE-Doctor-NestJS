@@ -14,7 +14,7 @@ import { ServiceType } from "src/appointment/enums/service-type.enum";
 import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 
 
-export class AppointmentBookingDto {
+export class AppointmentBookingRequestDto {
   @IsString()
   hospitalName: string;
 
@@ -43,12 +43,6 @@ export class AppointmentBookingDto {
   @IsNumber()
   amount?: number;
 
-  @IsEmail()
-  patientEmail: string;
-
-  @IsMongoId()
-  patientId: string;
-
   @IsString()
   @IsOptional()
   reasonForAppointment: string;
@@ -59,6 +53,14 @@ export class AppointmentBookingDto {
 
   @IsOptional()
   useCoin?: boolean; // Whether to use coins for this appointment
+}
+
+export class AppointmentBookingDto extends AppointmentBookingRequestDto {
+  @IsEmail()
+  patientEmail: string;
+
+  @IsMongoId()
+  patientId: string;
 }
 
 export class DoctorDto {

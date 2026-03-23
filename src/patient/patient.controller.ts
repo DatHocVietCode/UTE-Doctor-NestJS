@@ -1,8 +1,21 @@
-import { Body, Controller, Get, NotFoundException, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  Req,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import { Types } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
-import { PatientService } from './patient.service';
 import { ResponseCode } from 'src/common/enum/reponse-code.enum';
+import { JwtAuthGuard } from 'src/common/guards/jws-auth.guard';
+import { AuthUser } from 'src/common/interfaces/auth-user';
+import { PatientService } from './patient.service';
 
 @Controller('patients')
 export class PatientController {
@@ -22,13 +35,24 @@ export class PatientController {
   }
 
 
+  @UseGuards(JwtAuthGuard)
   @Get('/me')
-  async getPatientProfile(@Query('email') email: string) : Promise<DataResponse> {
-    return await this.patientService.getPatientProfileByEmail(email);
+  async getPatientProfile(@Req() req: any): Promise<DataResponse> {
+    const user = req.user as AuthUser | undefined;
+    if (!user?.email) {
+      throw new UnauthorizedException('Unable to identify user from token');
+    }
+    return await this.patientService.getPatientProfileByUser(user);
   }
 
-  @Get("by-account/:accountId")
-  async getPatientByAccount(@Param("accountId") accountId: string) {
+  @UseGuards(JwtAuthGuard)
+  @Get("by-account")
+  async getPatientByAccount(@Req() req: any) {
+    const user = req.user as AuthUser | undefined;
+    const accountId = user?.accountId;
+    if (!accountId) {
+      throw new UnauthorizedException('Unable to identify user from token');
+    }
     const patient = await this.patientService.findByAccountId(accountId);
 
     if (!patient) {
@@ -59,12 +83,15 @@ export class PatientController {
     return patient;
   }
 
-  @Post('/:id/medical-profile')
-  async upsertMedicalProfile(@Param('id') id: string, @Body() body: any) {
-    if (!Types.ObjectId.isValid(id)) {
+  @UseGuards(JwtAuthGuard)
+  @Post('/me/medical-profile')
+  async upsertMedicalProfile(@Req() req: any, @Body() body: any) {
+    const user = req.user as AuthUser | undefined;
+    const patientId = user?.patientId;
+    if (!patientId || !Types.ObjectId.isValid(patientId)) {
       throw new NotFoundException('Invalid patient ID');
     }
-    const profile = await this.patientService.upsertMedicalProfile(id, body);
+    const profile = await this.patientService.upsertMedicalProfile(patientId, body, user);
     return {
       code: ResponseCode.SUCCESS,
       message: "Medical profile updated",
@@ -72,12 +99,15 @@ export class PatientController {
     } satisfies DataResponse;
   }
 
-  @Post('/:id/allergies')
-  async addAllergy(@Param('id') id: string, @Body() body: any) {
-    if (!Types.ObjectId.isValid(id)) {
+  @UseGuards(JwtAuthGuard)
+  @Post('/me/allergies')
+  async addAllergy(@Req() req: any, @Body() body: any) {
+    const user = req.user as AuthUser | undefined;
+    const patientId = user?.patientId;
+    if (!patientId || !Types.ObjectId.isValid(patientId)) {
       throw new NotFoundException('Invalid patient ID');
     }
-    const allergy = await this.patientService.addAllergyRecord(id, body);
+    const allergy = await this.patientService.addAllergyRecord(patientId, body, user);
     return {
       code: ResponseCode.SUCCESS,
       message: "Allergy record created",
@@ -85,12 +115,15 @@ export class PatientController {
     } satisfies DataResponse;
   }
 
-  @Post('/:id/medical-history')
-  async addMedicalHistory(@Param('id') id: string, @Body() body: any) {
-    if (!Types.ObjectId.isValid(id)) {
+  @UseGuards(JwtAuthGuard)
+  @Post('/me/medical-history')
+  async addMedicalHistory(@Req() req: any, @Body() body: any) {
+    const user = req.user as AuthUser | undefined;
+    const patientId = user?.patientId;
+    if (!patientId || !Types.ObjectId.isValid(patientId)) {
       throw new NotFoundException('Invalid patient ID');
     }
-    const history = await this.patientService.addMedicalHistoryRecord(id, body);
+    const history = await this.patientService.addMedicalHistoryRecord(patientId, body, user);
     return {
       code: ResponseCode.SUCCESS,
       message: "Medical history record created",

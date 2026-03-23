@@ -8,6 +8,7 @@ import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { RoleEnum } from 'src/common/enum/role.enum';
 import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
 import { getProfileByEntity } from 'src/utils/helpers/profile.helper';
+import { AuthUser } from 'src/common/interfaces/auth-user';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { PatientProfileDTO } from './dto/patient.dto';
 import {
@@ -68,11 +69,19 @@ export class PatientService {
     console.log(dataRes.message)
     return dataRes;
   }
-  async getPatientProfileByEmail(email: string) : Promise<DataResponse> {
+  async getPatientProfileByUser(user: AuthUser) : Promise<DataResponse> {
     const res : DataResponse = {
       code: rc.PENDING,
       message: "Server received request!",
       data: null
+    }
+    const email = user?.email;
+    if (!email) {
+      return {
+        code: rc.ERROR,
+        message: "Email is required",
+        data: null,
+      };
     }
     this.eventEmitter.emit('profile.get', { email: email , role: RoleEnum.PATIENT });
     return res;
@@ -210,7 +219,11 @@ export class PatientService {
       .exec();
   }
 
-  async upsertMedicalProfile(patientId: string, payload: Partial<MedicalProfile>): Promise<MedicalProfileDocument> {
+  async upsertMedicalProfile(
+    patientId: string,
+    payload: Partial<MedicalProfile>,
+    user?: AuthUser
+  ): Promise<MedicalProfileDocument> {
     const doc = await this.medicalProfileModel.findOneAndUpdate(
       { patientId: new mongoose.Types.ObjectId(patientId) },
       {
@@ -219,7 +232,7 @@ export class PatientService {
           weight: payload.weight,
           bloodType: payload.bloodType,
           createdByRole: payload.createdByRole || RoleEnum.PATIENT,
-          createdByAccountId: payload.createdByAccountId || undefined,
+          createdByAccountId: payload.createdByAccountId || user?.accountId || undefined,
         },
       },
       { new: true, upsert: true, setDefaultsOnInsert: true }
@@ -233,7 +246,11 @@ export class PatientService {
     return doc;
   }
 
-  async addAllergyRecord(patientId: string, payload: Partial<AllergyRecord>): Promise<AllergyRecordDocument> {
+  async addAllergyRecord(
+    patientId: string,
+    payload: Partial<AllergyRecord>,
+    user?: AuthUser
+  ): Promise<AllergyRecordDocument> {
     const doc = await this.allergyRecordModel.create({
       patientId: new mongoose.Types.ObjectId(patientId),
       type: payload.type,
@@ -244,12 +261,16 @@ export class PatientService {
       verifiedByDoctor: payload.verifiedByDoctor ?? false,
       verifiedByDoctorId: payload.verifiedByDoctorId,
       createdByRole: payload.createdByRole || RoleEnum.PATIENT,
-      createdByAccountId: payload.createdByAccountId,
+      createdByAccountId: payload.createdByAccountId || user?.accountId,
     });
     return doc;
   }
 
-  async addMedicalHistoryRecord(patientId: string, payload: Partial<MedicalHistoryRecord>): Promise<MedicalHistoryRecordDocument> {
+  async addMedicalHistoryRecord(
+    patientId: string,
+    payload: Partial<MedicalHistoryRecord>,
+    user?: AuthUser
+  ): Promise<MedicalHistoryRecordDocument> {
     const doc = await this.medicalHistoryRecordModel.create({
       patientId: new mongoose.Types.ObjectId(patientId),
       conditionName: payload.conditionName,
@@ -260,7 +281,7 @@ export class PatientService {
       verifiedByDoctor: payload.verifiedByDoctor ?? false,
       verifiedByDoctorId: payload.verifiedByDoctorId,
       createdByRole: payload.createdByRole || RoleEnum.PATIENT,
-      createdByAccountId: payload.createdByAccountId,
+      createdByAccountId: payload.createdByAccountId || user?.accountId,
     });
     return doc;
   }

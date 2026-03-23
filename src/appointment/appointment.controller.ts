@@ -1,24 +1,30 @@
-import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { Types } from "mongoose";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { JwtAuthGuard } from "src/common/guards/jws-auth.guard";
+import { AuthUser } from "src/common/interfaces/auth-user";
 import { AppointmentService } from "./appointment.service";
-import { AppointmentBookingDto, CompleteAppointmentDto, RescheduleAppointmentDto } from "./dto/appointment-booking.dto";
+import { AppointmentBookingDto, AppointmentBookingRequestDto, CompleteAppointmentDto, RescheduleAppointmentDto } from "./dto/appointment-booking.dto";
 
 @Controller('appointment')
 export class AppointmentController {
     constructor(private readonly appointmentService: AppointmentService) {}
 
-    @Get('completed/doctor/:doctorId')
+    @Get('completed/doctor')
+    @UseGuards(JwtAuthGuard)
         getCompletedAppointmentsByDoctor(
-        @Param('doctorId') doctorId: string,
+        @Req() req: any,
         @Query('page') page = 1,
         @Query('limit') limit = 10,
         @Query('keyword') keyword?: string,
         ) {
+        const user = req.user as AuthUser;
+        if (!user?.doctorId) {
+            throw new UnauthorizedException('Unable to identify doctor from token');
+        }
         return this.appointmentService.findCompletedByDoctor(
-            doctorId,
+            user,
             Number(page),
             Number(limit),
             keyword,
@@ -45,12 +51,11 @@ export class AppointmentController {
         const pageNum = Math.max(1, parseInt(page) || 1);
         const limitNum = Math.max(1, Math.min(50, parseInt(limit) || 10));
 
-        const patientEmail = req.user.email;
-
-        const data = await this.appointmentService.getAppointmentsByPatientEmail(
-        patientEmail,
-        pageNum,
-        limitNum
+        const user = req.user as AuthUser;
+        const data = await this.appointmentService.getAppointmentsByPatient(
+            user,
+            pageNum,
+            limitNum
         );
 
         return {
@@ -62,16 +67,31 @@ export class AppointmentController {
 
 
     @Post('/book')
-    async bookAppointment(@Body() bookingAppointment: AppointmentBookingDto) {
-        console.log('Received appointment booking:', bookingAppointment);
-        return await this.appointmentService.bookAppointment(bookingAppointment);
+    @UseGuards(JwtAuthGuard)
+    async bookAppointment(@Req() req: any, @Body() bookingAppointment: AppointmentBookingRequestDto) {
+        const user = req.user as AuthUser;
+        if (!user?.email || !user?.accountId) {
+            throw new UnauthorizedException('Unable to identify user from token');
+        }
+        const payload: AppointmentBookingDto = {
+            ...bookingAppointment,
+            patientEmail: user.email,
+            patientId: user.accountId,
+        };
+        console.log('Received appointment booking:', payload);
+        return await this.appointmentService.bookAppointment(payload);
     }
 
     @Get('/today')
-    async getTodayAppointments(@Query('doctorId') doctorId: string) {
-        console.log(`[AppointmentController] GET /today?doctorId=${doctorId}`);
+    @UseGuards(JwtAuthGuard)
+    async getTodayAppointments(@Req() req: any) {
+        const user = req.user as AuthUser;
+        if (!user?.doctorId) {
+            throw new UnauthorizedException('Unable to identify doctor from token');
+        }
+        console.log(`[AppointmentController] GET /today?doctorId=${user.doctorId}`);
         try {
-            const res = await this.appointmentService.getTodayAppointments(doctorId);
+            const res = await this.appointmentService.getTodayAppointments(user);
             console.log('[AppointmentController] Response data:', JSON.stringify(res?.data ?? res));
             return res;
         } catch (error) {

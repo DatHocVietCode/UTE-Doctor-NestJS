@@ -15,6 +15,7 @@ import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment
 import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
+import { AuthUser } from "src/common/interfaces/auth-user";
 
 @Injectable()
 export class AppointmentService {
@@ -68,7 +69,11 @@ export class AppointmentService {
         return saved;
     }
 
-    async getTodayAppointments(doctorId: string) {
+    async getTodayAppointments(user: AuthUser) {
+    const doctorId = user?.doctorId;
+    if (!doctorId) {
+        throw new BadRequestException('Missing doctorId in user context');
+    }
     const today = new Date();
     const localYear = today.getFullYear();
     const localMonth = String(today.getMonth() + 1).padStart(2, '0');
@@ -235,11 +240,15 @@ export class AppointmentService {
         return this.appointmentModel.find().exec();
     }
 
-    async getAppointmentsByPatientEmail(
-        patientEmail: string,
+    async getAppointmentsByPatient(
+        user: AuthUser,
         page: number = 1,
         limit: number = 10
     ): Promise<{ data: AppointmentDto[]; total: number; page: number; limit: number; totalPages: number }> {
+        const patientEmail = user?.email;
+        if (!patientEmail) {
+            throw new BadRequestException('Missing email in user context');
+        }
         const skip = (page - 1) * limit;
 
         const [appointments, total] = await Promise.all([
@@ -612,7 +621,7 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
   }
 
     async findCompletedByDoctor(
-    doctorId: string,
+    user: AuthUser,
     page = 1,
     limit = 10,
     keyword?: string,
@@ -636,6 +645,11 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
     };
 
     const regex = keyword ? buildFuzzyRegex(keyword.trim()) : null;
+
+    const doctorId = user?.doctorId;
+    if (!doctorId) {
+        throw new BadRequestException('Missing doctorId in user context');
+    }
 
     const matchStage: any = {
         doctorId: new mongoose.Types.ObjectId(doctorId),
