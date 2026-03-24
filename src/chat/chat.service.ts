@@ -6,6 +6,7 @@ import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
 import { Conversation, ConversationDocument } from './schemas/conversation.schema';
 import { Message, MessageDocument } from './schemas/message.schema';
 import { AuthUser } from 'src/common/interfaces/auth-user';
+import { DateTimeHelper } from 'src/utils/helpers/datetime.helper';
 
 @Injectable()
 export class ChatService {
@@ -90,7 +91,10 @@ export class ChatService {
       }
 
       const q: any = { conversationId: new Types.ObjectId(conversationId) };
-      if (before) q.createdAt = { $lt: new Date(before) };
+      if (before) {
+        const beforeDate = DateTimeHelper.toUtcDate(before);
+        if (beforeDate) q.createdAt = { $lt: beforeDate };
+      }
       
       console.log('[ChatService] Query:', q);
       
@@ -128,7 +132,7 @@ export class ChatService {
     });
     const saved = await doc.save();
     await this.convModel.findByIdAndUpdate(payload.conversationId, {
-      $set: { lastMessage: { content: payload.content, senderId: payload.senderId, at: new Date() } },
+      $set: { lastMessage: { content: payload.content, senderId: payload.senderId, at: DateTimeHelper.nowUtc() } },
       $currentDate: { updatedAt: true },
     });
     return saved;
@@ -141,7 +145,7 @@ export class ChatService {
     }
     return this.convModel.findByIdAndUpdate(
       conversationId,
-      { $set: { 'participants.$[p].lastReadAt': new Date() } },
+      { $set: { 'participants.$[p].lastReadAt': DateTimeHelper.nowUtc() } },
       { arrayFilters: [{ 'p.accountId': accountId }], new: true },
     );
   }

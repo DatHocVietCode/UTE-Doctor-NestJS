@@ -4,6 +4,7 @@ import * as puppeteer from 'puppeteer';
 import * as fs from 'fs';
 import * as path from 'path';
 import { CreatePrescriptionPdfDto } from 'src/prescription/dto/create.pdf';
+import { DateTimeHelper } from 'src/utils/helpers/datetime.helper';
 
 @Injectable()
 export class PrescriptionPdfService {
@@ -63,11 +64,11 @@ export class PrescriptionPdfService {
   }
 
   private generateHtmlTemplate(data: CreatePrescriptionPdfDto): string {
-    const formattedDate = new Date(data.dateRecord).toLocaleDateString('vi-VN', {
+    const formattedDate = DateTimeHelper.formatUtc(data.dateRecord, 'vi-VN', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
-    });
+    }) ?? 'N/A';
 
     return `
       <!DOCTYPE html>

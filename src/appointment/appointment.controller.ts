@@ -4,6 +4,7 @@ import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { JwtAuthGuard } from "src/common/guards/jws-auth.guard";
 import { AuthUser } from "src/common/interfaces/auth-user";
+import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
 import { AppointmentService } from "./appointment.service";
 import { AppointmentBookingDto, AppointmentBookingRequestDto, CompleteAppointmentDto, RescheduleAppointmentDto } from "./dto/appointment-booking.dto";
 
@@ -124,7 +125,10 @@ export class AppointmentController {
     @UseGuards(JwtAuthGuard)
     async rescheduleAppointment(@Body() dto: RescheduleAppointmentDto, @Req() req: any) {
         try {
-            const newDate = new Date(dto.newDate);
+            const newDate = DateTimeHelper.toUtcDate(dto.newDate);
+            if (!newDate) {
+                throw new Error('Invalid newDate');
+            }
             const result = await this.appointmentService.rescheduleAppointment(
                 dto.appointmentId,
                 newDate,

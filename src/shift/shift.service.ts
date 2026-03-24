@@ -12,6 +12,7 @@ import { TimeSlotStatusEnum } from "src/timeslot/enums/timeslot-status.enum";
 import { TimeSlotData } from "src/timeslot/schemas/timeslot-data.schema";
 import { TimeSlotLog } from "src/timeslot/schemas/timeslot-log.schema";
 import { emitTyped } from "src/utils/helpers/event.helper";
+import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
 import { RegisterShiftDto } from "./dto/register-shift.dto";
 import { ShiftStatusEnum } from "./enums/shift-status.enum";
 import { Shift } from "./schema/shift.schema";
@@ -273,7 +274,7 @@ export class ShiftService {
       const startDate = `${year}-${month.padStart(2, '0')}-01`;
       
       // Lấy ngày cuối tháng
-      const lastDay = new Date(yearNum, monthNum, 0).getDate();
+      const lastDay = DateTimeHelper.getUtcLastDayOfMonth(yearNum, monthNum);
       const endDate = `${year}-${month.padStart(2, '0')}-${lastDay}`;
 
       console.log("🔍 [ShiftService] Date range:", { startDate, endDate });
@@ -444,7 +445,7 @@ export class ShiftService {
             patientEmail: appt.patientEmail,
             doctorEmail: user?.email,
             doctorName: (appt as any).doctorId?.doctorName ?? undefined,
-            date: typeof shift.date === 'string' ? shift.date : new Date(shift.date).toISOString().split('T')[0],
+            date: DateTimeHelper.toUtcDateOnlyString(shift.date) ?? String(shift.date),
             timeSlot: appt.timeSlot?.toString?.() ?? String(appt.timeSlot),
             hospitalName: appt.hospitalName,
             reason,
@@ -471,7 +472,7 @@ export class ShiftService {
           const doctorPayload = {
             doctorEmail: user.email,
             doctorName: (affectedAppointments[0] as any)?.doctorId?.doctorName,
-            date: typeof shift.date === 'string' ? shift.date : new Date(shift.date).toISOString().split('T')[0],
+            date: DateTimeHelper.toUtcDateOnlyString(shift.date) ?? String(shift.date),
             shift: shift.shift,
             reason,
             affectedAppointmentsCount: affectedAppointments.length,
@@ -638,7 +639,7 @@ export class ShiftService {
       const doctorId = payload.doctorId;
       const date = payload.date;
       const timeSlotId = payload.timeSlot._id.toString();
-      const dateOnly = new Date(date).toISOString().split("T")[0];
+      const dateOnly = DateTimeHelper.toUtcDateOnlyString(date) ?? String(date);
 
       // 1️⃣ Tìm tất cả shift của bác sĩ trong ngày đó
       const shifts = await this.shiftModel

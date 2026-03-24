@@ -16,6 +16,7 @@ import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
 import { AuthUser } from "src/common/interfaces/auth-user";
+import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
 
 @Injectable()
 export class AppointmentService {
@@ -49,8 +50,9 @@ export class AppointmentService {
     }
 
     async storeBookingInformation(payload: AppointmentBookingDto): Promise<AppointmentDocument> {
+        const normalizedDate = DateTimeHelper.toUtcDate(payload.date);
         const appointmentDoc = new this.appointmentModel({
-            date: payload.date,
+            date: normalizedDate ?? payload.date,
             appointmentStatus: AppointmentStatus.PENDING, // default
             serviceType: payload.serviceType,
             consultationFee: payload.amount ?? undefined, // nếu amount có thì lưu
@@ -74,12 +76,8 @@ export class AppointmentService {
     if (!doctorId) {
         throw new BadRequestException('Missing doctorId in user context');
     }
-    const today = new Date();
-    const localYear = today.getFullYear();
-    const localMonth = String(today.getMonth() + 1).padStart(2, '0');
-    const localDay = String(today.getDate()).padStart(2, '0');
-    const formatted = `${localYear}-${localMonth}-${localDay}`; // yyyy-mm-dd in local timezone
-    console.log(`[AppointmentService] using local date formatted=${formatted} timezoneOffsetMinutes=${today.getTimezoneOffset()}`);
+    const formatted = DateTimeHelper.getUtcDateOnly();
+    console.log(`[AppointmentService] using UTC date formatted=${formatted}`);
         console.log(`[AppointmentService] getTodayAppointments doctorId=${doctorId} formatted=${formatted}`);
 
         const filter: any = {
@@ -89,7 +87,7 @@ export class AppointmentService {
                 {
                     $expr: {
                         $eq: [
-                            { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+                            { $dateToString: { format: "%Y-%m-%d", date: "$date", timezone: "UTC" } },
                             formatted
                                 ]
                             }
@@ -210,7 +208,7 @@ export class AppointmentService {
         note: dto.note ?? '',
         prescriptions: mappedPrescriptions,
         vitalSigns: [],
-        dateRecord: new Date(),
+        dateRecord: DateTimeHelper.nowUtc(),
     });
 
     console.log('[AppointmentService] Medical encounter saved:', JSON.stringify(encounter.toObject(), null, 2));
@@ -402,7 +400,11 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
         }
 
         // ⏰ Time-based reschedule restriction: Cannot reschedule if <= 24 hours before appointment
-        const appointmentTime = new Date(appointment.date).getTime();
+        const appointmentDate = DateTimeHelper.toUtcDate(appointment.date);
+        if (!appointmentDate) {
+            throw new Error('Invalid appointment date');
+        }
+        const appointmentTime = appointmentDate.getTime();
         const currentTime = Date.now();
         const hoursUntilAppointment = (appointmentTime - currentTime) / (1000 * 60 * 60);
 
@@ -425,7 +427,7 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
         }
 
         // Update appointment
-        appointment.date = newDate;
+        appointment.date = DateTimeHelper.toUtcDate(newDate) ?? newDate;
         appointment.timeSlot = new Types.ObjectId(newTimeSlotId);
         appointment.appointmentStatus = AppointmentStatus.RESCHEDULED;
         await appointment.save();
@@ -487,7 +489,11 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
         }
 
         // ⏰ Time-based cancellation restriction: Cannot cancel if <= 24 hours before appointment
-        const appointmentTime = new Date(appointment.date).getTime();
+        const appointmentDate = DateTimeHelper.toUtcDate(appointment.date);
+        if (!appointmentDate) {
+            throw new Error('Invalid appointment date');
+        }
+        const appointmentTime = appointmentDate.getTime();
         const currentTime = Date.now();
         const hoursUntilAppointment = (appointmentTime - currentTime) / (1000 * 60 * 60);
 

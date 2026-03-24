@@ -161,6 +161,11 @@ npm run test:e2e
 - Do NOT pass raw JWT payload deeper into the system
 - Always use a consistent user shape across layers
 
+## Datetime Rules
+
+- When a request reaches the server, always treat incoming datetime values as UTC.
+- When responding to clients or storing datetime to the database, use UTC.
+
 Notes:
 - Some folders and filenames are in kebab-case, including Vietnamese names (e.g., `chuyen-khoa`, `tiep-tan`).
 - There is mixed usage of single and double quotes in the codebase; lint/format settings indicate the preferred style is single quotes.
