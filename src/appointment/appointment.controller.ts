@@ -1,16 +1,19 @@
 import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { Types } from "mongoose";
-import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { JwtAuthGuard } from "src/common/guards/jws-auth.guard";
 import { AuthUser } from "src/common/interfaces/auth-user";
 import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
+import { AppointmentBookingService } from "./appointment-booking.service";
 import { AppointmentService } from "./appointment.service";
 import { AppointmentBookingDto, AppointmentBookingRequestDto, CompleteAppointmentDto, RescheduleAppointmentDto } from "./dto/appointment-booking.dto";
 
 @Controller('appointment')
 export class AppointmentController {
-    constructor(private readonly appointmentService: AppointmentService) {}
+    constructor(
+        private readonly appointmentService: AppointmentService,
+        private readonly appointmentBookingService: AppointmentBookingService,
+    ) {}
 
     @Get('completed/doctor')
     @UseGuards(JwtAuthGuard)
@@ -72,15 +75,17 @@ export class AppointmentController {
     async bookAppointment(@Req() req: any, @Body() bookingAppointment: AppointmentBookingRequestDto) {
         const user = req.user as AuthUser;
         if (!user?.email || !user?.accountId) {
+            console.warn('User information missing in token:', user);
             throw new UnauthorizedException('Unable to identify user from token');
         }
+        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
         const payload: AppointmentBookingDto = {
             ...bookingAppointment,
             patientEmail: user.email,
             patientId: user.accountId,
         };
         console.log('Received appointment booking:', payload);
-        return await this.appointmentService.bookAppointment(payload);
+        return await this.appointmentBookingService.bookAppointment(payload, clientIp as string);
     }
 
     @Get('/today')
@@ -95,7 +100,7 @@ export class AppointmentController {
             const res = await this.appointmentService.getTodayAppointments(user);
             console.log('[AppointmentController] Response data:', JSON.stringify(res?.data ?? res));
             return res;
-        } catch (error) {
+        } catch (error: any) {
             console.error('[AppointmentController] Error in getTodayAppointments:', error?.message ?? error);
             throw error;
         }

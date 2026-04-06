@@ -8,6 +8,7 @@ import { DoctorModule } from 'src/doctor/doctor.module';
 import { MedicineModule } from 'src/medicine/medicine.module';
 import { NewsModule } from 'src/news/news.module';
 import { PatientModule } from 'src/patient/patient.module';
+import { DoctorPostModule } from 'src/post/post.module';
 import { PrescriptionModule } from 'src/prescription/prescription.module';
 import { ProfileModule } from 'src/profile/profile.module';
 import { ReviewModule } from 'src/review/review.module';
@@ -22,13 +23,12 @@ import { CloudinaryModule } from './cloudinary/cloudinary.module';
 import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import { MailModule } from './mail/mail.module';
 import { NotificationModule } from './notification/notification.module';
-import { OrchestrationModule } from './orchestration/orchestration.module';
 import { PaymentModule } from './payment/payment.module';
 import { SocketModule } from './socket/socket.module';
 import { TimeSlotModule } from './timeslot/timeslot.module';
 import { UserContextModule } from './user-context/user-context.module';
 import { OtpModule } from './utils/otp/otp.module';
-import { DoctorPostModule } from 'src/post/post.module';
+import { OrchestrationModule } from './orchestration/orchestration.module';
 @Module({
   imports: [
     ConfigModule.forRoot({

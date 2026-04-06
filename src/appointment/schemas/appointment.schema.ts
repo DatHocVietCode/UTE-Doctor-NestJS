@@ -47,3 +47,12 @@ export class Appointment {
 }
 
 export const AppointmentSchema = SchemaFactory.createForClass(Appointment);
+AppointmentSchema.index(
+    { doctorId: 1, timeSlot: 1 },
+    {
+        unique: true,
+        partialFilterExpression: {
+            appointmentStatus: { $in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED] },
+        },
+    },
+);
