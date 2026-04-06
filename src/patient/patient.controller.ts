@@ -68,6 +68,8 @@ export class PatientController {
       data: patient,
     };
   }
+
+  @UseGuards(JwtAuthGuard)
   @Get('/profile/:id')
   async getPatientById(@Param('id') id: string) {
     if (!Types.ObjectId.isValid(id)) {
