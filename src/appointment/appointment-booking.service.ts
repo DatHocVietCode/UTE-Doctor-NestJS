@@ -51,7 +51,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
 
     const bookingId = new Types.ObjectId();
     const doctorId = bookingAppointment.doctor?.id as string;
-    const slotKey = this.getSlotKey(doctorId, bookingAppointment.timeSlotId);
+    const slotKey = this.getSlotKey(doctorId, booki ngAppointment.timeSlotId);
     const lockValue = bookingId.toString();
 
     const lockAcquired = await this.redisService.acquireSlotLock(slotKey, lockValue, 300);

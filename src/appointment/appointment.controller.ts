@@ -82,7 +82,7 @@ export class AppointmentController {
         const payload: AppointmentBookingDto = {
             ...bookingAppointment,
             patientEmail: user.email,
-            patientId: user.accountId,
+            patientId: user.patientId!,
         };
         console.log('Received appointment booking:', payload);
         return await this.appointmentBookingService.bookAppointment(payload, clientIp as string);
