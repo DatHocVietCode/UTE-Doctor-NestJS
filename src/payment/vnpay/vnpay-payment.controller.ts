@@ -4,7 +4,7 @@ import express from 'express';
 import { AppointmentBookingService } from 'src/appointment/appointment-booking.service';
 import { PaymentService } from '../payment.service';
 
-@Controller('payment')
+@Controller()
 export class VnPayPaymentController {
   constructor(
     private readonly paymentService: PaymentService,
@@ -12,7 +12,7 @@ export class VnPayPaymentController {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  @Get('create_payment_url')
+  @Get('payment/create_payment_url')
   createPayment(@Query('orderId') orderId: string, @Query('amount') amount: number, @Req() req: express.Request) {
     const ipAddr = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     console.log('Client IP Address:', ipAddr);
@@ -20,7 +20,7 @@ export class VnPayPaymentController {
     return { paymentUrl: url };
   }
 
-  @Get('vnpay_return')
+  @Get('payment/vnpay_return')
   async vnpayReturn(@Query() query: Record<string, any>, @Res() res: express.Response) {
     const result = this.paymentService.handleVnpayReturn(query);
     console.log('[VNPay] verification result:', result);
@@ -54,8 +54,13 @@ export class VnPayPaymentController {
     return res.redirect(`${frontendUrl}/payment-result?${redirectParams.toString()}`);
   }
 
-  @Get(':orderId')
+  @Get('payment/:orderId')
   async getPaymentStatus(@Param('orderId') orderId: string) {
+    return this.appointmentBookingService.getPaymentStatus(orderId);
+  }
+
+  @Get('payments/:orderId')
+  async getPaymentStatusV2(@Param('orderId') orderId: string) {
     return this.appointmentBookingService.getPaymentStatus(orderId);
   }
 }
