@@ -42,6 +42,7 @@ export class RedisService implements OnModuleDestroy {
       const currentValue = await this.client.get(lockKey);
       if (currentValue === lockValue) {
         await this.client.del(lockKey);
+        console.log(`Lock released for ${lockKey}`);
       }
     } catch (error) {
       this.logger.warn(`Redis lock release failed for ${lockKey}: ${(error as Error).message}`);

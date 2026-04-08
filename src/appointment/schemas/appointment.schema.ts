@@ -60,7 +60,7 @@ export class Appointment {
 
 export const AppointmentSchema = SchemaFactory.createForClass(Appointment);
 AppointmentSchema.index(
-    { doctorId: 1, timeSlot: 1 },
+    { doctorId: 1, date: 1, timeSlot: 1 },
     {
         unique: true,
         partialFilterExpression: {

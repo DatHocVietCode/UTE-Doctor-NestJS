@@ -8,18 +8,31 @@ import { MailService } from "./mail.service";
 export class MailListener {
     constructor(private readonly mailService: MailService) {}
 
+    private logMailError(eventName: string, error: unknown) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[MailListener] ${eventName} failed: ${errorMsg}`);
+    }
+
     @OnEvent('mail.patient.booking.success')
-    handlePatientBookingMail(payload: AppointmentEnriched) {
-       this.mailService.sendPatientBookingSuccessMail(payload);
+    async handlePatientBookingMail(payload: AppointmentEnriched) {
+       try {
+           await this.mailService.sendPatientBookingSuccessMail(payload);
+       } catch (error) {
+           this.logMailError('mail.patient.booking.success', error);
+       }
     }
 
     @OnEvent('mail.doctor.booking.success')
-    handleDoctorBookingMail(payload: AppointmentEnriched) {
-        this.mailService.sendDoctorBookingSuccessMail(payload);
+    async handleDoctorBookingMail(payload: AppointmentEnriched) {
+        try {
+            await this.mailService.sendDoctorBookingSuccessMail(payload);
+        } catch (error) {
+            this.logMailError('mail.doctor.booking.success', error);
+        }
     }
 
     @OnEvent('mail.patient.shift.cancelled')
-    handlePatientShiftCancelled(payload: {
+    async handlePatientShiftCancelled(payload: {
         patientEmail: string;
         doctorName?: string;
         date: string;
@@ -27,11 +40,15 @@ export class MailListener {
         hospitalName?: string;
         reason?: string;
     }) {
-        this.mailService.sendPatientShiftCancellationMail(payload);
+        try {
+            await this.mailService.sendPatientShiftCancellationMail(payload);
+        } catch (error) {
+            this.logMailError('mail.patient.shift.cancelled', error);
+        }
     }
 
     @OnEvent('mail.doctor.shift.cancelled')
-    handleDoctorShiftCancelled(payload: {
+    async handleDoctorShiftCancelled(payload: {
         doctorEmail: string;
         doctorName?: string;
         date: string;
@@ -39,11 +56,15 @@ export class MailListener {
         reason?: string;
         affectedAppointmentsCount: number;
     }) {
-        this.mailService.sendDoctorShiftCancellationMail(payload);
+        try {
+            await this.mailService.sendDoctorShiftCancellationMail(payload);
+        } catch (error) {
+            this.logMailError('mail.doctor.shift.cancelled', error);
+        }
     }
 
     @OnEvent('mail.patient.appointment.cancelled')
-    handlePatientAppointmentCancelled(payload: {
+    async handlePatientAppointmentCancelled(payload: {
         patientEmail: string;
         doctorName?: string;
         date: string;
@@ -53,6 +74,10 @@ export class MailListener {
         refundAmount?: number;
         shouldRefund?: boolean;
     }) {
-        this.mailService.sendPatientAppointmentCancellationMail(payload);
+        try {
+            await this.mailService.sendPatientAppointmentCancellationMail(payload);
+        } catch (error) {
+            this.logMailError('mail.patient.appointment.cancelled', error);
+        }
     }
 }

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode } from 'src/common/enum/reponse-code.enum';
 import { RedisService } from 'src/common/redis/redis.service';
@@ -10,6 +10,7 @@ import { Patient, PatientDocument } from 'src/patient/schema/patient.schema';
 import { PaymentMethodEnum } from 'src/payment/enums/payment-method.enum';
 import { PaymentStatusEnum } from 'src/payment/enums/payment-status.enum';
 import { PaymentService } from 'src/payment/payment.service';
+import { Payment } from 'src/payment/schemas/payment.schema';
 import { TimeSlotLog, TimeSlotLogDocument } from 'src/timeslot/schemas/timeslot-log.schema';
 import { DateTimeHelper } from 'src/utils/helpers/datetime.helper';
 import { WalletService } from 'src/wallet/wallet.service';
@@ -32,6 +33,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     @InjectModel(TimeSlotLog.name) private readonly timeSlotLogModel: Model<TimeSlotLogDocument>,
     @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
     @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
+    @InjectModel(Payment.name) private readonly paymentModel: Model<Payment>,
   ) {}
 
   onModuleInit() {
@@ -53,42 +55,13 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     const doctorId = bookingAppointment.doctor?.id as string;
     const slotKey = this.getSlotKey(doctorId, bookingAppointment.timeSlotId);
     const lockValue = bookingId.toString();
+    const normalizedDate = DateTimeHelper.toUtcDate(bookingAppointment.date) ?? bookingAppointment.date;
 
-    const lockAcquired = await this.redisService.acquireSlotLock(slotKey, lockValue, 300);
-    
-    if (!lockAcquired) {
-      return {
-        code: ResponseCode.ERROR,
-        message: 'Slot already booked',
-        data: null,
-      };
-    }
-
-    const normalizedDate = DateTimeHelper.toUtcDate(bookingAppointment.date);
-    const appointmentDoc = new this.appointmentModel({
-      _id: bookingId,
-      date: normalizedDate ?? bookingAppointment.date,
-      appointmentStatus: AppointmentStatus.PENDING,
-      serviceType: bookingAppointment.serviceType,
-      consultationFee: bookingAppointment.amount ?? undefined,
-      paymentAmount: bookingAppointment.amount ?? undefined,
-      timeSlot: new Types.ObjectId(bookingAppointment.timeSlotId),
-      patientId: new Types.ObjectId(bookingAppointment.patientId),
-      doctorId: new Types.ObjectId(doctorId),
-      reasonForAppointment: bookingAppointment.reasonForAppointment,
-      specialtyId: bookingAppointment.specialty ? bookingAppointment.specialty : null,
-      paymentMethod: bookingAppointment.paymentMethod,
-      hospitalName: bookingAppointment.hospitalName,
-      patientEmail: bookingAppointment.patientEmail,
-    });
-
+    let lockAcquired = false;
     try {
-      await appointmentDoc.save();
-      await this.markTimeSlotBooked(bookingAppointment.timeSlotId);
-    } catch (error: any) {
-      await this.redisService.releaseSlotLock(slotKey, lockValue);
+      lockAcquired = await this.redisService.acquireSlotLock(slotKey, lockValue, 300);
 
-      if (error?.code === 11000) {
+      if (!lockAcquired) {
         return {
           code: ResponseCode.ERROR,
           message: 'Slot already booked',
@@ -96,51 +69,31 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         };
       }
 
-      throw error;
-    }
-
-    try {
-      if (bookingAppointment.paymentMethod === PaymentMethodEnum.ONLINE) {
-        const paymentUrl = this.paymentService.createPaymentUrl(
-          appointmentDoc._id.toString(),
-          bookingAppointment.amount ?? 0,
-          clientIp,
-        );
-
-        const pendingPayload = await this.buildBookingPayload(appointmentDoc);
-        pendingPayload.paymentStatus = PaymentStatusEnum.PENDING;
-        this.eventEmitter.emit('appointment.booking.pending', pendingPayload);
-
+      const slotAvailable = await this.checkSlotAvailability(doctorId, bookingAppointment.timeSlotId, normalizedDate);
+      if (!slotAvailable) {
+        await this.safeReleaseSlotLock(slotKey, lockValue);
         return {
-          code: ResponseCode.PENDING,
-          message: 'Appointment created. Complete payment to confirm booking.',
-          data: {
-            appointmentId: appointmentDoc._id.toString(),
-            paymentUrl,
-          },
+          code: ResponseCode.ERROR,
+          message: 'Slot already booked',
+          data: null,
         };
       }
 
+      const appointmentDoc = await this.createAppointmentWithTransaction({
+        bookingId,
+        bookingAppointment,
+        doctorId,
+        normalizedDate,
+        lockValue,
+        slotKey,
+      });
+
+      if (bookingAppointment.paymentMethod === PaymentMethodEnum.ONLINE) {
+        return await this.handleOnlinePayment(appointmentDoc, bookingAppointment, clientIp, lockValue, slotKey);
+      }
+
       if (bookingAppointment.paymentMethod === PaymentMethodEnum.COIN) {
-        const coinsToUse = bookingAppointment.coinsToUse ?? bookingAppointment.amount ?? 0;
-        const paymentResult = await this.walletService.deductCoins(
-          bookingAppointment.patientId,
-          coinsToUse,
-          'appointment_booking',
-          appointmentDoc._id.toString(),
-          `Thanh toán khám chữa bệnh bằng ${coinsToUse} coin`,
-        );
-
-        if (paymentResult.code !== ResponseCode.SUCCESS) {
-          return await this.failBooking(
-            appointmentDoc._id.toString(),
-            paymentResult.message || 'Coin payment failed',
-            lockValue,
-            slotKey,
-          );
-        }
-
-        return await this.confirmBooking(appointmentDoc._id.toString(), lockValue, slotKey, paymentResult.message);
+        return await this.handleCoinPayment(appointmentDoc, bookingAppointment, lockValue, slotKey);
       }
 
       return await this.failBooking(
@@ -150,12 +103,208 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         slotKey,
       );
     } catch (error: any) {
+      if (lockAcquired) {
+        await this.safeReleaseSlotLock(slotKey, lockValue);
+      }
+
+      if (error?.code === 11000) {
+        return {
+          code: ResponseCode.ERROR,
+          message: 'Slot already booked',
+          data: null,
+        };
+      }
+
+      this.logger.error(`bookAppointment failed: ${error?.message || String(error)}`);
+      return {
+        code: ResponseCode.ERROR,
+        message: error?.message || 'Booking failed',
+        data: null,
+      };
+    }
+  }
+
+  private async checkSlotAvailability(doctorId: string, timeSlotId: string, date: Date | string): Promise<boolean> {
+    const existingAppointment = await this.appointmentModel.findOne({
+      doctorId: new Types.ObjectId(doctorId),
+      date,
+      timeSlot: new Types.ObjectId(timeSlotId),
+      appointmentStatus: { $in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED] },
+    }).select('_id').lean();
+
+    return !existingAppointment;
+  }
+
+  private async createAppointmentWithTransaction(input: {
+    bookingId: Types.ObjectId;
+    bookingAppointment: AppointmentBookingDto;
+    doctorId: string;
+    normalizedDate: Date | string;
+    lockValue: string;
+    slotKey: string;
+  }): Promise<AppointmentDocument> {
+    const session = await this.appointmentModel.db.startSession();
+
+    try {
+      let savedAppointment: AppointmentDocument | null = null;
+
+      await session.withTransaction(async () => {
+        const slotAvailable = await this.checkSlotAvailability(
+          input.doctorId,
+          input.bookingAppointment.timeSlotId,
+          input.normalizedDate,
+        );
+
+        if (!slotAvailable) {
+          throw this.buildSlotBookedError();
+        }
+
+        const docs = await this.appointmentModel.create([
+          {
+            _id: input.bookingId,
+            date: input.normalizedDate,
+            appointmentStatus: AppointmentStatus.PENDING,
+            serviceType: input.bookingAppointment.serviceType,
+            consultationFee: input.bookingAppointment.amount ?? undefined,
+            paymentAmount: input.bookingAppointment.amount ?? undefined,
+            timeSlot: new Types.ObjectId(input.bookingAppointment.timeSlotId),
+            patientId: new Types.ObjectId(input.bookingAppointment.patientId),
+            doctorId: new Types.ObjectId(input.doctorId),
+            reasonForAppointment: input.bookingAppointment.reasonForAppointment,
+            specialtyId: input.bookingAppointment.specialty ? input.bookingAppointment.specialty : null,
+            paymentMethod: input.bookingAppointment.paymentMethod,
+            hospitalName: input.bookingAppointment.hospitalName,
+            patientEmail: input.bookingAppointment.patientEmail,
+          },
+        ], { session });
+
+        await this.markTimeSlotBooked(input.bookingAppointment.timeSlotId, session);
+        savedAppointment = docs[0] as AppointmentDocument;
+      });
+
+      if (!savedAppointment) {
+        throw new Error('Failed to create appointment');
+      }
+
+      return savedAppointment;
+    } catch (error: any) {
+      await this.safeReleaseSlotLock(input.slotKey, input.lockValue);
+
+      if (error?.code === 11000 || error?.message === 'SLOT_ALREADY_BOOKED') {
+        const duplicateError = new Error('Slot already booked') as Error & { code?: number };
+        duplicateError.code = 11000;
+        throw duplicateError;
+      }
+
+      throw error;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  private async handleOnlinePayment(
+    appointmentDoc: AppointmentDocument,
+    bookingAppointment: AppointmentBookingDto,
+    clientIp: string,
+    lockValue: string,
+    slotKey: string,
+  ): Promise<DataResponse> {
+    const appointmentId = appointmentDoc._id.toString();
+    const amount = bookingAppointment.amount ?? 0;
+
+    try {
+      const existingPayment = await this.paymentModel.findOne({
+        appointmentId: appointmentDoc._id,
+      }).select('_id').lean();
+
+      if (existingPayment) {
+        return {
+          code: ResponseCode.ERROR,
+          message: 'Payment already initiated for this appointment',
+          data: {
+            appointmentId,
+          },
+        };
+      }
+
+      await this.paymentModel.create({
+        amount,
+        method: PaymentMethodEnum.ONLINE,
+        appointmentId: appointmentDoc._id,
+        status: PaymentStatusEnum.PENDING,
+      });
+
+      const paymentUrl = this.paymentService.createPaymentUrl(appointmentId, amount, clientIp);
+
+      const pendingPayload = await this.buildBookingPayload(appointmentDoc);
+      pendingPayload.paymentStatus = PaymentStatusEnum.PENDING;
+      this.eventEmitter.emit('appointment.booking.pending', pendingPayload);
+
+      return {
+        code: ResponseCode.PENDING,
+        message: 'Appointment created. Complete payment to confirm booking.',
+        data: {
+          appointmentId,
+          paymentUrl,
+        },
+      };
+    } catch (error: any) {
+      if (error?.code === 11000) {
+        return {
+          code: ResponseCode.ERROR,
+          message: 'Payment already initiated for this appointment',
+          data: {
+            appointmentId,
+          },
+        };
+      }
+
       return await this.failBooking(
-        appointmentDoc._id.toString(),
+        appointmentId,
         error?.message || 'Booking failed',
         lockValue,
         slotKey,
       );
+    }
+  }
+
+  private async handleCoinPayment(
+    appointmentDoc: AppointmentDocument,
+    bookingAppointment: AppointmentBookingDto,
+    lockValue: string,
+    slotKey: string,
+  ): Promise<DataResponse> {
+    const coinsToUse = bookingAppointment.coinsToUse ?? bookingAppointment.amount ?? 0;
+    const paymentResult = await this.walletService.deductCoins(
+      bookingAppointment.patientId,
+      coinsToUse,
+      'appointment_booking',
+      appointmentDoc._id.toString(),
+      `Thanh toán khám chữa bệnh bằng ${coinsToUse} coin`,
+    );
+
+    if (paymentResult.code !== ResponseCode.SUCCESS) {
+      return await this.failBooking(
+        appointmentDoc._id.toString(),
+        paymentResult.message || 'Coin payment failed',
+        lockValue,
+        slotKey,
+      );
+    }
+
+    return await this.confirmBooking(appointmentDoc._id.toString(), lockValue, slotKey, paymentResult.message);
+  }
+
+  private buildSlotBookedError() {
+    return new Error('SLOT_ALREADY_BOOKED');
+  }
+
+  private async safeReleaseSlotLock(slotKey: string, lockValue: string) {
+    try {
+      await this.redisService.releaseSlotLock(slotKey, lockValue);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Failed to release Redis lock ${slotKey}: ${errorMsg}`);
     }
   }
 
@@ -397,10 +546,11 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     };
   }
 
-  private async markTimeSlotBooked(timeSlotId: string) {
+  private async markTimeSlotBooked(timeSlotId: string, session?: ClientSession) {
     await this.timeSlotLogModel.updateOne(
       { _id: new Types.ObjectId(timeSlotId) },
       { $set: { status: 'booked' } },
+      { session },
     ).exec();
   }
 

@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { VnPayPaymentService } from './vnpay/vnpay-payment.service';
-import { VnpayReturnResult } from './vnpay/vnpay-payment.service';
+import { VnPayPaymentService, VnpayReturnResult } from './vnpay/vnpay-payment.service';
 
 
 @Injectable()
