@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { VnPayPaymentService } from './vnpay/vnpay-payment.service';
+import { VnpayReturnResult } from './vnpay/vnpay-payment.service';
 
 
 @Injectable()
@@ -10,7 +11,7 @@ export class PaymentService {
 		return this.vnPayPaymentService.createPayment(orderId, amount, ip);
 	}
 
-	handleVnpayReturn(query: any) {
+	handleVnpayReturn(query: Record<string, any>): VnpayReturnResult {
 		return this.vnPayPaymentService.handleVnpayReturn(query);
 	}
 

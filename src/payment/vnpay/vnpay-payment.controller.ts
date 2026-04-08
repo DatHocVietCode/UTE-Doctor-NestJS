@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Req } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, Res } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import express from 'express';
 import { AppointmentBookingService } from 'src/appointment/appointment-booking.service';
 import { PaymentService } from '../payment.service';
@@ -8,6 +9,7 @@ export class VnPayPaymentController {
   constructor(
     private readonly paymentService: PaymentService,
     private readonly appointmentBookingService: AppointmentBookingService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   @Get('create_payment_url')
@@ -19,17 +21,41 @@ export class VnPayPaymentController {
   }
 
   @Get('vnpay_return')
-  async vnpayReturn(@Query() query: any) {
+  async vnpayReturn(@Query() query: Record<string, any>, @Res() res: express.Response) {
     const result = this.paymentService.handleVnpayReturn(query);
+    console.log('[VNPay] verification result:', result);
 
-    if (!result.orderId) {
-      return result;
+    if (result.orderId) {
+      const updateResult = await this.appointmentBookingService.handleVnpayCallbackResult({
+        orderId: result.orderId,
+        success: result.status === 'COMPLETED',
+        reason: result.reason,
+        amount: result.amount,
+        paidAt: result.paidAt,
+        responseCode: result.responseCode,
+        transactionStatus: result.transactionStatus,
+      });
+
+      console.log('[VNPay] appointment update result:', updateResult);
+
+      this.eventEmitter.emit('payment.update', {
+        orderId: result.orderId,
+        status: result.status,
+      });
     }
 
-    if (result.success) {
-      return this.appointmentBookingService.handleVnpayReturn(result.orderId, true, result.message);
-    }
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const redirectParams = new URLSearchParams({
+      orderId: result.orderId || '',
+      status: result.status,
+      code: result.responseCode || '',
+    });
 
-    return this.appointmentBookingService.handleVnpayReturn(result.orderId, false, result.reason || result.message);
+    return res.redirect(`${frontendUrl}/payment-result?${redirectParams.toString()}`);
+  }
+
+  @Get(':orderId')
+  async getPaymentStatus(@Param('orderId') orderId: string) {
+    return this.appointmentBookingService.getPaymentStatus(orderId);
   }
 }

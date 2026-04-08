@@ -51,7 +51,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
 
     const bookingId = new Types.ObjectId();
     const doctorId = bookingAppointment.doctor?.id as string;
-    const slotKey = this.getSlotKey(doctorId, booki ngAppointment.timeSlotId);
+    const slotKey = this.getSlotKey(doctorId, bookingAppointment.timeSlotId);
     const lockValue = bookingId.toString();
 
     const lockAcquired = await this.redisService.acquireSlotLock(slotKey, lockValue, 300);
@@ -71,6 +71,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       appointmentStatus: AppointmentStatus.PENDING,
       serviceType: bookingAppointment.serviceType,
       consultationFee: bookingAppointment.amount ?? undefined,
+      paymentAmount: bookingAppointment.amount ?? undefined,
       timeSlot: new Types.ObjectId(bookingAppointment.timeSlotId),
       patientId: new Types.ObjectId(bookingAppointment.patientId),
       doctorId: new Types.ObjectId(doctorId),
@@ -166,10 +167,75 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     return this.failBooking(orderId, reason || 'Payment failed', undefined, undefined);
   }
 
-  private async confirmBooking(orderId: string, lockValue?: string, slotKey?: string, note?: string): Promise<DataResponse> {
+  async getPaymentStatus(orderId: string): Promise<{
+    orderId: string;
+    status: PaymentStatusEnum;
+    amount: number;
+    paidAt: string | null;
+  }> {
+    const appointment = await this.appointmentModel.findById(orderId).lean();
+
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    return {
+      orderId: appointment._id.toString(),
+      status: this.mapAppointmentStatusToPaymentStatus(appointment.appointmentStatus),
+      amount: appointment.paymentAmount ?? appointment.consultationFee ?? 0,
+      paidAt: appointment.paidAt ? new Date(appointment.paidAt).toISOString() : null,
+    };
+  }
+
+  async handleVnpayCallbackResult(input: {
+    orderId: string;
+    success: boolean;
+    reason?: string;
+    amount?: number;
+    paidAt?: Date | null;
+    responseCode?: string;
+    transactionStatus?: string;
+  }): Promise<DataResponse> {
+    if (input.success) {
+      return this.confirmBooking(input.orderId, undefined, undefined, input.reason, {
+        amount: input.amount,
+        paidAt: input.paidAt,
+        responseCode: input.responseCode,
+        transactionStatus: input.transactionStatus,
+      });
+    }
+
+    return this.failBooking(input.orderId, input.reason || 'Payment failed', undefined, undefined, {
+      amount: input.amount,
+      paidAt: input.paidAt,
+      responseCode: input.responseCode,
+      transactionStatus: input.transactionStatus,
+    });
+  }
+
+  private async confirmBooking(
+    orderId: string,
+    lockValue?: string,
+    slotKey?: string,
+    note?: string,
+    paymentMeta?: { amount?: number; paidAt?: Date | null; responseCode?: string; transactionStatus?: string },
+  ): Promise<DataResponse> {
     const appointment = await this.appointmentModel.findById(orderId);
     if (!appointment) {
       throw new NotFoundException('Appointment not found');
+    }
+
+    if (
+      appointment.appointmentStatus === AppointmentStatus.CONFIRMED ||
+      appointment.appointmentStatus === AppointmentStatus.COMPLETED
+    ) {
+      return {
+        code: ResponseCode.SUCCESS,
+        message: `Appointment already finalized as ${appointment.appointmentStatus}`,
+        data: {
+          appointmentId: appointment._id.toString(),
+        },
+      };
     }
 
     if (appointment.appointmentStatus !== AppointmentStatus.PENDING) {
@@ -181,6 +247,18 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     }
 
     appointment.appointmentStatus = AppointmentStatus.CONFIRMED;
+    if (typeof paymentMeta?.amount === 'number') {
+      appointment.paymentAmount = paymentMeta.amount;
+    }
+    if (paymentMeta?.paidAt) {
+      appointment.paidAt = paymentMeta.paidAt;
+    }
+    if (paymentMeta?.responseCode) {
+      appointment.paymentResponseCode = paymentMeta.responseCode;
+    }
+    if (paymentMeta?.transactionStatus) {
+      appointment.paymentTransactionStatus = paymentMeta.transactionStatus;
+    }
     await appointment.save();
 
     await this.releaseBookingLock(appointment, lockValue ?? appointment._id.toString());
@@ -198,7 +276,13 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     };
   }
 
-  private async failBooking(orderId: string, reason: string, lockValue?: string, slotKey?: string): Promise<DataResponse> {
+  private async failBooking(
+    orderId: string,
+    reason: string,
+    lockValue?: string,
+    slotKey?: string,
+    paymentMeta?: { amount?: number; paidAt?: Date | null; responseCode?: string; transactionStatus?: string },
+  ): Promise<DataResponse> {
     const appointment = await this.appointmentModel.findById(orderId);
 
     if (!appointment) {
@@ -227,7 +311,32 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       };
     }
 
+    if (
+      appointment.appointmentStatus === AppointmentStatus.CONFIRMED ||
+      appointment.appointmentStatus === AppointmentStatus.COMPLETED
+    ) {
+      return {
+        code: ResponseCode.SUCCESS,
+        message: `Appointment already finalized as ${appointment.appointmentStatus}`,
+        data: {
+          appointmentId: appointment._id.toString(),
+        },
+      };
+    }
+
     appointment.appointmentStatus = AppointmentStatus.FAILED;
+    if (typeof paymentMeta?.amount === 'number') {
+      appointment.paymentAmount = paymentMeta.amount;
+    }
+    if (paymentMeta?.paidAt) {
+      appointment.paidAt = paymentMeta.paidAt;
+    }
+    if (paymentMeta?.responseCode) {
+      appointment.paymentResponseCode = paymentMeta.responseCode;
+    }
+    if (paymentMeta?.transactionStatus) {
+      appointment.paymentTransactionStatus = paymentMeta.transactionStatus;
+    }
     await appointment.save();
 
     await this.releaseBookingLockAndReleaseSlot(appointment, lockValue ?? appointment._id.toString());
@@ -356,5 +465,17 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     if (!dto.patientEmail || !dto.patientId) {
       throw new BadRequestException('Patient context is required');
     }
+  }
+
+  private mapAppointmentStatusToPaymentStatus(status: AppointmentStatus): PaymentStatusEnum {
+    if (status === AppointmentStatus.CONFIRMED || status === AppointmentStatus.COMPLETED) {
+      return PaymentStatusEnum.COMPLETED;
+    }
+
+    if (status === AppointmentStatus.FAILED || status === AppointmentStatus.CANCELLED) {
+      return PaymentStatusEnum.FAILED;
+    }
+
+    return PaymentStatusEnum.PENDING;
   }
 }

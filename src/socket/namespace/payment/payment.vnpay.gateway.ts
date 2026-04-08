@@ -25,4 +25,10 @@ export class VnPayGateway extends BaseGateway {
         );
         console.log(`[Socket][Payment][VnPay] Sent payment URL to ${payload.email}`);
     }
+
+    @OnEvent('payment.update')
+    async handlePaymentUpdate(payload: { orderId: string; status: 'COMPLETED' | 'FAILED' }) {
+        this.emitToAll(SocketEventsEnum.PAYMENT_UPDATE, payload);
+        console.log(`[Socket][Payment] Broadcast payment:update for order ${payload.orderId} status ${payload.status}`);
+    }
 }

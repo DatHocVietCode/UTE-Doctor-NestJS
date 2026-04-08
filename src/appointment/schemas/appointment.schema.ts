@@ -7,43 +7,55 @@ import { ServiceType } from "../enums/service-type.enum";
 export type AppointmentDocument = HydratedDocument<Appointment>;
 @Schema({ timestamps: true })
 export class Appointment {
-    _id: mongoose.Types.ObjectId;
+    _id!: mongoose.Types.ObjectId;
 
     @Prop()
-    date: Date;
+    date!: Date;
 
     @Prop({ enum: AppointmentStatus, default: AppointmentStatus.PENDING })
-    appointmentStatus: AppointmentStatus;
+    appointmentStatus!: AppointmentStatus;
 
     @Prop({ enum: ServiceType })
-    serviceType: ServiceType;
+    serviceType!: ServiceType;
 
     @Prop()
-    consultationFee: number;
+    consultationFee!: number;
+
+    @Prop()
+    paymentAmount!: number;
+
+    @Prop()
+    paidAt!: Date;
+
+    @Prop()
+    paymentResponseCode!: string;
+
+    @Prop()
+    paymentTransactionStatus!: string;
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'TimeSlotLog', required: true })
-    timeSlot: mongoose.Types.ObjectId;
+    timeSlot!: mongoose.Types.ObjectId;
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true })
-    patientId: mongoose.Types.ObjectId; // This is account Id, not patient Id (To be fixed later)
+    patientId!: mongoose.Types.ObjectId; // This is account Id, not patient Id (To be fixed later)
 
     @Prop()
-    patientEmail: string;
+    patientEmail!: string;
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Doctor' })
-    doctorId: mongoose.Types.ObjectId;
+    doctorId!: mongoose.Types.ObjectId;
 
     @Prop()
-    reasonForAppointment: string;
+    reasonForAppointment!: string;
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'ChuyenKhoa' })
-    specialtyId: string;
+    specialtyId!: string;
 
     @Prop({ type: String, enum: PaymentMethodEnum })
-    paymentMethod:PaymentMethodEnum;
+    paymentMethod!: PaymentMethodEnum;
 
     @Prop()
-    hospitalName: string;
+    hospitalName!: string;
 }
 
 export const AppointmentSchema = SchemaFactory.createForClass(Appointment);
