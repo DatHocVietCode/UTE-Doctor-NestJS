@@ -702,81 +702,65 @@ export class ShiftService {
   
   async handleDoctorUpdateSchedule(payload: AppointmentEnriched): Promise<boolean> {
     try {
-      // const { doc, date, timeSlotId } = payload;
       const doctorId = payload.doctorId;
-      const date = payload.date;
       const timeSlotId = payload.timeSlot._id.toString();
-      const parsedDate = DateTimeHelper.toUtcDate(date);
-      if (!parsedDate) {
-        throw new Error('Invalid appointment date in doctor.update-schedule payload');
-      }
-      const dateOnly = TimeHelper.toUtcDateOnly(parsedDate);
-      const startEpoch = Date.UTC(
-        parsedDate.getUTCFullYear(),
-        parsedDate.getUTCMonth(),
-        parsedDate.getUTCDate(),
-        0,
-        0,
-        0,
-        0,
+      console.log(
+        '[ShiftService] Xử lý doctor.update-schedule:',
+        { doctorId, timeSlotId, bookingDate: payload.date },
       );
-      const endEpoch = startEpoch + 24 * 60 * 60 * 1000;
 
-      console.log("[ShiftService] Xử lý doctor.update-schedule cho doctorId:", doctorId, "ngày:", payload.date, "timeSlotId:", timeSlotId);
-
-      // 1️⃣ Tìm tất cả shift của bác sĩ trong ngày đó
-      const shifts = await this.shiftModel
-        .find({
+      // Ưu tiên định danh theo doctorId + timeSlotId để tránh phụ thuộc vào ngữ nghĩa payload.date.
+      let targetShift = await this.shiftModel
+        .findOne({
           doctorId,
-          $or: [
-            { startTimeEpoch: { $gte: startEpoch, $lt: endEpoch } },
-            { date: dateOnly },
-            { date: { $regex: `^${dateOnly}` } },
-          ],
+          timeSlots: payload.timeSlot._id,
         })
-        .populate("timeSlots")
+        .populate('timeSlots')
         .exec();
 
-      if (!shifts || shifts.length === 0) {
-        console.warn(`[ShiftService] Không tìm thấy shift nào cho bác sĩ ${doctorId} vào ngày ${dateOnly}`);
-        return false;
-      }
+      // Fallback cho dữ liệu legacy: thử lookup theo date nếu chưa tìm thấy bằng timeSlot.
+      if (!targetShift) {
+        const parsedDate = DateTimeHelper.toUtcDate(payload.date);
+        if (parsedDate) {
+          const dateOnly = TimeHelper.toUtcDateOnly(parsedDate);
+          const startEpoch = Date.UTC(
+            parsedDate.getUTCFullYear(),
+            parsedDate.getUTCMonth(),
+            parsedDate.getUTCDate(),
+            0,
+            0,
+            0,
+            0,
+          );
+          const endEpoch = startEpoch + 24 * 60 * 60 * 1000;
 
-      console.log(`[ShiftService] Tìm thấy ${shifts.length} shift cho bác sĩ ${doctorId} vào ngày ${dateOnly}`);
-
-      for (const shift of shifts) {
-        console.log(`[ShiftService] Shift ${shift._id} có ${shift.timeSlots?.length ?? 0} timeSlots`);
-
-        for (const slot of shift.timeSlots) {
-          console.log(`[ShiftService] - TimeSlot ${slot._id} `);
+          targetShift = await this.shiftModel
+            .findOne({
+              doctorId,
+              timeSlots: payload.timeSlot._id,
+              $or: [
+                { startTimeEpoch: { $gte: startEpoch, $lt: endEpoch } },
+                { date: dateOnly },
+                { date: { $regex: `^${dateOnly}` } },
+              ],
+            })
+            .populate('timeSlots')
+            .exec();
         }
       }
 
-      // 2️⃣ Duyệt toàn bộ shift để tìm timeslot trùng
-      let targetShift: any = null;
-      let targetSlot: any = null;
-
-      for (const shift of shifts) {
-        const foundSlot = shift.timeSlots.find(
-          (slot: any) => slot._id.toString() === timeSlotId
+      if (!targetShift) {
+        console.warn(
+          `[ShiftService] Không tìm thấy shift cho doctor=${doctorId}, timeSlot=${timeSlotId}`,
         );
-        if (foundSlot) {
-          targetShift = shift;
-          targetSlot = foundSlot;
-          break;
-        }
-      }
-
-      if (!targetSlot || !targetShift) {
-        console.warn(`[ShiftService] Không tìm thấy TimeSlot ${timeSlotId} trong bất kỳ shift nào của bác sĩ ${doctorId}`);
         return false;
       }
 
       console.log(`[ShiftService] Đã tìm thấy shift ${targetShift._id} chứa TimeSlot ${timeSlotId}`);
 
-      // 3️⃣ Update status của timeslot
+      // 1️⃣ Update status của timeslot
       const updatedSlot = await this.timeSlotLogModel.updateOne(
-        { _id: targetSlot._id },
+        { _id: payload.timeSlot._id },
         { $set: { status: TimeSlotStatusEnum.BOOKED } }
       );
 
@@ -787,7 +771,7 @@ export class ShiftService {
 
       console.log(`[ShiftService] TimeSlot ${timeSlotId} cập nhật sang BOOKED thành công.`);
 
-      // 4️⃣ Cập nhật shift sang HAS_CLIENT (nếu chưa có)
+      // 2️⃣ Cập nhật shift sang HAS_CLIENT (nếu chưa có)
       await this.shiftModel.updateOne(
         { _id: targetShift._id },
         { $set: { status: ShiftStatusEnum.HAS_CLIENT } }

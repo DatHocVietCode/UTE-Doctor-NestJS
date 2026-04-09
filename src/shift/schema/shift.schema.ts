@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import mongoose, { HydratedDocument } from "mongoose";
-import { Doctor } from "../../doctor/schema/doctor.schema";
 import { TimeSlotLog } from "src/timeslot/schemas/timeslot-log.schema";
+import { Doctor } from "../../doctor/schema/doctor.schema";
 import { ShiftStatusEnum } from "../enums/shift-status.enum";
 
 export type ShiftDocument = HydratedDocument<Shift>;

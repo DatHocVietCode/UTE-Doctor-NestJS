@@ -10,8 +10,8 @@ import {
   IsString,
   ValidateNested
 } from "class-validator";
-import { IsIsoWithTimezone } from "src/common/validators/is-iso-with-timezone.validator";
 import { ServiceType } from "src/appointment/enums/service-type.enum";
+import { IsIsoWithTimezone } from "src/common/validators/is-iso-with-timezone.validator";
 import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 
 
