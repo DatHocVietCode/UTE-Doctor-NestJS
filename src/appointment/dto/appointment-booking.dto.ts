@@ -10,6 +10,7 @@ import {
   IsString,
   ValidateNested
 } from "class-validator";
+import { IsIsoWithTimezone } from "src/common/validators/is-iso-with-timezone.validator";
 import { ServiceType } from "src/appointment/enums/service-type.enum";
 import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 
@@ -19,7 +20,8 @@ export class AppointmentBookingRequestDto {
   hospitalName: string;
 
   @IsString()
-  date: Date;
+  @IsIsoWithTimezone({ message: 'date must be ISO 8601 with timezone (Z or +/-HH:mm)' })
+  date: string;
 
   @IsOptional()
   @IsString()
@@ -118,7 +120,8 @@ export class RescheduleAppointmentDto {
 
   @IsNotEmpty()
   @IsString()
-  newDate: string; // ISO date string
+  @IsIsoWithTimezone({ message: 'newDate must be ISO 8601 with timezone (Z or +/-HH:mm)' })
+  newDate: string;
 
   @IsNotEmpty()
   @IsMongoId()

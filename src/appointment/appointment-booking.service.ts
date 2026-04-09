@@ -12,7 +12,7 @@ import { PaymentStatusEnum } from 'src/payment/enums/payment-status.enum';
 import { PaymentService } from 'src/payment/payment.service';
 import { Payment } from 'src/payment/schemas/payment.schema';
 import { TimeSlotLog, TimeSlotLogDocument } from 'src/timeslot/schemas/timeslot-log.schema';
-import { DateTimeHelper } from 'src/utils/helpers/datetime.helper';
+import { TimeHelper } from 'src/utils/helpers/time.helper';
 import { WalletService } from 'src/wallet/wallet.service';
 import { AppointmentBookingDto } from './dto/appointment-booking.dto';
 import { AppointmentStatus } from './enums/Appointment-status.enum';
@@ -55,7 +55,17 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     const doctorId = bookingAppointment.doctor?.id as string;
     const slotKey = this.getSlotKey(doctorId, bookingAppointment.timeSlotId);
     const lockValue = bookingId.toString();
-    const normalizedDate = DateTimeHelper.toUtcDate(bookingAppointment.date) ?? bookingAppointment.date;
+    let normalizedDate: Date;
+    try {
+      normalizedDate = TimeHelper.parseISOToUTC(bookingAppointment.date);
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'Invalid datetime input');
+    }
+    TimeHelper.debugLog('[TimeDebug]', {
+      input: bookingAppointment.date,
+      parsedUtc: normalizedDate.toISOString(),
+      epoch: TimeHelper.toEpoch(normalizedDate),
+    });
 
     let lockAcquired = false;
     try {
@@ -103,6 +113,10 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         slotKey,
       );
     } catch (error: any) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
       if (lockAcquired) {
         await this.safeReleaseSlotLock(slotKey, lockValue);
       }

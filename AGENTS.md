@@ -163,8 +163,13 @@ npm run test:e2e
 
 ## Datetime Rules
 
-- When a request reaches the server, always treat incoming datetime values as UTC.
-- When responding to clients or storing datetime to the database, use UTC.
+- NEVER accept datetime values without timezone information.
+- All incoming datetime values must be ISO 8601 with timezone (`Z` or `+/-HH:mm`).
+- ALWAYS convert datetime to UTC before business logic.
+- ALWAYS store datetime as epoch milliseconds in persistence models when possible.
+- NEVER mix local time strings in business logic.
+- For temporary backward compatibility only, legacy datetime without timezone may fallback to `Asia/Ho_Chi_Minh` and must log `[TimeWarning]`.
+- Register Shift MUST use `startTime` and `endTime` (ISO with timezone); NEVER use `YYYY-MM-DD` date-only payload for scheduling APIs.
 
 Notes:
 - Some folders and filenames are in kebab-case, including Vietnamese names (e.g., `chuyen-khoa`, `tiep-tan`).

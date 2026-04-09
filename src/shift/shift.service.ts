@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
@@ -11,8 +11,9 @@ import { TimeSlotDto } from "src/timeslot/dtos/timeslot.dto";
 import { TimeSlotStatusEnum } from "src/timeslot/enums/timeslot-status.enum";
 import { TimeSlotData } from "src/timeslot/schemas/timeslot-data.schema";
 import { TimeSlotLog } from "src/timeslot/schemas/timeslot-log.schema";
-import { emitTyped } from "src/utils/helpers/event.helper";
 import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
+import { emitTyped } from "src/utils/helpers/event.helper";
+import { TimeHelper } from "src/utils/helpers/time.helper";
 import { RegisterShiftDto } from "./dto/register-shift.dto";
 import { ShiftStatusEnum } from "./enums/shift-status.enum";
 import { Shift } from "./schema/shift.schema";
@@ -31,7 +32,27 @@ export class ShiftService {
     console.log("📩 [ShiftService] Nhận yêu cầu đăng ký ca:", dto);
 
     try {
-      const results = await this.eventEmitter.emitAsync("shift.register.requested", dto);
+      const { startUtc, endUtc, startEpoch, endEpoch, dateKey } = this.buildRegisterShiftTimeContext(dto);
+
+      TimeHelper.debugLog('[RegisterShiftTime]', {
+        inputStartTime: dto.startTime,
+        inputEndTime: dto.endTime,
+        utcStartTime: startUtc.toISOString(),
+        utcEndTime: endUtc.toISOString(),
+        epochStart: startEpoch,
+        epochEnd: endEpoch,
+      });
+
+      const normalizedDto: RegisterShiftDto = {
+        ...dto,
+        startTimeUtc: startUtc.toISOString(),
+        endTimeUtc: endUtc.toISOString(),
+        startTimeEpoch: startEpoch,
+        endTimeEpoch: endEpoch,
+        dateKey,
+      };
+
+      const results = await this.eventEmitter.emitAsync("shift.register.requested", normalizedDto);
       
       console.log("📦 [ShiftService] Raw results from Saga:", results);
       console.log("📦 [ShiftService] Results length:", results?.length);
@@ -58,9 +79,12 @@ export class ShiftService {
       return response as DataResponse;
     } catch (error) {
       console.error("❌ [ShiftService] Error in registerShift:", error);
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       return {
         code: rc.ERROR,
-        message: error.message || "Unexpected error",
+        message: this.toErrorMessage(error) || "Unexpected error",
         data: null,
       };
     }
@@ -69,7 +93,9 @@ export class ShiftService {
   @OnEvent("shift.check.duplicate")
   async handleCheckDuplicate(payload: {
     doctorId: string;
-    date: string;
+    startTimeEpoch: number;
+    endTimeEpoch: number;
+    dateKey?: string;
     shift: string;
   }): Promise<boolean> {
     console.log(
@@ -78,11 +104,20 @@ export class ShiftService {
     );
 
     try {
+      const normalizedDate = payload.dateKey || this.getShiftDateKeyFromEpoch(payload.startTimeEpoch);
+
       const exists = await this.shiftModel
         .exists({
           doctorId: payload.doctorId,
-          date: payload.date,
           shift: payload.shift,
+          $or: [
+            {
+              startTimeEpoch: payload.startTimeEpoch,
+              endTimeEpoch: payload.endTimeEpoch,
+            },
+            { date: normalizedDate },
+            { date: { $regex: `^${normalizedDate}` } },
+          ],
         })
         .exec();
 
@@ -94,7 +129,7 @@ export class ShiftService {
 
       return isDuplicate;
     } catch (error) {
-      console.error("[ShiftService] ❌ Lỗi khi kiểm tra trùng ca:", error.message);
+      console.error("[ShiftService] ❌ Lỗi khi kiểm tra trùng ca:", this.toErrorMessage(error));
       return false;
     }
   }
@@ -216,10 +251,16 @@ export class ShiftService {
       // 3️⃣ Lấy danh sách ID của TimeSlotLog
       const timeSlotIds = timeSlotLogs.map(log => log._id);
 
+      if (!Number.isFinite(dto.startTimeEpoch) || !Number.isFinite(dto.endTimeEpoch)) {
+        throw new Error('Missing normalized shift epoch values');
+      }
+
       // 4️⃣ Tạo Shift với các TimeSlot đã tạo
       const shiftData: any = {
         doctorId: dto.doctorId,
-        date: dto.date,
+        startTimeEpoch: dto.startTimeEpoch,
+        endTimeEpoch: dto.endTimeEpoch,
+        date: dto.dateKey ?? this.getShiftDateKeyFromEpoch(dto.startTimeEpoch!),
         shift: dto.shift,
         status: "available",
         timeSlots: timeSlotIds, // Gán danh sách TimeSlot ID
@@ -236,7 +277,7 @@ export class ShiftService {
       
       return result;
     } catch (error) {
-      console.error("❌ [ShiftService] Lỗi khi tạo shift:", error.message);
+      console.error("❌ [ShiftService] Lỗi khi tạo shift:", this.toErrorMessage(error));
       throw error;
     }
   }
@@ -270,19 +311,16 @@ export class ShiftService {
         };
       }
 
-      // Tính ngày đầu và cuối tháng
-      const startDate = `${year}-${month.padStart(2, '0')}-01`;
-      
-      // Lấy ngày cuối tháng
-      const lastDay = DateTimeHelper.getUtcLastDayOfMonth(yearNum, monthNum);
-      const endDate = `${year}-${month.padStart(2, '0')}-${lastDay}`;
+      // Tính range UTC epoch theo tháng
+      const monthStartEpoch = Date.UTC(yearNum, monthNum - 1, 1, 0, 0, 0, 0);
+      const nextMonthStartEpoch = Date.UTC(yearNum, monthNum, 1, 0, 0, 0, 0);
 
-      console.log("🔍 [ShiftService] Date range:", { startDate, endDate });
+      console.log("🔍 [ShiftService] Date range:", { monthStartEpoch, nextMonthStartEpoch });
 
       // Build query filter
       const filter: any = {
         doctorId,
-        date: { $gte: startDate, $lte: endDate }
+        startTimeEpoch: { $gte: monthStartEpoch, $lt: nextMonthStartEpoch },
       };
 
       if (status) {
@@ -295,7 +333,7 @@ export class ShiftService {
       // Lấy danh sách ca và populate TimeSlotLog
       const shifts = await this.shiftModel
         .find(filter)
-        .sort({ date: 1, shift: 1 })
+        .sort({ startTimeEpoch: 1, shift: 1 })
         .populate('timeSlots') // Populate thông tin TimeSlot
         .lean()
         .exec();
@@ -304,7 +342,9 @@ export class ShiftService {
 
       // Nhóm theo ngày để dễ hiển thị
       const groupedByDate = shifts.reduce((acc, shift) => {
-        const date = shift.date;
+        const date = Number.isFinite(shift.startTimeEpoch)
+          ? this.getShiftDateKeyFromEpoch(shift.startTimeEpoch)
+          : shift.date;
         if (!acc[date]) {
           acc[date] = [];
         }
@@ -333,10 +373,10 @@ export class ShiftService {
         },
       };
     } catch (error) {
-      console.error("❌ [ShiftService] Lỗi khi lấy ca theo tháng:", error.message);
+      console.error("❌ [ShiftService] Lỗi khi lấy ca theo tháng:", this.toErrorMessage(error));
       return {
         code: rc.ERROR,
-        message: error.message || "Lỗi khi lấy danh sách ca",
+        message: this.toErrorMessage(error) || "Lỗi khi lấy danh sách ca",
         data: null,
       };
     }
@@ -440,12 +480,15 @@ export class ShiftService {
         console.log(`[ShiftService] Có ${affectedAppointments.length} lịch hẹn bị ảnh hưởng bởi hủy ca.`);
 
         for (const appt of affectedAppointments) {
+          const shiftDateText = Number.isFinite(shift.startTimeEpoch)
+            ? this.getShiftDateKeyFromEpoch(shift.startTimeEpoch)
+            : (DateTimeHelper.toUtcDateOnlyString(shift.date) ?? String(shift.date));
           const payload = {
             appointmentId: appt._id?.toString?.() ?? String(appt._id),
             patientEmail: appt.patientEmail,
             doctorEmail: user?.email,
             doctorName: (appt as any).doctorId?.doctorName ?? undefined,
-            date: DateTimeHelper.toUtcDateOnlyString(shift.date) ?? String(shift.date),
+            date: shiftDateText,
             timeSlot: appt.timeSlot?.toString?.() ?? String(appt.timeSlot),
             hospitalName: appt.hospitalName,
             reason,
@@ -469,10 +512,13 @@ export class ShiftService {
 
         // Gửi thông báo + email cho bác sĩ về việc hủy ca
         if (user?.email) {
+          const shiftDateText = Number.isFinite(shift.startTimeEpoch)
+            ? this.getShiftDateKeyFromEpoch(shift.startTimeEpoch)
+            : (DateTimeHelper.toUtcDateOnlyString(shift.date) ?? String(shift.date));
           const doctorPayload = {
             doctorEmail: user.email,
             doctorName: (affectedAppointments[0] as any)?.doctorId?.doctorName,
-            date: DateTimeHelper.toUtcDateOnlyString(shift.date) ?? String(shift.date),
+            date: shiftDateText,
             shift: shift.shift,
             reason,
             affectedAppointmentsCount: affectedAppointments.length,
@@ -493,10 +539,10 @@ export class ShiftService {
         data: shift.toObject(),
       };
     } catch (error) {
-      console.error("[ShiftService] Lỗi khi hủy ca:", error.message);
+      console.error("[ShiftService] Lỗi khi hủy ca:", this.toErrorMessage(error));
       return {
         code: rc.ERROR,
-        message: error.message || "Lỗi khi hủy ca.",
+        message: this.toErrorMessage(error) || "Lỗi khi hủy ca.",
         data: null,
       };
     }
@@ -543,9 +589,17 @@ export class ShiftService {
       date: string,
       status: TimeSlotStatusEnum
     ) : Promise<TimeSlotDto[]> {
-      const query: any = { doctorId, date };
+      const { startEpoch, endEpoch, dateKey } = this.getUtcDayEpochRangeFromDateOnly(date);
+      const query: any = {
+        doctorId,
+        $or: [
+          { startTimeEpoch: { $gte: startEpoch, $lt: endEpoch } },
+          { date: dateKey },
+          { date: { $regex: `^${dateKey}` } },
+        ],
+      };
 
-      console.log("[ShiftService] Lấy TimeSlots cho bác sĩ:", doctorId, "ngày:", date, "với filter:", query, "và status:", status);
+      console.log("[ShiftService] Lấy TimeSlots cho bác sĩ:", doctorId, "ngày:", dateKey, "với filter:", query, "và status:", status);
 
       const shifts = await this.shiftModel
         .find(query)
@@ -555,7 +609,7 @@ export class ShiftService {
         })
         .exec();
 
-      console.log(`[ShiftService] Tìm thấy ${shifts.length} ca cho bác sĩ ${doctorId} vào ngày ${date} với shift ${shifts.map(s => s.shift).join(", ")}`);
+      console.log(`[ShiftService] Tìm thấy ${shifts.length} ca cho bác sĩ ${doctorId} vào ngày ${dateKey} với shift ${shifts.map(s => s.shift).join(", ")}`);
 
       const slots = shifts.flatMap(s => s.timeSlots).map((slot: any) => ({
         id: slot._id.toString(),
@@ -573,8 +627,21 @@ export class ShiftService {
    */
   async getShiftByDoctorAndDate(doctorId: string, date: string) : Promise<any> {
     try {
-      console.log('[ShiftService] getShiftByDoctorAndDate', { doctorId, date });
-      const shift = await this.shiftModel.findOne({ doctorId, date }).populate('timeSlots').lean().exec();
+      console.log("[ShiftService] Lấy shift cho bác sĩ:", doctorId, "ngày:", date);
+      const { startEpoch, endEpoch, dateKey } = this.getUtcDayEpochRangeFromDateOnly(date);
+      console.log('[ShiftService] getShiftByDoctorAndDate', { doctorId, date: dateKey, startEpoch, endEpoch });
+      const shift = await this.shiftModel
+        .findOne({
+          doctorId,
+          $or: [
+            { startTimeEpoch: { $gte: startEpoch, $lt: endEpoch } },
+            { date: dateKey },
+            { date: { $regex: `^${dateKey}` } },
+          ],
+        })
+        .populate('timeSlots')
+        .lean()
+        .exec();
       if (!shift) {
         return {
           code: 'SUCCESS',
@@ -624,10 +691,10 @@ export class ShiftService {
         data: result,
       };
     } catch (error) {
-      console.error('[ShiftService] Lỗi getShiftByDoctorAndDate:', error?.message ?? error);
+      console.error('[ShiftService] Lỗi getShiftByDoctorAndDate:', this.toErrorMessage(error));
       return {
         code: 'ERROR',
-        message: error?.message ?? 'Lỗi',
+        message: this.toErrorMessage(error) ?? 'Lỗi',
         data: null,
       };
     }
@@ -639,17 +706,50 @@ export class ShiftService {
       const doctorId = payload.doctorId;
       const date = payload.date;
       const timeSlotId = payload.timeSlot._id.toString();
-      const dateOnly = DateTimeHelper.toUtcDateOnlyString(date) ?? String(date);
+      const parsedDate = DateTimeHelper.toUtcDate(date);
+      if (!parsedDate) {
+        throw new Error('Invalid appointment date in doctor.update-schedule payload');
+      }
+      const dateOnly = TimeHelper.toUtcDateOnly(parsedDate);
+      const startEpoch = Date.UTC(
+        parsedDate.getUTCFullYear(),
+        parsedDate.getUTCMonth(),
+        parsedDate.getUTCDate(),
+        0,
+        0,
+        0,
+        0,
+      );
+      const endEpoch = startEpoch + 24 * 60 * 60 * 1000;
+
+      console.log("[ShiftService] Xử lý doctor.update-schedule cho doctorId:", doctorId, "ngày:", payload.date, "timeSlotId:", timeSlotId);
 
       // 1️⃣ Tìm tất cả shift của bác sĩ trong ngày đó
       const shifts = await this.shiftModel
-        .find({ doctorId, date: dateOnly })
+        .find({
+          doctorId,
+          $or: [
+            { startTimeEpoch: { $gte: startEpoch, $lt: endEpoch } },
+            { date: dateOnly },
+            { date: { $regex: `^${dateOnly}` } },
+          ],
+        })
         .populate("timeSlots")
         .exec();
 
       if (!shifts || shifts.length === 0) {
         console.warn(`[ShiftService] Không tìm thấy shift nào cho bác sĩ ${doctorId} vào ngày ${dateOnly}`);
         return false;
+      }
+
+      console.log(`[ShiftService] Tìm thấy ${shifts.length} shift cho bác sĩ ${doctorId} vào ngày ${dateOnly}`);
+
+      for (const shift of shifts) {
+        console.log(`[ShiftService] Shift ${shift._id} có ${shift.timeSlots?.length ?? 0} timeSlots`);
+
+        for (const slot of shift.timeSlots) {
+          console.log(`[ShiftService] - TimeSlot ${slot._id} `);
+        }
       }
 
       // 2️⃣ Duyệt toàn bộ shift để tìm timeslot trùng
@@ -700,6 +800,70 @@ export class ShiftService {
       console.error("[ShiftService] Lỗi khi xử lý doctor.update-schedule:", error);
       return false;
     }
+  }
+
+  private getUtcDayEpochRangeFromDateOnly(input: string): { startEpoch: number; endEpoch: number; dateKey: string } {
+    const parsed = input?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!parsed) {
+      throw new BadRequestException('date must be in YYYY-MM-DD format');
+    }
+
+    const [, y, m, d] = parsed;
+    const startEpoch = Date.UTC(Number(y), Number(m) - 1, Number(d), 0, 0, 0, 0);
+    const endEpoch = startEpoch + 24 * 60 * 60 * 1000;
+    return {
+      startEpoch,
+      endEpoch,
+      dateKey: `${y}-${m}-${d}`,
+    };
+  }
+
+  private buildRegisterShiftTimeContext(dto: RegisterShiftDto): {
+    startUtc: Date;
+    endUtc: Date;
+    startEpoch: number;
+    endEpoch: number;
+    dateKey: string;
+  } {
+    let startUtc: Date;
+    let endUtc: Date;
+    const allowLegacyFallback = dto.legacyAllowMissingTimezone === true;
+
+    try {
+      startUtc = TimeHelper.parseISOToUTC(dto.startTime, {
+        allowLegacyNoTimezone: allowLegacyFallback,
+        logPrefix: '[TimeWarning] RegisterShift.startTime',
+      });
+      endUtc = TimeHelper.parseISOToUTC(dto.endTime, {
+        allowLegacyNoTimezone: allowLegacyFallback,
+        logPrefix: '[TimeWarning] RegisterShift.endTime',
+      });
+    } catch (error) {
+      throw new BadRequestException(this.toErrorMessage(error));
+    }
+
+    const startEpoch = TimeHelper.toEpoch(startUtc);
+    const endEpoch = TimeHelper.toEpoch(endUtc);
+
+    if (endEpoch <= startEpoch) {
+      throw new BadRequestException('endTime must be greater than startTime');
+    }
+
+    return {
+      startUtc,
+      endUtc,
+      startEpoch,
+      endEpoch,
+      dateKey: TimeHelper.toUtcDateOnly(startUtc),
+    };
+  }
+
+  private getShiftDateKeyFromEpoch(epoch: number): string {
+    return TimeHelper.toUtcDateOnly(TimeHelper.fromEpoch(epoch));
+  }
+
+  private toErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 
 }
