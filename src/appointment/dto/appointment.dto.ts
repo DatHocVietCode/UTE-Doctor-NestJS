@@ -5,7 +5,7 @@ import { ServiceType } from "../enums/service-type.enum";
 export class AppointmentDto {
     _id: string; // ObjectId dạng string
 
-    date: Date;
+    date: number;
 
     appointmentStatus: AppointmentStatus;
 

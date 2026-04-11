@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import moment from 'moment';
 import { GlobalConfig, HashAlgorithm, VNPay } from 'vnpay';
+import { VNPAY_EXPIRE_MINUTES } from './vnpay-timeout.config';
 
 export type PaymentResultStatus = 'COMPLETED' | 'FAILED';
 
@@ -37,7 +38,7 @@ export class VnPayPaymentService {
         vnp_OrderInfo: `Thanh toan don hang ${orderId}`,
         vnp_ReturnUrl: process.env.VN_PAY_RETURNURL!,
         vnp_CreateDate: Number(moment().format("YYYYMMDDHHmmss")),
-        vnp_ExpireDate: Number(moment().add(15, "minutes").format("YYYYMMDDHHmmss")),
+        vnp_ExpireDate: Number(moment().add(VNPAY_EXPIRE_MINUTES, "minutes").format("YYYYMMDDHHmmss")),
         vnp_CurrCode: "VND" as GlobalConfig['vnp_CurrCode'],
         vnp_Locale: "vn" as GlobalConfig['vnp_Locale'],
         vnp_OrderType: "other" as GlobalConfig['vnp_OrderType'],

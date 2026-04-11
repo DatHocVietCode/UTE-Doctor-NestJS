@@ -171,6 +171,12 @@ npm run test:e2e
 - For temporary backward compatibility only, legacy datetime without timezone may fallback to `Asia/Ho_Chi_Minh` and must log `[TimeWarning]`.
 - Register Shift MUST use `startTime` and `endTime` (ISO with timezone); NEVER use `YYYY-MM-DD` date-only payload for scheduling APIs.
 
+## Payment TTL Rules
+
+- Redis slot-lock TTL and pending booking expiration MUST match VNPay expiry window.
+- Source of truth is `VN_PAY_EXPIRE_MINUTES` (default 15).
+- Do NOT hardcode independent TTL values for booking lock/pending cleanup.
+
 Notes:
 - Some folders and filenames are in kebab-case, including Vietnamese names (e.g., `chuyen-khoa`, `tiep-tan`).
 - There is mixed usage of single and double quotes in the codebase; lint/format settings indicate the preferred style is single quotes.

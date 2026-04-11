@@ -5,18 +5,19 @@ import mongoose, { Model, Types } from "mongoose";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { RoleEnum } from "src/common/enum/role.enum";
+import { AuthUser } from "src/common/interfaces/auth-user";
 import { Doctor, DoctorDocument } from "src/doctor/schema/doctor.schema";
 import { Medicine, MedicineDocument } from "src/medicine/schema/medicine.schema";
 import { MedicalEncounter, MedicalEncounterDocument } from "src/patient/schema/medical-record.schema";
 import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
 import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
+import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
+import { TimeHelper } from "src/utils/helpers/time.helper";
 import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
-import { AuthUser } from "src/common/interfaces/auth-user";
-import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
 
 @Injectable()
 export class AppointmentService {
@@ -50,9 +51,9 @@ export class AppointmentService {
     }
 
     async storeBookingInformation(payload: AppointmentBookingDto): Promise<AppointmentDocument> {
-        const normalizedDate = DateTimeHelper.toUtcDate(payload.date);
+        const normalizedDate = TimeHelper.toEpoch(TimeHelper.parseISOToUTC(payload.date));
         const appointmentDoc = new this.appointmentModel({
-            date: normalizedDate ?? payload.date,
+            date: normalizedDate,
             appointmentStatus: AppointmentStatus.PENDING, // default
             serviceType: payload.serviceType,
             consultationFee: payload.amount ?? undefined, // nếu amount có thì lưu
@@ -77,22 +78,20 @@ export class AppointmentService {
         throw new BadRequestException('Missing doctorId in user context');
     }
     const formatted = DateTimeHelper.getUtcDateOnly();
+    const today = new Date(`${formatted}T00:00:00.000Z`);
+    const todayStartEpoch = today.getTime();
+    const nextDayStartEpoch = todayStartEpoch + 24 * 60 * 60 * 1000;
     console.log(`[AppointmentService] using UTC date formatted=${formatted}`);
         console.log(`[AppointmentService] getTodayAppointments doctorId=${doctorId} formatted=${formatted}`);
 
         const filter: any = {
             doctorId,
-            $or: [
-                { date: formatted },
-                {
-                    $expr: {
-                        $eq: [
-                            { $dateToString: { format: "%Y-%m-%d", date: "$date", timezone: "UTC" } },
-                            formatted
-                                ]
-                            }
-                        }
-                    ]
+            $expr: {
+                $and: [
+                    { $gte: [{ $toLong: '$date' }, todayStartEpoch] },
+                    { $lt: [{ $toLong: '$date' }, nextDayStartEpoch] },
+                ],
+            },
                 };
 
         console.log('[AppointmentService] Mongo filter for today:', JSON.stringify(filter));
@@ -388,7 +387,7 @@ export class AppointmentService {
         },
     };
 }
-async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId: string, reason?: string) {
+async rescheduleAppointment(appointmentId: string, newDateEpoch: number, newTimeSlotId: string, reason?: string) {
         const appointment = await this.appointmentModel.findById(appointmentId);
         if (!appointment) {
             throw new NotFoundException('Appointment not found');
@@ -400,7 +399,9 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
         }
 
         // ⏰ Time-based reschedule restriction: Cannot reschedule if <= 24 hours before appointment
-        const appointmentDate = DateTimeHelper.toUtcDate(appointment.date);
+        const appointmentDate = typeof appointment.date === 'number'
+            ? TimeHelper.fromEpoch(appointment.date)
+            : DateTimeHelper.toUtcDate(appointment.date);
         if (!appointmentDate) {
             throw new Error('Invalid appointment date');
         }
@@ -427,7 +428,7 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
         }
 
         // Update appointment
-        appointment.date = DateTimeHelper.toUtcDate(newDate) ?? newDate;
+        appointment.date = newDateEpoch;
         appointment.timeSlot = new Types.ObjectId(newTimeSlotId);
         appointment.appointmentStatus = AppointmentStatus.RESCHEDULED;
         await appointment.save();
@@ -456,7 +457,7 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
             reason: reason || 'Appointment rescheduled',
             oldTimeSlotId: oldTimeSlotId.toString(),
             newTimeSlotId,
-            newDate,
+            newDate: TimeHelper.fromEpoch(newDateEpoch),
         });
 
         console.log(`[AppointmentService] Rescheduled appointment ${appointmentId} from slot ${oldTimeSlotId} to ${newTimeSlotId}, refund: ${refundAmount} coins (${refundReason})`);
@@ -468,7 +469,7 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
                 appointmentId,
                 refundAmount,
                 refundReason,
-                newDate,
+                newDate: TimeHelper.fromEpoch(newDateEpoch),
                 hoursUntilAppointment: hoursUntilAppointment.toFixed(1),
             },
         };
@@ -489,7 +490,9 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
         }
 
         // ⏰ Time-based cancellation restriction: Cannot cancel if <= 24 hours before appointment
-        const appointmentDate = DateTimeHelper.toUtcDate(appointment.date);
+        const appointmentDate = typeof appointment.date === 'number'
+            ? TimeHelper.fromEpoch(appointment.date)
+            : DateTimeHelper.toUtcDate(appointment.date);
         if (!appointmentDate) {
             throw new Error('Invalid appointment date');
         }
@@ -544,7 +547,7 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
             patientEmail: appointment.patientEmail,
             doctorEmail,
             doctorName,
-            date: appointment.date,
+            date: typeof appointment.date === 'number' ? TimeHelper.fromEpoch(appointment.date) : appointment.date,
             timeSlot: timeSlotId.toString(),
             timeSlotLabel,
             hospitalName: appointment.hospitalName,
@@ -766,7 +769,13 @@ async rescheduleAppointment(appointmentId: string, newDate: Date, newTimeSlotId:
     }
 
     pipeline.push(
-        { $sort: { date: -1 } },
+        {
+        $addFields: {
+            appointmentDateEpoch: { $toLong: '$date' },
+        },
+        },
+        { $sort: { appointmentDateEpoch: -1 } },
+        { $project: { appointmentDateEpoch: 0 } },
         {
         $facet: {
             items: [

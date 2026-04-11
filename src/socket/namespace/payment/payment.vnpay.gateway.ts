@@ -6,7 +6,7 @@ import { BaseGateway } from "src/socket/base/base.gateway";
 import { SocketRoomService } from "src/socket/socket.service";
 
 
-@WebSocketGateway({ namespace: '/payment/vnpay' })
+@WebSocketGateway({ cors: true, namespace: '/payment/vnpay' })
 export class VnPayGateway extends BaseGateway {
     constructor(
         private readonly eventEmitter: EventEmitter2,

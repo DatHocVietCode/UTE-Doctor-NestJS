@@ -10,7 +10,7 @@ export class Appointment {
     _id!: mongoose.Types.ObjectId;
 
     @Prop()
-    date!: Date;
+    date!: number;
 
     @Prop({ enum: AppointmentStatus, default: AppointmentStatus.PENDING })
     appointmentStatus!: AppointmentStatus;

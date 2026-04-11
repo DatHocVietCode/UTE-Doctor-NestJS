@@ -11,6 +11,7 @@ import { PaymentMethodEnum } from 'src/payment/enums/payment-method.enum';
 import { PaymentStatusEnum } from 'src/payment/enums/payment-status.enum';
 import { PaymentService } from 'src/payment/payment.service';
 import { Payment } from 'src/payment/schemas/payment.schema';
+import { BOOKING_PENDING_TTL_SECONDS, VNPAY_EXPIRE_MINUTES } from 'src/payment/vnpay/vnpay-timeout.config';
 import { TimeSlotLog, TimeSlotLogDocument } from 'src/timeslot/schemas/timeslot-log.schema';
 import { TimeHelper } from 'src/utils/helpers/time.helper';
 import { WalletService } from 'src/wallet/wallet.service';
@@ -56,20 +57,26 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     const slotKey = this.getSlotKey(doctorId, bookingAppointment.timeSlotId);
     const lockValue = bookingId.toString();
     let normalizedDate: Date;
+    let normalizedDateEpoch: number;
     try {
       normalizedDate = TimeHelper.parseISOToUTC(bookingAppointment.date);
+      normalizedDateEpoch = TimeHelper.toEpoch(normalizedDate);
     } catch (error) {
       throw new BadRequestException(error instanceof Error ? error.message : 'Invalid datetime input');
     }
     TimeHelper.debugLog('[TimeDebug]', {
       input: bookingAppointment.date,
       parsedUtc: normalizedDate.toISOString(),
-      epoch: TimeHelper.toEpoch(normalizedDate),
+      epoch: normalizedDateEpoch,
     });
 
     let lockAcquired = false;
     try {
-      lockAcquired = await this.redisService.acquireSlotLock(slotKey, lockValue, 300);
+      lockAcquired = await this.redisService.acquireSlotLock(
+        slotKey,
+        lockValue,
+        BOOKING_PENDING_TTL_SECONDS,
+      );
 
       if (!lockAcquired) {
         return {
@@ -79,7 +86,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         };
       }
 
-      const slotAvailable = await this.checkSlotAvailability(doctorId, bookingAppointment.timeSlotId, normalizedDate);
+      const slotAvailable = await this.checkSlotAvailability(doctorId, bookingAppointment.timeSlotId, normalizedDateEpoch);
       if (!slotAvailable) {
         await this.safeReleaseSlotLock(slotKey, lockValue);
         return {
@@ -93,7 +100,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         bookingId,
         bookingAppointment,
         doctorId,
-        normalizedDate,
+        normalizedDate: normalizedDateEpoch,
         lockValue,
         slotKey,
       });
@@ -138,10 +145,13 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     }
   }
 
-  private async checkSlotAvailability(doctorId: string, timeSlotId: string, date: Date | string): Promise<boolean> {
+  private async checkSlotAvailability(doctorId: string, timeSlotId: string, dateEpoch: number): Promise<boolean> {
     const existingAppointment = await this.appointmentModel.findOne({
       doctorId: new Types.ObjectId(doctorId),
-      date,
+      $or: [
+        { date: dateEpoch },
+        { date: TimeHelper.fromEpoch(dateEpoch) },
+      ],
       timeSlot: new Types.ObjectId(timeSlotId),
       appointmentStatus: { $in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED] },
     }).select('_id').lean();
@@ -153,7 +163,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     bookingId: Types.ObjectId;
     bookingAppointment: AppointmentBookingDto;
     doctorId: string;
-    normalizedDate: Date | string;
+    normalizedDate: number;
     lockValue: string;
     slotKey: string;
   }): Promise<AppointmentDocument> {
@@ -520,7 +530,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
   }
 
   async expirePendingBookings(): Promise<void> {
-    const expirationTime = new Date(Date.now() - 5 * 60 * 1000);
+    const expirationTime = new Date(Date.now() - BOOKING_PENDING_TTL_SECONDS * 1000);
     const expiredAppointments = await this.appointmentModel
       .find({
         appointmentStatus: AppointmentStatus.PENDING,
@@ -530,7 +540,10 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
 
     for (const appointment of expiredAppointments) {
       this.logger.log(`Expiring pending booking ${appointment._id.toString()}`);
-      await this.failBooking(appointment._id.toString(), 'Appointment expired after 5 minutes');
+      await this.failBooking(
+        appointment._id.toString(),
+        `Appointment expired after ${VNPAY_EXPIRE_MINUTES} minutes`,
+      );
     }
   }
 
