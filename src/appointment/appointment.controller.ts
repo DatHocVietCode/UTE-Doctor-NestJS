@@ -3,7 +3,6 @@ import { Types } from "mongoose";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { JwtAuthGuard } from "src/common/guards/jws-auth.guard";
 import { AuthUser } from "src/common/interfaces/auth-user";
-import { TimeHelper } from "src/utils/helpers/time.helper";
 import { AppointmentBookingService } from "./appointment-booking.service";
 import { AppointmentService } from "./appointment.service";
 import { AppointmentBookingDto, AppointmentBookingRequestDto, CompleteAppointmentDto, RescheduleAppointmentDto } from "./dto/appointment-booking.dto";
@@ -130,11 +129,10 @@ export class AppointmentController {
     @UseGuards(JwtAuthGuard)
     async rescheduleAppointment(@Body() dto: RescheduleAppointmentDto, @Req() req: any) {
         try {
-            const newDate = TimeHelper.parseISOToUTC(dto.newDate);
-            const newDateEpoch = TimeHelper.toEpoch(newDate);
+            // The service now resolves the snapshot time from the selected slot and date.
             const result = await this.appointmentService.rescheduleAppointment(
                 dto.appointmentId,
-                newDateEpoch,
+                dto.newDate,
                 dto.newTimeSlotId,
                 dto.reason
             );
@@ -148,6 +146,7 @@ export class AppointmentController {
     @UseGuards(JwtAuthGuard)
     async cancelAppointment(@Body() dto: { appointmentId: string; reason?: string }, @Req() req: any) {
         try {
+            // Cancellation timing checks are centralized in the service against scheduledAt.
             const result = await this.appointmentService.cancelAppointment(
                 dto.appointmentId,
                 dto.reason

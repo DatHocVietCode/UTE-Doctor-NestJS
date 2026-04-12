@@ -18,6 +18,7 @@ import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment
 import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
+import { AppointmentTimeHelper } from "./utils/appointment-time.helper";
 
 @Injectable()
 export class AppointmentService {
@@ -51,9 +52,26 @@ export class AppointmentService {
     }
 
     async storeBookingInformation(payload: AppointmentBookingDto): Promise<AppointmentDocument> {
-        const normalizedDate = TimeHelper.toEpoch(TimeHelper.parseISOToUTC(payload.date));
+        // Parse appointmentDate (required): Fallback to legacy 'date' field for backward compatibility.
+        const appointmentDateRaw = payload.appointmentDate ?? payload.date;
+        if (!appointmentDateRaw) {
+            throw new BadRequestException('appointmentDate is required');
+        }
+
+        const appointmentDateNormalized = TimeHelper.toEpoch(TimeHelper.parseISOToUTC(appointmentDateRaw));
+
+        // Parse bookingDate (optional): Default to current server time if not provided.
+        const bookingDateEpoch = payload.bookingDate
+            ? TimeHelper.toEpoch(TimeHelper.parseISOToUTC(payload.bookingDate))
+            : Date.now();
+
         const appointmentDoc = new this.appointmentModel({
-            date: normalizedDate,
+            // Keep the legacy date field in sync while the new snapshot fields are rolled out.
+            date: appointmentDateNormalized,
+            scheduledAt: appointmentDateNormalized,
+                        bookingDate: bookingDateEpoch,
+            startTime: appointmentDateNormalized,
+            endTime: appointmentDateNormalized,
             appointmentStatus: AppointmentStatus.PENDING, // default
             serviceType: payload.serviceType,
             consultationFee: payload.amount ?? undefined, // nếu amount có thì lưu
@@ -77,19 +95,17 @@ export class AppointmentService {
     if (!doctorId) {
         throw new BadRequestException('Missing doctorId in user context');
     }
-    const formatted = DateTimeHelper.getUtcDateOnly();
-    const today = new Date(`${formatted}T00:00:00.000Z`);
-    const todayStartEpoch = today.getTime();
-    const nextDayStartEpoch = todayStartEpoch + 24 * 60 * 60 * 1000;
-    console.log(`[AppointmentService] using UTC date formatted=${formatted}`);
-        console.log(`[AppointmentService] getTodayAppointments doctorId=${doctorId} formatted=${formatted}`);
+    // Query directly against the persisted snapshot instead of deriving from shift data.
+    const { startEpoch: todayStartEpoch, endEpoch: nextDayStartEpoch, dateKey } = AppointmentTimeHelper.getUtcDayRangeForLocalDate();
+    console.log(`[AppointmentService] using local dateKey=${dateKey}`);
+        console.log(`[AppointmentService] getTodayAppointments doctorId=${doctorId} dateKey=${dateKey}`);
 
         const filter: any = {
             doctorId,
             $expr: {
                 $and: [
-                    { $gte: [{ $toLong: '$date' }, todayStartEpoch] },
-                    { $lt: [{ $toLong: '$date' }, nextDayStartEpoch] },
+                    { $gte: [{ $ifNull: ['$scheduledAt', '$date'] }, todayStartEpoch] },
+                    { $lt: [{ $ifNull: ['$scheduledAt', '$date'] }, nextDayStartEpoch] },
                 ],
             },
                 };
@@ -115,7 +131,10 @@ export class AppointmentService {
                 const timeSlot = a.timeSlot as any;
                 return {
                     _id: a._id,
-                    date: a.date,
+                    date: a.scheduledAt ?? a.date,
+                    scheduledAt: a.scheduledAt ?? a.date,
+                    startTime: a.startTime ?? null,
+                    endTime: a.endTime ?? null,
                     appointmentStatus: a.appointmentStatus,
                     serviceType: a.serviceType,
                     consultationFee: a.consultationFee,
@@ -124,8 +143,6 @@ export class AppointmentService {
                     // listAppointments: (a.patientId?.appointments ?? []).filter((ap: any) => ap.appointmentStatus === 'COMPLETED'),
                     // Return full patient object (all populated properties)
                     patient: a.patientId ?? null,
-                    startTime: timeSlot?.start ?? null,
-                    endTime: timeSlot?.end ?? null, 
                     label: timeSlot?.label ?? null,
                     status: timeSlot?.status ?? null,
                 };
@@ -268,7 +285,7 @@ export class AppointmentService {
                         select: 'name email phone',
                     },
                 })
-                .sort({ createdAt: -1 })
+                .sort({ scheduledAt: -1, date: -1, createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
                 .lean()
@@ -303,6 +320,10 @@ export class AppointmentService {
         patientId,
         appointmentStatus,
         keyword,
+        scheduledAtFrom,
+        scheduledAtTo,
+        dateFrom,
+        dateTo,
         page = 1,
         limit = 10,
     } = query;
@@ -341,6 +362,26 @@ export class AppointmentService {
         ];
     }
 
+    const rangeStart = scheduledAtFrom ?? dateFrom;
+    const rangeEnd = scheduledAtTo ?? dateTo;
+    if (rangeStart || rangeEnd) {
+        // Range filters fall back to the legacy date field during the migration window.
+        const scheduledRange: Record<string, number> = {};
+        if (rangeStart) {
+            scheduledRange.$gte = TimeHelper.toEpoch(TimeHelper.parseISOToUTC(rangeStart));
+        }
+        if (rangeEnd) {
+            scheduledRange.$lte = TimeHelper.toEpoch(TimeHelper.parseISOToUTC(rangeEnd));
+        }
+
+        filter.$expr = {
+            $and: [
+                ...(scheduledRange.$gte !== undefined ? [{ $gte: [{ $ifNull: ['$scheduledAt', '$date'] }, scheduledRange.$gte] }] : []),
+                ...(scheduledRange.$lte !== undefined ? [{ $lte: [{ $ifNull: ['$scheduledAt', '$date'] }, scheduledRange.$lte] }] : []),
+            ],
+        };
+    }
+
     const skip = (page - 1) * limit;
 
     const data = await this.appointmentModel
@@ -370,7 +411,7 @@ export class AppointmentService {
 
         .skip(skip)
         .limit(Number(limit))
-        .sort({ createdAt: -1 })
+        .sort({ scheduledAt: -1, date: -1, createdAt: -1 })
         .exec();
 
     const total = await this.appointmentModel.countDocuments(filter);
@@ -387,7 +428,15 @@ export class AppointmentService {
         },
     };
 }
-async rescheduleAppointment(appointmentId: string, newDateEpoch: number, newTimeSlotId: string, reason?: string) {
+async rescheduleAppointment(appointmentId: string, newDate: string, newTimeSlotId: string, reason?: string) {
+        // Normalize the new date once at the begin to ensure single source of truth.
+        let normalizedNewDate: Date;
+        try {
+            normalizedNewDate = TimeHelper.parseISOToUTC(newDate);
+        } catch (error) {
+            throw new BadRequestException(error instanceof Error ? error.message : 'Invalid newDate format');
+        }
+
         const appointment = await this.appointmentModel.findById(appointmentId);
         if (!appointment) {
             throw new NotFoundException('Appointment not found');
@@ -399,13 +448,12 @@ async rescheduleAppointment(appointmentId: string, newDateEpoch: number, newTime
         }
 
         // ⏰ Time-based reschedule restriction: Cannot reschedule if <= 24 hours before appointment
-        const appointmentDate = typeof appointment.date === 'number'
-            ? TimeHelper.fromEpoch(appointment.date)
-            : DateTimeHelper.toUtcDate(appointment.date);
-        if (!appointmentDate) {
+        // Use the stored snapshot time so reschedule logic does not depend on shift state.
+        const appointmentScheduledAt = AppointmentTimeHelper.resolveStoredScheduledAt(appointment);
+        if (!appointmentScheduledAt) {
             throw new Error('Invalid appointment date');
         }
-        const appointmentTime = appointmentDate.getTime();
+        const appointmentTime = appointmentScheduledAt;
         const currentTime = Date.now();
         const hoursUntilAppointment = (appointmentTime - currentTime) / (1000 * 60 * 60);
 
@@ -427,8 +475,24 @@ async rescheduleAppointment(appointmentId: string, newDateEpoch: number, newTime
             refundReason = '50% refund (rescheduled 24-48 hours before)';
         }
 
+        const newTimeSlot = await this.timeSlotLogModel.findById(newTimeSlotId);
+        if (!newTimeSlot) {
+            throw new NotFoundException('TimeSlot not found');
+        }
+
+        // Recompute the full appointment snapshot for the newly selected slot.
+        // Use the already-normalized date to avoid double parsing.
+        const newSnapshot = AppointmentTimeHelper.resolveTimeWindow(normalizedNewDate, {
+            start: newTimeSlot.start,
+            end: newTimeSlot.end,
+        });
+
         // Update appointment
-        appointment.date = newDateEpoch;
+        // Persist the snapshot first; legacy date stays aligned for compatibility.
+        appointment.date = newSnapshot.scheduledAt;
+        appointment.scheduledAt = newSnapshot.scheduledAt;
+        appointment.startTime = newSnapshot.startTime;
+        appointment.endTime = newSnapshot.endTime;
         appointment.timeSlot = new Types.ObjectId(newTimeSlotId);
         appointment.appointmentStatus = AppointmentStatus.RESCHEDULED;
         await appointment.save();
@@ -441,11 +505,8 @@ async rescheduleAppointment(appointmentId: string, newDateEpoch: number, newTime
         }
 
         // Book new time slot
-        const newTimeSlot = await this.timeSlotLogModel.findById(newTimeSlotId);
-        if (newTimeSlot) {
-            newTimeSlot.status = 'booked';
-            await newTimeSlot.save();
-        }
+        newTimeSlot.status = 'booked';
+        await newTimeSlot.save();
 
         // Emit reschedule event for wallet refund processing (in coins, 1 coin = 1 VND)
         this.eventEmitter.emit('appointment.rescheduled', {
@@ -457,7 +518,10 @@ async rescheduleAppointment(appointmentId: string, newDateEpoch: number, newTime
             reason: reason || 'Appointment rescheduled',
             oldTimeSlotId: oldTimeSlotId.toString(),
             newTimeSlotId,
-            newDate: TimeHelper.fromEpoch(newDateEpoch),
+            newDate: TimeHelper.fromEpoch(newSnapshot.scheduledAt),
+            scheduledAt: newSnapshot.scheduledAt,
+            startTime: newSnapshot.startTime,
+            endTime: newSnapshot.endTime,
         });
 
         console.log(`[AppointmentService] Rescheduled appointment ${appointmentId} from slot ${oldTimeSlotId} to ${newTimeSlotId}, refund: ${refundAmount} coins (${refundReason})`);
@@ -469,7 +533,10 @@ async rescheduleAppointment(appointmentId: string, newDateEpoch: number, newTime
                 appointmentId,
                 refundAmount,
                 refundReason,
-                newDate: TimeHelper.fromEpoch(newDateEpoch),
+                newDate: TimeHelper.fromEpoch(newSnapshot.scheduledAt),
+                scheduledAt: newSnapshot.scheduledAt,
+                startTime: newSnapshot.startTime,
+                endTime: newSnapshot.endTime,
                 hoursUntilAppointment: hoursUntilAppointment.toFixed(1),
             },
         };
@@ -490,13 +557,16 @@ async rescheduleAppointment(appointmentId: string, newDateEpoch: number, newTime
         }
 
         // ⏰ Time-based cancellation restriction: Cannot cancel if <= 24 hours before appointment
-        const appointmentDate = typeof appointment.date === 'number'
-            ? TimeHelper.fromEpoch(appointment.date)
-            : DateTimeHelper.toUtcDate(appointment.date);
-        if (!appointmentDate) {
+        // Cancellation now evaluates against the stored scheduledAt snapshot.
+        const appointmentScheduledAt = AppointmentTimeHelper.resolveStoredScheduledAt(appointment);
+        if (!appointmentScheduledAt) {
             throw new Error('Invalid appointment date');
         }
-        const appointmentTime = appointmentDate.getTime();
+        const appointmentDate = TimeHelper.fromEpoch(appointmentScheduledAt);
+
+
+        console.log(`[AppointmentService] Cancelling appointment ${appointmentId} scheduled at ${appointmentDate}, reason: ${reason}`);
+        const appointmentTime = appointmentScheduledAt;
         const currentTime = Date.now();
         const hoursUntilAppointment = (appointmentTime - currentTime) / (1000 * 60 * 60);
 
@@ -547,7 +617,9 @@ async rescheduleAppointment(appointmentId: string, newDateEpoch: number, newTime
             patientEmail: appointment.patientEmail,
             doctorEmail,
             doctorName,
-            date: typeof appointment.date === 'number' ? TimeHelper.fromEpoch(appointment.date) : appointment.date,
+            // Downstream listeners still expect a readable date value alongside the snapshot.
+            date: appointmentDate,
+            scheduledAt: appointmentScheduledAt,
             timeSlot: timeSlotId.toString(),
             timeSlotLabel,
             hospitalName: appointment.hospitalName,
@@ -771,7 +843,8 @@ async rescheduleAppointment(appointmentId: string, newDateEpoch: number, newTime
     pipeline.push(
         {
         $addFields: {
-            appointmentDateEpoch: { $toLong: '$date' },
+            // Use the new snapshot field first and fall back to legacy date for older records.
+            appointmentDateEpoch: { $ifNull: ['$scheduledAt', '$date'] },
         },
         },
         { $sort: { appointmentDateEpoch: -1 } },

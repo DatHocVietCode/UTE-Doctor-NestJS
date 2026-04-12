@@ -1,3 +1,5 @@
+import { DateTimeHelper } from './datetime.helper';
+
 const ISO_WITH_TIMEZONE_REGEX =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/;
 
@@ -69,6 +71,31 @@ export class TimeHelper {
     const month = String(date.getUTCMonth() + 1).padStart(2, '0');
     const day = String(date.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  static toTimezoneDateOnly(date: Date, offsetMinutes = this.DEFAULT_FALLBACK_OFFSET_MINUTES): string {
+    const shifted = new Date(date.getTime() + offsetMinutes * 60_000);
+    return this.toUtcDateOnly(shifted);
+  }
+
+  static getTimezoneDayRange(
+    dateInput: unknown = new Date(),
+    offsetMinutes = this.DEFAULT_FALLBACK_OFFSET_MINUTES,
+  ): { startEpoch: number; endEpoch: number; dateKey: string } {
+    const parsed = DateTimeHelper.toUtcDate(dateInput);
+    if (!parsed) {
+      throw new Error('Invalid date input');
+    }
+
+    const dateKey = this.toTimezoneDateOnly(parsed, offsetMinutes);
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const startEpoch = Date.UTC(year, month - 1, day, 0, 0, 0, 0) - offsetMinutes * 60_000;
+
+    return {
+      startEpoch,
+      endEpoch: startEpoch + 24 * 60 * 60 * 1000,
+      dateKey,
+    };
   }
 
   static debugLog(tag: string, payload: Record<string, unknown>) {

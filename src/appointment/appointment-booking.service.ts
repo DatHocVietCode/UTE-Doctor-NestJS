@@ -19,6 +19,7 @@ import { AppointmentBookingDto } from './dto/appointment-booking.dto';
 import { AppointmentStatus } from './enums/Appointment-status.enum';
 import { buildEnrichedAppointmentPayload } from './schemas/appointment-enriched';
 import { Appointment, AppointmentDocument } from './schemas/appointment.schema';
+import { AppointmentTimeHelper } from './utils/appointment-time.helper';
 
 @Injectable()
 export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy {
@@ -56,18 +57,35 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     const doctorId = bookingAppointment.doctor?.id as string;
     const slotKey = this.getSlotKey(doctorId, bookingAppointment.timeSlotId);
     const lockValue = bookingId.toString();
-    let normalizedDate: Date;
-    let normalizedDateEpoch: number;
+    let appointmentDateNormalized: Date;
+    let appointmentDateEpoch: number;
+    let bookingDateEpoch: number;
+    let resolvedTimeSlot: Pick<TimeSlotLog, 'start' | 'end'> | null = null;
+    
     try {
-      normalizedDate = TimeHelper.parseISOToUTC(bookingAppointment.date);
-      normalizedDateEpoch = TimeHelper.toEpoch(normalizedDate);
+      // Parse appointmentDate (required): Fallback to legacy 'date' field for backward compatibility.
+      const appointmentDateRaw = bookingAppointment.appointmentDate ?? bookingAppointment.date;
+      if (!appointmentDateRaw) {
+        throw new BadRequestException('appointmentDate is required');
+      }
+      // Single parsing point: normalize the appointment date once to ensure consistency.
+      appointmentDateNormalized = TimeHelper.parseISOToUTC(appointmentDateRaw);
+      appointmentDateEpoch = TimeHelper.toEpoch(appointmentDateNormalized);
+
+      // Parse bookingDate (optional): Default to current server time if not provided.
+      if (bookingAppointment.bookingDate) {
+        bookingDateEpoch = TimeHelper.toEpoch(TimeHelper.parseISOToUTC(bookingAppointment.bookingDate));
+      } else {
+        bookingDateEpoch = Date.now();
+      }
     } catch (error) {
       throw new BadRequestException(error instanceof Error ? error.message : 'Invalid datetime input');
     }
     TimeHelper.debugLog('[TimeDebug]', {
-      input: bookingAppointment.date,
-      parsedUtc: normalizedDate.toISOString(),
-      epoch: normalizedDateEpoch,
+      appointmentDateInput: bookingAppointment.appointmentDate || bookingAppointment.date,
+      appointmentDateParsedUtc: appointmentDateNormalized.toISOString(),
+      appointmentDateEpoch,
+      bookingDateEpoch,
     });
 
     let lockAcquired = false;
@@ -86,7 +104,26 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         };
       }
 
-      const slotAvailable = await this.checkSlotAvailability(doctorId, bookingAppointment.timeSlotId, normalizedDateEpoch);
+      // Resolve the slot once so the appointment stores a stable snapshot.
+      resolvedTimeSlot = await this.timeSlotLogModel
+        .findById(bookingAppointment.timeSlotId)
+        .select('start end')
+        .lean() as Pick<TimeSlotLog, 'start' | 'end'> | null;
+
+      if (!resolvedTimeSlot) {
+        throw new NotFoundException('TimeSlot not found');
+      }
+
+      // Compute the persisted appointment snapshot from the chosen day + slot.
+      // Use the already-normalized date to avoid double parsing.
+      const timeWindow = AppointmentTimeHelper.resolveTimeWindow(appointmentDateNormalized, resolvedTimeSlot);
+
+      const slotAvailable = await this.checkSlotAvailability(
+        doctorId,
+        bookingAppointment.timeSlotId,
+        appointmentDateEpoch,
+        timeWindow.scheduledAt,
+      );
       if (!slotAvailable) {
         await this.safeReleaseSlotLock(slotKey, lockValue);
         return {
@@ -100,7 +137,11 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         bookingId,
         bookingAppointment,
         doctorId,
-        normalizedDate: normalizedDateEpoch,
+        appointmentDateEpoch,
+        bookingDateEpoch,
+        scheduledAt: timeWindow.scheduledAt,
+        startTime: timeWindow.startTime,
+        endTime: timeWindow.endTime,
         lockValue,
         slotKey,
       });
@@ -145,15 +186,22 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     }
   }
 
-  private async checkSlotAvailability(doctorId: string, timeSlotId: string, dateEpoch: number): Promise<boolean> {
+  private async checkSlotAvailability(
+    doctorId: string,
+    timeSlotId: string,
+    bookingDateEpoch: number,
+    scheduledAtEpoch: number,
+  ): Promise<boolean> {
+    // Check both snapshot and legacy date fields until the migration is complete.
     const existingAppointment = await this.appointmentModel.findOne({
       doctorId: new Types.ObjectId(doctorId),
-      $or: [
-        { date: dateEpoch },
-        { date: TimeHelper.fromEpoch(dateEpoch) },
-      ],
       timeSlot: new Types.ObjectId(timeSlotId),
       appointmentStatus: { $in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED] },
+      $or: [
+        { scheduledAt: scheduledAtEpoch },
+        { date: scheduledAtEpoch },
+        { date: bookingDateEpoch },
+      ],
     }).select('_id').lean();
 
     return !existingAppointment;
@@ -163,7 +211,11 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     bookingId: Types.ObjectId;
     bookingAppointment: AppointmentBookingDto;
     doctorId: string;
-    normalizedDate: number;
+    appointmentDateEpoch: number;
+    bookingDateEpoch: number;
+    scheduledAt: number;
+    startTime: number;
+    endTime: number;
     lockValue: string;
     slotKey: string;
   }): Promise<AppointmentDocument> {
@@ -176,7 +228,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         const slotAvailable = await this.checkSlotAvailability(
           input.doctorId,
           input.bookingAppointment.timeSlotId,
-          input.normalizedDate,
+          input.appointmentDateEpoch,
+          input.scheduledAt,
         );
 
         if (!slotAvailable) {
@@ -185,8 +238,13 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
 
         const docs = await this.appointmentModel.create([
           {
+            // Persist the snapshot fields so later reads do not need shift/timeSlot reconstruction.
             _id: input.bookingId,
-            date: input.normalizedDate,
+            date: input.scheduledAt,
+            scheduledAt: input.scheduledAt,
+                        bookingDate: input.bookingDateEpoch,
+            startTime: input.startTime,
+            endTime: input.endTime,
             appointmentStatus: AppointmentStatus.PENDING,
             serviceType: input.bookingAppointment.serviceType,
             consultationFee: input.bookingAppointment.amount ?? undefined,
