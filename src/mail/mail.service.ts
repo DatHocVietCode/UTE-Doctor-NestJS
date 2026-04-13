@@ -17,14 +17,20 @@ export class MailService {
       return;
     }
 
-    await this.mailerService.sendMail({
-      to,
-      subject,
-      html,
-      text: "This email is automatically sent by UTE-Doctor, please do not reply.",
-    });
+    try {
+      await this.mailerService.sendMail({
+        to,
+        subject,
+        html,
+        text: "This email is automatically sent by UTE-Doctor, please do not reply.",
+      });
 
-    console.log(`[MailService] Mail sent to ${to} | Subject: ${subject}`);
+      console.log(`[MailService] Mail sent to ${to} | Subject: ${subject}`);
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[MailService] Failed to send mail to ${to} | Subject: ${subject} | Error: ${errorMsg}`);
+      // Do not rethrow: mail is best-effort and should not crash API flows.
+    }
   }
 
   async sendAccountCreatedMail(payload: { toEmail: string; password: string }) {

@@ -8,6 +8,23 @@
       "skipFiles": ["<node_internals>/**"],
       "runtimeArgs": ["-r", "ts-node/register"],
       "args": ["${workspaceFolder}/src/main.ts"]
+    },
+   {
+      "type": "pwa-node",
+      "request": "launch",
+      "name": "Debug NestJS TS",
+      "runtimeArgs": ["-r", "ts-node/register"],
+      "args": ["${workspaceFolder}/src/main.ts"],
+      "cwd": "${workspaceFolder}",
+      "skipFiles": ["<node_internals>/**"],
+      "console": "integratedTerminal" 
+    },
+    {
+      "type": "node",
+      "request": "attach",
+      "name": "Attach NestJS",
+      "port": 9229,
+      "restart": true
     }
   ]
 }

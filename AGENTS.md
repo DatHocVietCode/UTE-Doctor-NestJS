@@ -161,6 +161,36 @@ npm run test:e2e
 - Do NOT pass raw JWT payload deeper into the system
 - Always use a consistent user shape across layers
 
+## Datetime Rules
+
+- NEVER accept datetime values without timezone information.
+- All incoming datetime values must be ISO 8601 with timezone (`Z` or `+/-HH:mm`).
+- ALWAYS convert datetime to UTC before business logic.
+- ALWAYS store datetime as epoch milliseconds in persistence models when possible.
+- NEVER mix local time strings in business logic.
+- For temporary backward compatibility only, legacy datetime without timezone may fallback to `Asia/Ho_Chi_Minh` and must log `[TimeWarning]`.
+- Register Shift MUST use `startTime` and `endTime` (ISO with timezone); NEVER use `YYYY-MM-DD` date-only payload for scheduling APIs.
+
+## Time Handling Strategy
+
+- All appointment schedule times are stored as epoch milliseconds in UTC.
+- `scheduledAt` is the single source of truth for an appointment's scheduled time.
+- `startTime` and `endTime` are snapshot fields persisted at booking/reschedule time.
+- `shift` and `timeSlot` remain reference data only and must not be used to compute appointment time after booking.
+- Frontend is responsible for timezone rendering; APIs return UTC epoch values.
+- During migration, legacy records may fall back to `date`, but new writes must populate `scheduledAt`.
+
+## Commenting Rule
+
+- From now on, every code change must include concise comments for new or modified logic blocks when the behavior is not immediately obvious.
+- Prefer comments that explain intent, fallback behavior, or invariants rather than restating the code.
+
+## Payment TTL Rules
+
+- Redis slot-lock TTL and pending booking expiration MUST match VNPay expiry window.
+- Source of truth is `VN_PAY_EXPIRE_MINUTES` (default 15).
+- Do NOT hardcode independent TTL values for booking lock/pending cleanup.
+
 Notes:
 - Some folders and filenames are in kebab-case, including Vietnamese names (e.g., `chuyen-khoa`, `tiep-tan`).
 - There is mixed usage of single and double quotes in the codebase; lint/format settings indicate the preferred style is single quotes.

@@ -18,6 +18,7 @@ import { TimeSlotDto } from 'src/timeslot/dtos/timeslot.dto';
 import { TimeSlotStatusEnum } from 'src/timeslot/enums/timeslot-status.enum';
 import { emitTyped } from 'src/utils/helpers/event.helper';
 import { getProfileByEntity } from 'src/utils/helpers/profile.helper';
+import { DateTimeHelper } from 'src/utils/helpers/datetime.helper';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { Doctor, DoctorDocument } from './schema/doctor.schema';
 import { UpdateDoctorDto } from 'src/doctor/dto/update-doctor.dto';
@@ -118,7 +119,7 @@ export class DoctorService {
         phone: createDoctorDto.profile.phone ?? '',
         email: createDoctorDto.profile.email,
         gender: createDoctorDto.profile.gender ?? '',
-        dob: createDoctorDto.profile.dob ? new Date(createDoctorDto.profile.dob) : null,
+        dob: createDoctorDto.profile.dob ? DateTimeHelper.toUtcDate(createDoctorDto.profile.dob) : null,
         avatarUrl: uploadedAvatarUrl ?? createDoctorDto.profile.avatarUrl ?? '',
       });
 

@@ -77,7 +77,9 @@ export class RegisterShiftSaga {
       
       const duplicateResults = await this.eventEmitter.emitAsync("shift.check.duplicate", {
         doctorId: payload.doctorId,
-        date: payload.date,
+        startTimeEpoch: payload.startTimeEpoch,
+        endTimeEpoch: payload.endTimeEpoch,
+        dateKey: payload.dateKey,
         shift: payload.shift,
       });
 
@@ -257,7 +259,8 @@ export class RegisterShiftSaga {
     this.logger.log(`🎉 [Saga] Shift đăng ký thành công:`, {
       shiftId: payload.shift._id,
       doctorId: payload.dto.doctorId,
-      date: payload.dto.date,
+      startTimeUtc: payload.dto.startTimeUtc,
+      endTimeUtc: payload.dto.endTimeUtc,
       shift: payload.dto.shift,
     });
   }
@@ -266,7 +269,8 @@ export class RegisterShiftSaga {
   async handleRegisterFailed(payload: { dto: RegisterShiftDto; reason?: string; error?: string }) {
     this.logger.warn(`⚠️ [Saga] Shift đăng ký thất bại:`, {
       doctorId: payload.dto.doctorId,
-      date: payload.dto.date,
+      startTime: payload.dto.startTime,
+      endTime: payload.dto.endTime,
       shift: payload.dto.shift,
       reason: payload.reason,
       error: payload.error,
