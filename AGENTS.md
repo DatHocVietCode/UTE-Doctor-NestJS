@@ -11,6 +11,7 @@ Top-level:
 - `dist/` Build output (generated)
 - `migration-*.js` Data migration scripts
 - `README*.md`, `MIGRATION_GUIDE.md`, `SCHEMA_CATALOG.md`, `CLOUDINARY_SETUP.md` Project docs
+- `api-contract/README_CHAT_ARCHITECTURE.md` Chat architecture migration overview for FE/BE integration
 - `package.json`, `tsconfig*.json`, `eslint.config.mjs`, `.prettierrc` Tooling configs
 
 Key files in `src/`:
@@ -90,6 +91,9 @@ Environment variables used in the repo (names only; values are sensitive):
 - `OTP_EXPIRES`
 - `VN_PAY_TMNCODE`, `VN_PAY_HASHSECRET`, `VN_PAY_RETURNURL`
 - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
+- `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, `REDIS_PASSWORD`
+- `RABBITMQ_URL`, `RABBITMQ_ENABLED`
+- `CHAT_WRITE_MODE`, `CHAT_REALTIME_MODE`, `CHAT_QUEUE_MAX_RETRY`
 
 ## How to Test
 
@@ -190,6 +194,22 @@ npm run test:e2e
 - Redis slot-lock TTL and pending booking expiration MUST match VNPay expiry window.
 - Source of truth is `VN_PAY_EXPIRE_MINUTES` (default 15).
 - Do NOT hardcode independent TTL values for booking lock/pending cleanup.
+
+## Chat Messaging Migration Rules
+
+- Chat message pipeline is migrating incrementally to queue-based processing; keep backward compatibility at every phase.
+- Queue name for message-created events is `chat.message.created`.
+- Default mode is dual-write (`CHAT_WRITE_MODE=dual`):
+  - Gateway writes message to MongoDB (safe path)
+  - Gateway also publishes event to RabbitMQ for validation/observability
+- Worker mode (`CHAT_WRITE_MODE=worker`) is asynchronous:
+  - Gateway publishes message event and ACKs early
+  - Consumer persists message, updates conversation snapshot, and handles retries
+- Realtime fanout mode:
+  - `CHAT_REALTIME_MODE=direct`: gateway emits socket events directly (legacy-safe)
+  - `CHAT_REALTIME_MODE=redis`: worker publishes to Redis channel and gateway fans out from pub/sub
+- Keep `clientMessageId` idempotency protection enabled (unique sparse index + duplicate skip in worker).
+- Typing/presence events are realtime-only and must not go through RabbitMQ.
 
 Notes:
 - Some folders and filenames are in kebab-case, including Vietnamese names (e.g., `chuyen-khoa`, `tiep-tan`).
