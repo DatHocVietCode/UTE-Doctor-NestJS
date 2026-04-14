@@ -466,7 +466,7 @@ export class ShiftService {
         console.log(`[ShiftService] Đã xóa ${shift.timeSlots.length} TimeSlotLog khi hủy ca`);
       }
 
-      // Tìm tất cả lịch hẹn bị ảnh hưởng để gửi thông báo + email cho bệnh nhân và hoàn coin
+      // Tìm tất cả lịch hẹn bị ảnh hưởng để gửi thông báo + email cho bệnh nhân và hoàn credit
       try {
         const affectedAppointments = await this.appointmentModel
           .find({
@@ -500,8 +500,8 @@ export class ShiftService {
           // Push socket to patient (and optionally doctor room)
           this.eventEmitter.emit('socket.shift.cancelled', payload);
 
-          // Hoàn coin cho bệnh nhân
-          const refundAmount = appt.consultationFee || 100000; // Mặc định 100k nếu không có
+          // Hoàn credit cho bệnh nhân theo số tiền đã thu sau discount.
+          const refundAmount = (appt as any).paymentAmount ?? appt.consultationFee ?? 100000;
           this.eventEmitter.emit('wallet.refund.shift.cancelled', {
             appointmentId: appt._id?.toString?.() ?? String(appt._id),
             patientId: appt.patientId?.toString?.() ?? String(appt.patientId),

@@ -39,6 +39,10 @@ export class Appointment {
     @Prop()
     consultationFee!: number;
 
+    // Snapshot discount from coin usage at booking time.
+    @Prop({ default: 0 })
+    coinDiscountAmount!: number;
+
     @Prop()
     paymentAmount!: number;
 

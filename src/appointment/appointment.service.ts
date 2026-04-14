@@ -428,120 +428,6 @@ export class AppointmentService {
         },
     };
 }
-async rescheduleAppointment(appointmentId: string, newDate: string, newTimeSlotId: string, reason?: string) {
-        // Normalize the new date once at the begin to ensure single source of truth.
-        let normalizedNewDate: Date;
-        try {
-            normalizedNewDate = TimeHelper.parseISOToUTC(newDate);
-        } catch (error) {
-            throw new BadRequestException(error instanceof Error ? error.message : 'Invalid newDate format');
-        }
-
-        const appointment = await this.appointmentModel.findById(appointmentId);
-        if (!appointment) {
-            throw new NotFoundException('Appointment not found');
-        }
-
-        // Only allow rescheduling for PENDING or CONFIRMED appointments
-        if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(appointment.appointmentStatus)) {
-            throw new Error(`Cannot reschedule appointment with status ${appointment.appointmentStatus}`);
-        }
-
-        // ⏰ Time-based reschedule restriction: Cannot reschedule if <= 24 hours before appointment
-        // Use the stored snapshot time so reschedule logic does not depend on shift state.
-        const appointmentScheduledAt = AppointmentTimeHelper.resolveStoredScheduledAt(appointment);
-        if (!appointmentScheduledAt) {
-            throw new Error('Invalid appointment date');
-        }
-        const appointmentTime = appointmentScheduledAt;
-        const currentTime = Date.now();
-        const hoursUntilAppointment = (appointmentTime - currentTime) / (1000 * 60 * 60);
-
-        if (hoursUntilAppointment <= 24) {
-            throw new Error(`Cannot reschedule appointment within 24 hours of scheduled time. Hours remaining: ${hoursUntilAppointment.toFixed(1)}`);
-        }
-
-        // 💰 Tiered refund logic for reschedule (same as cancel)
-        const oldTimeSlotId = appointment.timeSlot;
-        const consultationFee = appointment.consultationFee || 0;
-        let refundAmount = 0;
-        let refundReason = '';
-
-        if (hoursUntilAppointment > 48) {
-            refundAmount = consultationFee;
-            refundReason = '100% refund (rescheduled > 48 hours before)';
-        } else if (hoursUntilAppointment > 24) {
-            refundAmount = Math.ceil(consultationFee * 0.5); // 50% refund
-            refundReason = '50% refund (rescheduled 24-48 hours before)';
-        }
-
-        const newTimeSlot = await this.timeSlotLogModel.findById(newTimeSlotId);
-        if (!newTimeSlot) {
-            throw new NotFoundException('TimeSlot not found');
-        }
-
-        // Recompute the full appointment snapshot for the newly selected slot.
-        // Use the already-normalized date to avoid double parsing.
-        const newSnapshot = AppointmentTimeHelper.resolveTimeWindow(normalizedNewDate, {
-            start: newTimeSlot.start,
-            end: newTimeSlot.end,
-        });
-
-        // Update appointment
-        // Persist the snapshot first; legacy date stays aligned for compatibility.
-        appointment.date = newSnapshot.scheduledAt;
-        appointment.scheduledAt = newSnapshot.scheduledAt;
-        appointment.startTime = newSnapshot.startTime;
-        appointment.endTime = newSnapshot.endTime;
-        appointment.timeSlot = new Types.ObjectId(newTimeSlotId);
-        appointment.appointmentStatus = AppointmentStatus.RESCHEDULED;
-        await appointment.save();
-
-        // Release old time slot
-        const oldTimeSlot = await this.timeSlotLogModel.findById(oldTimeSlotId);
-        if (oldTimeSlot) {
-            oldTimeSlot.status = 'available';
-            await oldTimeSlot.save();
-        }
-
-        // Book new time slot
-        newTimeSlot.status = 'booked';
-        await newTimeSlot.save();
-
-        // Emit reschedule event for wallet refund processing (in coins, 1 coin = 1 VND)
-        this.eventEmitter.emit('appointment.rescheduled', {
-            appointmentId,
-            patientId: appointment.patientId.toString(),
-            consultationFee,
-            refundAmount,
-            refundReason,
-            reason: reason || 'Appointment rescheduled',
-            oldTimeSlotId: oldTimeSlotId.toString(),
-            newTimeSlotId,
-            newDate: TimeHelper.fromEpoch(newSnapshot.scheduledAt),
-            scheduledAt: newSnapshot.scheduledAt,
-            startTime: newSnapshot.startTime,
-            endTime: newSnapshot.endTime,
-        });
-
-        console.log(`[AppointmentService] Rescheduled appointment ${appointmentId} from slot ${oldTimeSlotId} to ${newTimeSlotId}, refund: ${refundAmount} coins (${refundReason})`);
-
-        return {
-            code: 'SUCCESS',
-            message: `Appointment rescheduled successfully (${refundReason})`,
-            data: {
-                appointmentId,
-                refundAmount,
-                refundReason,
-                newDate: TimeHelper.fromEpoch(newSnapshot.scheduledAt),
-                scheduledAt: newSnapshot.scheduledAt,
-                startTime: newSnapshot.startTime,
-                endTime: newSnapshot.endTime,
-                hoursUntilAppointment: hoursUntilAppointment.toFixed(1),
-            },
-        };
-    }
-
 
     async cancelAppointment(appointmentId: string, reason?: string) {
         const appointment = await this.appointmentModel.findById(appointmentId);
@@ -576,7 +462,8 @@ async rescheduleAppointment(appointmentId: string, newDate: string, newTimeSlotI
 
         // 💰 Tiered refund logic based on cancellation timing
         const timeSlotId = appointment.timeSlot;
-        const consultationFee = appointment.consultationFee || 0;
+        // Refund should be based on actual charged amount after discount, not the original fee.
+        const consultationFee = appointment.paymentAmount ?? appointment.consultationFee ?? 0;
         let refundAmount = 0;
         let refundReason = '';
 
@@ -642,7 +529,7 @@ async rescheduleAppointment(appointmentId: string, newDate: string, newTimeSlotI
         }
 
         if (shouldRefund && refundAmount > 0) {
-            // Emit cancel event for wallet refund processing (in coins, 1 coin = 1 VND)
+            // Emit cancel event for refund processing in the credit wallet.
             this.eventEmitter.emit('appointment.cancelled', {
                 appointmentId,
                 patientId: appointment.patientId.toString(),
@@ -652,7 +539,7 @@ async rescheduleAppointment(appointmentId: string, newDate: string, newTimeSlotI
                 reason: reason || 'Appointment cancelled',
                 timeSlotId: timeSlotId.toString(),
             });
-            console.log(`[AppointmentService] Cancelled appointment ${appointmentId}, refund: ${refundAmount} coins (${refundReason})`);
+            console.log(`[AppointmentService] Cancelled appointment ${appointmentId}, refund: ${refundAmount} credit (${refundReason})`);
         } else {
             console.log(`[AppointmentService] Cancelled appointment ${appointmentId} with no refund (${refundReason})`);
         }

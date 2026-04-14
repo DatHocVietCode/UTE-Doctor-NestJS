@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { WalletService } from '../../wallet/wallet.service';
+import { CreditService } from '../../wallet/credit.service';
 
 @Injectable()
 export class CancelListener {
     private readonly logger = new Logger(CancelListener.name);
 
-    constructor(private readonly walletService: WalletService) {}
+    constructor(private readonly creditService: CreditService) {}
 
     @OnEvent('appointment.cancelled')
     async handleAppointmentCancelled(payload: {
@@ -19,20 +19,20 @@ export class CancelListener {
     }) {
         try {
             this.logger.debug(
-                `Processing refund for cancelled appointment ${payload.appointmentId}: ${payload.refundAmount} coins`
+                `Processing refund for cancelled appointment ${payload.appointmentId}: ${payload.refundAmount} credit`
             );
 
-            // Add coins to patient's wallet (100% of consultation fee)
-            await this.walletService.addCoins(
+            // Refund monetary value to credit wallet; coin wallet is reward-only.
+            await this.creditService.addCredit(
                 payload.patientId,
                 payload.refundAmount,
                 `refund-cancel-${payload.appointmentId}`,
                 payload.appointmentId,
-                `Hủy lịch khám, hoàn 100% coin`
+                'Huy lich kham, hoan tien vao credit'
             );
 
             this.logger.log(
-                `Successfully credited ${payload.refundAmount} coins to patient ${payload.patientId} for cancelled appointment ${payload.appointmentId}`
+                `Successfully credited ${payload.refundAmount} credit to patient ${payload.patientId} for cancelled appointment ${payload.appointmentId}`
             );
         } catch (error: any) {
             this.logger.error(
@@ -53,11 +53,11 @@ export class CancelListener {
     }) {
         try {
             this.logger.debug(
-                `Processing refund for shift cancellation (appointment ${payload.appointmentId}): ${payload.refundAmount} coins`
+                `Processing refund for shift cancellation (appointment ${payload.appointmentId}): ${payload.refundAmount} credit`
             );
 
-            // Add coins to patient's wallet
-            await this.walletService.addCoins(
+            // Shift-cancellation refund also goes to credit wallet.
+            await this.creditService.addCredit(
                 payload.patientId,
                 payload.refundAmount,
                 `refund-shift-cancel-${payload.appointmentId}`,
@@ -66,7 +66,7 @@ export class CancelListener {
             );
 
             this.logger.log(
-                `Successfully credited ${payload.refundAmount} coins to patient ${payload.patientId} for shift cancellation (appointment ${payload.appointmentId})`
+                `Successfully credited ${payload.refundAmount} credit to patient ${payload.patientId} for shift cancellation (appointment ${payload.appointmentId})`
             );
         } catch (error: any) {
             this.logger.error(

@@ -145,6 +145,7 @@ npm run test:e2e
 - Prefer direct service-to-service calls over event emitters unless truly asynchronous
 - Standardize authentication using JWT
 - Remove passing userId/email manually in request body or params
+- Separate reward points (`coin`) from monetary value (`credit`) to avoid financial ambiguity
 
 ## Authentication Rules
 
@@ -194,6 +195,16 @@ npm run test:e2e
 - Redis slot-lock TTL and pending booking expiration MUST match VNPay expiry window.
 - Source of truth is `VN_PAY_EXPIRE_MINUTES` (default 15).
 - Do NOT hardcode independent TTL values for booking lock/pending cleanup.
+
+## Wallet Domain Separation Rules
+
+- `Credit` is financial value (money-equivalent) and must be used for payment/refund accounting.
+- `Coin` is reward value and must only be used as discount, never as full payment.
+- Coin discount policy is percentage-based with per-transaction cap.
+- Coin ledger must support expiration (`expiresAt`) and expired coin must be excluded from available balance.
+- Coin cannot be converted to credit and cannot be withdrawn.
+- Booking APIs must return amount breakdown (`originalAmount`, `discountAmount`, `finalAmount`) for FE display consistency.
+- Refund flows (cancel/shift-cancel) should credit `CreditWallet`, not `CoinWallet`.
 
 ## Chat Messaging Migration Rules
 
