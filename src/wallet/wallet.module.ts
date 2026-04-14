@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { CoinService } from './coin.service';
 import { CreditService } from './credit.service';
+import { CoinSpendAllocation, CoinSpendAllocationSchema } from './schemas/coin-spend-allocation.schema';
 import { CoinTransaction, CoinTransactionSchema } from './schemas/coin-transaction.schema';
 import { CoinWallet, CoinWalletSchema } from './schemas/coin-wallet.schema';
 import { CreditTransaction, CreditTransactionSchema } from './schemas/credit-transaction.schema';
@@ -18,6 +19,7 @@ import { WalletService } from './wallet.service';
       { name: WalletTransaction.name, schema: WalletTransactionSchema },
       { name: CoinWallet.name, schema: CoinWalletSchema },
       { name: CoinTransaction.name, schema: CoinTransactionSchema },
+      { name: CoinSpendAllocation.name, schema: CoinSpendAllocationSchema },
       { name: CreditWallet.name, schema: CreditWalletSchema },
       { name: CreditTransaction.name, schema: CreditTransactionSchema },
     ]),
