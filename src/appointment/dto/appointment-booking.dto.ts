@@ -11,15 +11,32 @@ import {
   ValidateNested
 } from "class-validator";
 import { ServiceType } from "src/appointment/enums/service-type.enum";
+import { IsIsoWithTimezone } from "src/common/validators/is-iso-with-timezone.validator";
 import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 
 
-export class AppointmentBookingDto {
+export class AppointmentBookingRequestDto {
   @IsString()
   hospitalName: string;
 
+  // REQUIRED: When the medical visit is scheduled to happen (ISO 8601 with timezone).
   @IsString()
-  date: Date;
+  @IsNotEmpty({ message: 'appointmentDate is required' })
+  @IsIsoWithTimezone({ message: 'appointmentDate must be ISO 8601 with timezone (Z or +/-HH:mm)' })
+  appointmentDate: string;
+
+  // OPTIONAL: When the booking request is created/recorded (ISO 8601 with timezone).
+  // If omitted, server uses current request processing time.
+  @IsOptional()
+  @IsString()
+  @IsIsoWithTimezone({ message: 'bookingDate must be ISO 8601 with timezone (Z or +/-HH:mm)' })
+  bookingDate?: string;
+
+  // Deprecated: Use appointmentDate instead. Retained only for backward compatibility.
+  @IsOptional()
+  @IsString()
+  @IsIsoWithTimezone({ message: 'date must be ISO 8601 with timezone (Z or +/-HH:mm)' })
+  date?: string;
 
   @IsOptional()
   @IsString()
@@ -43,12 +60,6 @@ export class AppointmentBookingDto {
   @IsNumber()
   amount?: number;
 
-  @IsEmail()
-  patientEmail: string;
-
-  @IsMongoId()
-  patientId: string;
-
   @IsString()
   @IsOptional()
   reasonForAppointment: string;
@@ -59,6 +70,14 @@ export class AppointmentBookingDto {
 
   @IsOptional()
   useCoin?: boolean; // Whether to use coins for this appointment
+}
+
+export class AppointmentBookingDto extends AppointmentBookingRequestDto {
+  @IsEmail()
+  patientEmail: string;
+
+  @IsMongoId()
+  patientId: string;
 }
 
 export class DoctorDto {
@@ -73,8 +92,9 @@ export class DoctorDto {
 }
 
 export class PrescriptionItemDto {
+  @IsOptional()
   @IsMongoId()
-  medicineId: string;
+  medicineId?: string;
 
   @IsNotEmpty()
   @IsString()
@@ -115,7 +135,8 @@ export class RescheduleAppointmentDto {
 
   @IsNotEmpty()
   @IsString()
-  newDate: string; // ISO date string
+  @IsIsoWithTimezone({ message: 'newDate must be ISO 8601 with timezone (Z or +/-HH:mm)' })
+  newDate: string;
 
   @IsNotEmpty()
   @IsMongoId()

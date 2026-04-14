@@ -9,7 +9,7 @@ db.timeslotdatas.insertMany([
   { shift: "afternoon", start: "12:00", end: "13:00", label: "Ca trưa 1" },
   { shift: "afternoon", start: "13:00", end: "14:00", label: "Ca trưa 2" },
   { shift: "afternoon", start: "14:00", end: "15:00", label: "Ca trưa 3" },
-  { shift: "afternoon", start: "15:00", end: "15:30", label: "Ca trưa 4" },
+  { shift: "afternoon", start: "15:00", end: "16:00", label: "Ca trưa 4" },
 
   // Ngoài giờ (18:00–21:00)
   { shift: "extra", start: "18:00", end: "19:00", label: "Ca ngoài giờ 1" },

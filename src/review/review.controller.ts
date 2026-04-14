@@ -1,21 +1,33 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
 import { ReviewService } from './review.service';
+import { JwtAuthGuard } from 'src/common/guards/jws-auth.guard';
+import { AuthUser } from 'src/common/interfaces/auth-user';
 
 @Controller('reviews')
 export class ReviewController {
   constructor(private readonly reviewService: ReviewService) {}
 
    @Get('/by-appointment-patient')
+    @UseGuards(JwtAuthGuard)
     async getReviewByAppointmentAndPatient(
+      @Req() req: any,
       @Query('appointmentId') appointmentId: string,
-      @Query('patientId') patientId: string,
     ) {
-      return this.reviewService.findByAppointmentAndPatient(appointmentId, patientId);
+      const user = req.user as AuthUser;
+      if (!user?.patientId) {
+        throw new UnauthorizedException('Unable to identify patient from token');
+      }
+      return this.reviewService.findByAppointmentAndPatient(appointmentId, user);
   }
 
   @Post()
-  async create(@Body() body) {
-    return this.reviewService.create(body);
+  @UseGuards(JwtAuthGuard)
+  async create(@Req() req: any, @Body() body) {
+    const user = req.user as AuthUser;
+    if (!user?.patientId) {
+      throw new UnauthorizedException('Unable to identify patient from token');
+    }
+    return this.reviewService.create(body, user);
   }
 
   @Get()

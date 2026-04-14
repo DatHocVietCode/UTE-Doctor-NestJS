@@ -1,9 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
-import { WalletService } from "../../wallet/wallet.service";
-import { AppointmentService } from "../appointment.service";
-import { AppointmentBookingDto } from "../dto/appointment-booking.dto";
-import { AppointmentStatus } from "../enums/Appointment-status.enum";
 import * as appointmentEnriched from "../schemas/appointment-enriched";
 
 @Injectable()
@@ -12,14 +8,10 @@ export class BookingListener {
 
     constructor(
         private readonly eventEmitter: EventEmitter2,
-        private readonly appointmentService: AppointmentService,
-        private readonly walletService: WalletService
     ) {}
 
     @OnEvent('appointment.booking.success')
     handleBookingCompleted(payload: appointmentEnriched.AppointmentEnriched) {
-        // emit tiếp các side-effect
-        this.appointmentService.updateAppointmentStatus(payload._id.toString(), AppointmentStatus.CONFIRMED);
         this.eventEmitter.emit('notify.patient.booking.success', payload);
         this.eventEmitter.emit('notify.doctor.booking.success', payload);
         this.eventEmitter.emit('mail.patient.booking.success', payload);
@@ -29,50 +21,52 @@ export class BookingListener {
     }
 
     @OnEvent('appointment.booking.pending')
-    handleBookingPending(payload: AppointmentBookingDto) {
-        // Todo: emit tiếp các side-effect
+    handleBookingPending(payload: appointmentEnriched.AppointmentEnriched) {
+        this.logger.debug(`Processing pending booking for appointment ${payload._id}`);
+        // Notify patient
+        this.eventEmitter.emit('notify.patient.booking.pending', payload);
+        
+        // Send email confirmation to patient
+        this.eventEmitter.emit('mail.patient.booking.pending', payload);
+        
+        // TODO: Notify active receptionist when receptionist module is implemented
+        // this.eventEmitter.emit('notify.receptionist.booking.pending', payload);
+        
+        // Notify client via socket
+        this.eventEmitter.emit('socket.appointment.pending', payload);
+        
+        this.logger.log(`Pending booking processed for appointment ${payload._id}`);
     }
 
-    @OnEvent('appointment.store.booking')
-    handleStoreBooking(payload: AppointmentBookingDto) {
-        return this.appointmentService.storeBookingInformation(payload);
-    }
+    @OnEvent('appointment.booking.failed')
+    handleBookingFailed(payload: { patientEmail?: string; reason?: string; appointmentId?: string }) {
+        this.logger.warn(`Processing booking failure:`, payload);
 
-    /**
-     * Handle coin deduction when appointment is booked with coins
-     */
-    @OnEvent('appointment.booking.coin-deduction')
-    async handleCoinDeduction(payload: {
-        appointmentId: string;
-        patientId: string;
-        coinsUsed: number;
-        consultationFee: number;
-    }) {
-        try {
-            this.logger.debug(
-                `Processing coin deduction for appointment ${payload.appointmentId}: ${payload.coinsUsed} coins`
-            );
+        const patientEmail = payload.patientEmail;
+        const appointmentId = payload.appointmentId;
 
-            // Deduct coins from patient's wallet for appointment payment
-            await this.walletService.deductCoins(
-                payload.patientId,
-                payload.coinsUsed,
-                'appointment_booking',
-                payload.appointmentId,
-                `Thanh toán khám chữa bệnh bằng ${payload.coinsUsed} coin (phí: ${payload.consultationFee})`
-            );
+        if (patientEmail) {
+            this.eventEmitter.emit('notify.patient.booking.failed', {
+                patientEmail,
+                reason: payload.reason || 'Payment processing failed',
+                appointmentId,
+            });
 
-            this.logger.log(
-                `Successfully deducted ${payload.coinsUsed} coins from patient ${payload.patientId} for appointment ${payload.appointmentId}`
-            );
-        } catch (error: any) {
-            this.logger.error(
-                `Failed to deduct coins for appointment ${payload.appointmentId}: ${error.message}`,
-                error.stack
-            );
-            // Log error but don't throw - booking should succeed even if coin deduction fails
-            // Admin can manually process refund if needed
+            this.eventEmitter.emit('mail.patient.booking.failed', {
+                patientEmail,
+                reason: payload.reason || 'Payment processing failed',
+                appointmentId,
+            });
         }
+
+        this.eventEmitter.emit('socket.appointment.failed', {
+            success: false,
+            error: payload.reason || 'Payment processing failed',
+            appointmentId,
+            patientEmail,
+        });
+
+        this.logger.log(`Booking failure notification sent for ${patientEmail}`);
     }
 
 }

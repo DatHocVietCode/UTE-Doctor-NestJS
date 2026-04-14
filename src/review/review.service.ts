@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 import { Review, ReviewDocument } from 'src/review/schema/review.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
+import { AuthUser } from 'src/common/interfaces/auth-user';
 
 @Injectable()
 export class ReviewService {
@@ -12,18 +13,26 @@ export class ReviewService {
     private reviewModel: Model<ReviewDocument>,
   ) {}
 
-  async create(data: {
-    doctorId: string;
-    patientId: string;
-    appointmentId: string;
-    rating: number;
-    comment?: string;
-  }): Promise<DataResponse<any>> {
-    const created = await this.reviewModel.create(data);
+  async create(
+    data: {
+      doctorId: string;
+      appointmentId: string;
+      rating: number;
+      comment?: string;
+    },
+    user: AuthUser,
+  ): Promise<DataResponse<any>> {
+    if (!user?.patientId) {
+      throw new NotFoundException('Patient not found');
+    }
+    const created = await this.reviewModel.create({
+      ...data,
+      patientId: user.patientId,
+    });
 
     return {
       code: rc.SUCCESS,
-      message: 'ƒê√°nh gi√° th√†nh c√¥ng',
+      message: '–·nh gi· th‡nh cÙng',
       data: created,
     };
   }
@@ -59,7 +68,7 @@ export class ReviewService {
 
     return {
       code: rc.SUCCESS,
-      message: 'L·∫•y danh s√°ch ƒë√°nh gi√° th√†nh c√¥ng',
+      message: 'L?y danh s·ch d·nh gi· th‡nh cÙng',
       data,
       total,
       page,
@@ -81,11 +90,11 @@ export class ReviewService {
       .populate('patientId')
       .exec();
 
-    if (!review) throw new NotFoundException('Kh√¥ng t√¨m th·∫•y ƒë√°nh gi√°');
+    if (!review) throw new NotFoundException('KhÙng tÏm th?y d·nh gi·');
 
     return {
       code: rc.SUCCESS,
-      message: 'L·∫•y ƒë√°nh gi√° th√†nh c√¥ng',
+      message: 'L?y d·nh gi· th‡nh cÙng',
       data: review,
     };
   }
@@ -102,7 +111,7 @@ export class ReviewService {
 
     return {
       code: rc.SUCCESS,
-      message: 'L·∫•y ƒë√°nh gi√° c·ªßa b√°c sƒ© th√†nh c√¥ng',
+      message: 'L?y d·nh gi· c?a b·c si th‡nh cÙng',
       data: result,
     };
   }
@@ -118,11 +127,11 @@ export class ReviewService {
       { new: true }
     );
 
-    if (!updated) throw new NotFoundException('Kh√¥ng t√¨m th·∫•y ƒë√°nh gi√°');
+    if (!updated) throw new NotFoundException('KhÙng tÏm th?y d·nh gi·');
 
     return {
       code: rc.SUCCESS,
-      message: 'C·∫≠p nh·∫≠t ƒë√°nh gi√° th√†nh c√¥ng',
+      message: 'C?p nh?t d·nh gi· th‡nh cÙng',
       data: updated,
     };
   }
@@ -134,25 +143,26 @@ export class ReviewService {
 
     const deleted = await this.reviewModel.findByIdAndDelete(id);
 
-    if (!deleted) throw new NotFoundException('Kh√¥ng t√¨m th·∫•y ƒë√°nh gi√°');
+    if (!deleted) throw new NotFoundException('KhÙng tÏm th?y d·nh gi·');
 
     return {
       code: rc.SUCCESS,
-      message: 'X√≥a ƒë√°nh gi√° th√†nh c√¥ng',
+      message: 'XÛa d·nh gi· th‡nh cÙng',
       data: deleted,
     };
   }
 
-  async findByAppointmentAndPatient(appointmentId: string, patientId: string) {
+  async findByAppointmentAndPatient(appointmentId: string, user: AuthUser) {
     const dataRes: DataResponse<any> = {
       code: rc.PENDING,
       message: '',
       data: null,
     };
 
-    if (!Types.ObjectId.isValid(appointmentId) || !Types.ObjectId.isValid(patientId)) {
+    const patientId = user?.patientId;
+    if (!patientId || !Types.ObjectId.isValid(appointmentId) || !Types.ObjectId.isValid(patientId)) {
       dataRes.code = rc.ERROR;
-      dataRes.message = 'Gi√° tr·ªã ID kh√¥ng h·ª£p l·ªá';
+      dataRes.message = 'Gi· tr? ID khÙng h?p l?';
       return dataRes;
     }
 
@@ -164,13 +174,13 @@ export class ReviewService {
 
     if (!review) {
       dataRes.code = rc.SUCCESS;
-      dataRes.message = 'Kh√¥ng t√¨m th·∫•y ƒë√°nh gi√° cho cu·ªôc h·∫πn v√† b·ªánh nh√¢n n√†y';
+      dataRes.message = 'KhÙng tÏm th?y d·nh gi· cho cu?c h?n v‡ b?nh nh‚n n‡y';
       dataRes.data = null;
       return dataRes;
     }
 
     dataRes.code = rc.SUCCESS;
-    dataRes.message = 'L·∫•y ƒë√°nh gi√° th√†nh c√¥ng';
+    dataRes.message = 'L?y d·nh gi· th‡nh cÙng';
     dataRes.data = review;
     return dataRes;
   }

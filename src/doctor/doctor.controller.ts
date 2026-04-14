@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UploadedFile, UseGuards, UseInterceptors, UnauthorizedException } from '@nestjs/common';
 import { DoctorService } from './doctor.service';
 import { CreateDoctorDto } from './dto/create-doctor.dto';
 import { Doctor } from './schema/doctor.schema';
@@ -9,6 +9,8 @@ import { Types } from 'mongoose';
 import { UpdateDoctorDto } from 'src/doctor/dto/update-doctor.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as multer from 'multer';
+import { JwtAuthGuard } from 'src/common/guards/jws-auth.guard';
+import { AuthUser } from 'src/common/interfaces/auth-user';
 
 @Controller('doctors')
 export class DoctorController {
@@ -79,13 +81,19 @@ export class DoctorController {
     return this.doctorService.getTimeSlotsByDoctorAndDate(doctorId, date, slotStatus);
   }
 
+  @Get('/me')
+  @UseGuards(JwtAuthGuard)
+  async getDoctorByAccountId(@Req() req: any) {
+    const user = req.user as AuthUser;
+    if (!user?.accountId) {
+      throw new UnauthorizedException('Unable to identify user from token');
+    }
+    return this.doctorService.getDoctorByAccountId(user.accountId);
+  }
+
   @Get(':id')
   async findById(@Param('id') id: string): Promise<Doctor | null> {
     return this.doctorService.findById(id);
-  }
-  @Get('/account/:accountId')
-  async getDoctorByAccountId(@Param('accountId') accountId: string) {
-    return this.doctorService.getDoctorByAccountId(accountId);
   }
 
   @Patch(':id')

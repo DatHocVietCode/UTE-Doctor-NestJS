@@ -1,5 +1,6 @@
 import { SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
 import { OnEvent } from "@nestjs/event-emitter";
+import { JwtService } from '@nestjs/jwt';
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { SocketEventsEnum } from "src/common/enum/socket-events.enum";
@@ -11,8 +12,8 @@ import { Socket } from "socket.io";
 
 @WebSocketGateway({ cors: true, namespace: '/patient-profile' })
 export class PatientProfileGateway extends BaseGateway {
-    constructor(socketRoomService: SocketRoomService) {
-        super(socketRoomService);
+    constructor(socketRoomService: SocketRoomService, jwtService: JwtService) {
+        super(socketRoomService, jwtService);
     }
 
     // Listen for events to push patient profile

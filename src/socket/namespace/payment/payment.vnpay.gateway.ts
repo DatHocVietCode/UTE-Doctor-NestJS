@@ -1,18 +1,19 @@
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
+import { JwtService } from '@nestjs/jwt';
 import { WebSocketGateway } from "@nestjs/websockets";
-import { Appointment } from "src/appointment/schemas/appointment.schema";
 import { SocketEventsEnum } from "src/common/enum/socket-events.enum";
 import { BaseGateway } from "src/socket/base/base.gateway";
 import { SocketRoomService } from "src/socket/socket.service";
 
 
-@WebSocketGateway({ namespace: '/payment/vnpay' })
+@WebSocketGateway({ cors: true, namespace: '/payment/vnpay' })
 export class VnPayGateway extends BaseGateway {
     constructor(
         private readonly eventEmitter: EventEmitter2,
-        socketRoomService: SocketRoomService
+        socketRoomService: SocketRoomService,
+        jwtService: JwtService,
     ) {
-        super(socketRoomService);
+        super(socketRoomService, jwtService);
     }
 
     @OnEvent('payment.vnpay.url.created')
@@ -25,14 +26,9 @@ export class VnPayGateway extends BaseGateway {
         console.log(`[Socket][Payment][VnPay] Sent payment URL to ${payload.email}`);
     }
 
-    @OnEvent('appointment.booking.success')
-    async handleAppointmentBookingSuccess(payload: Appointment) {
-        this.emitToRoom(
-            payload.patientEmail,
-            SocketEventsEnum.APPOINTMENT_BOOKING_SUCCESS,
-            { appointmentId: payload._id, message: 'Appointment booked successfully' }
-        );
-        
-        console.log(`[Socket][Payment][VnPay] Sent appointment booking success to ${payload.patientEmail}`);
+    @OnEvent('payment.update')
+    async handlePaymentUpdate(payload: { orderId: string; status: 'COMPLETED' | 'FAILED' }) {
+        this.emitToAll(SocketEventsEnum.PAYMENT_UPDATE, payload);
+        console.log(`[Socket][Payment] Broadcast payment:update for order ${payload.orderId} status ${payload.status}`);
     }
 }

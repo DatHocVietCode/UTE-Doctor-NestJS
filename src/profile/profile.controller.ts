@@ -1,9 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Put } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Put, Req, UseGuards, UnauthorizedException } from '@nestjs/common';
 import { ProfileService } from './profile.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { Profile } from './schema/profile.schema';
+import { JwtAuthGuard } from 'src/common/guards/jws-auth.guard';
+import { AuthUser } from 'src/common/interfaces/auth-user';
 
 @Controller('profiles')
 export class ProfileController {
@@ -21,12 +23,17 @@ export class ProfileController {
   }
 
   // Chỉnh sửa profile
-  @Patch(':accountId')
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
   async updateProfile(
-    @Param('accountId') accountId: string,
+    @Req() req: any,
     @Body() updateProfileDto: UpdateProfileDto,
   ) {
-    const updated = await this.profileService.update(accountId, updateProfileDto);
+    const user = req.user as AuthUser;
+    if (!user?.accountId) {
+      throw new UnauthorizedException('Unable to identify user from token');
+    }
+    const updated = await this.profileService.update(user.accountId, updateProfileDto);
     return {
         code: rc.SUCCESS,
         message: 'Update profile successfully!',

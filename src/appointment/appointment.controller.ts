@@ -1,14 +1,38 @@
-import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { Types } from "mongoose";
-import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { JwtAuthGuard } from "src/common/guards/jws-auth.guard";
+import { AuthUser } from "src/common/interfaces/auth-user";
+import { AppointmentBookingService } from "./appointment-booking.service";
 import { AppointmentService } from "./appointment.service";
-import { AppointmentBookingDto, CompleteAppointmentDto, RescheduleAppointmentDto } from "./dto/appointment-booking.dto";
+import { AppointmentBookingDto, AppointmentBookingRequestDto, CompleteAppointmentDto, RescheduleAppointmentDto } from "./dto/appointment-booking.dto";
 
 @Controller('appointment')
 export class AppointmentController {
-    constructor(private readonly appointmentService: AppointmentService) {}
+    constructor(
+        private readonly appointmentService: AppointmentService,
+        private readonly appointmentBookingService: AppointmentBookingService,
+    ) {}
+
+    @Get('completed/doctor')
+    @UseGuards(JwtAuthGuard)
+        getCompletedAppointmentsByDoctor(
+        @Req() req: any,
+        @Query('page') page = 1,
+        @Query('limit') limit = 10,
+        @Query('keyword') keyword?: string,
+        ) {
+        const user = req.user as AuthUser;
+        if (!user?.doctorId) {
+            throw new UnauthorizedException('Unable to identify doctor from token');
+        }
+        return this.appointmentService.findCompletedByDoctor(
+            user,
+            Number(page),
+            Number(limit),
+            keyword,
+        );
+    }
 
     @Get('admin')
     async getAppointments(@Query() query: any) {
@@ -30,12 +54,11 @@ export class AppointmentController {
         const pageNum = Math.max(1, parseInt(page) || 1);
         const limitNum = Math.max(1, Math.min(50, parseInt(limit) || 10));
 
-        const patientEmail = req.user.email;
-
-        const data = await this.appointmentService.getAppointmentsByPatientEmail(
-        patientEmail,
-        pageNum,
-        limitNum
+        const user = req.user as AuthUser;
+        const data = await this.appointmentService.getAppointmentsByPatient(
+            user,
+            pageNum,
+            limitNum
         );
 
         return {
@@ -47,19 +70,36 @@ export class AppointmentController {
 
 
     @Post('/book')
-    async bookAppointment(@Body() bookingAppointment: AppointmentBookingDto) {
-        console.log('Received appointment booking:', bookingAppointment);
-        return await this.appointmentService.bookAppointment(bookingAppointment);
+    @UseGuards(JwtAuthGuard)
+    async bookAppointment(@Req() req: any, @Body() bookingAppointment: AppointmentBookingRequestDto) {
+        const user = req.user as AuthUser;
+        if (!user?.email || !user?.accountId) {
+            console.warn('User information missing in token:', user);
+            throw new UnauthorizedException('Unable to identify user from token');
+        }
+        const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1';
+        const payload: AppointmentBookingDto = {
+            ...bookingAppointment,
+            patientEmail: user.email,
+            patientId: user.patientId!,
+        };
+        console.log('Received appointment booking:', payload);
+        return await this.appointmentBookingService.bookAppointment(payload, clientIp as string);
     }
 
     @Get('/today')
-    async getTodayAppointments(@Query('doctorId') doctorId: string) {
-        console.log(`[AppointmentController] GET /today?doctorId=${doctorId}`);
+    @UseGuards(JwtAuthGuard)
+    async getTodayAppointments(@Req() req: any) {
+        const user = req.user as AuthUser;
+        if (!user?.doctorId) {
+            throw new UnauthorizedException('Unable to identify doctor from token');
+        }
+        console.log(`[AppointmentController] GET /today?doctorId=${user.doctorId}`);
         try {
-            const res = await this.appointmentService.getTodayAppointments(doctorId);
+            const res = await this.appointmentService.getTodayAppointments(user);
             console.log('[AppointmentController] Response data:', JSON.stringify(res?.data ?? res));
             return res;
-        } catch (error) {
+        } catch (error: any) {
             console.error('[AppointmentController] Error in getTodayAppointments:', error?.message ?? error);
             throw error;
         }
@@ -89,10 +129,10 @@ export class AppointmentController {
     @UseGuards(JwtAuthGuard)
     async rescheduleAppointment(@Body() dto: RescheduleAppointmentDto, @Req() req: any) {
         try {
-            const newDate = new Date(dto.newDate);
+            // The service now resolves the snapshot time from the selected slot and date.
             const result = await this.appointmentService.rescheduleAppointment(
                 dto.appointmentId,
-                newDate,
+                dto.newDate,
                 dto.newTimeSlotId,
                 dto.reason
             );
@@ -106,6 +146,7 @@ export class AppointmentController {
     @UseGuards(JwtAuthGuard)
     async cancelAppointment(@Body() dto: { appointmentId: string; reason?: string }, @Req() req: any) {
         try {
+            // Cancellation timing checks are centralized in the service against scheduledAt.
             const result = await this.appointmentService.cancelAppointment(
                 dto.appointmentId,
                 dto.reason
@@ -116,5 +157,10 @@ export class AppointmentController {
         }
     }
 
-    
+    @Patch(':id/confirm')
+    confirmAppointment(@Param('id') id: string) {
+        return this.appointmentService.confirmAppointment(id);
+    }
+
+
 }

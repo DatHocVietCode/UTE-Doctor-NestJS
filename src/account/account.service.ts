@@ -10,6 +10,7 @@ import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { Account, AccountDocument } from './schemas/account.schema';
 import { AccountStatusEnum } from 'src/common/enum/account-status.enum';
+import { DateTimeHelper } from 'src/utils/helpers/datetime.helper';
 @Injectable()
 export class AccountService {
     constructor(
@@ -157,7 +158,7 @@ export class AccountService {
             if (updateProfileDto.phoneNumber !== undefined) profileUpdateData.phone = updateProfileDto.phoneNumber;
             if (updateProfileDto.dateOfBirth !== undefined) {
                 const dobVal = updateProfileDto.dateOfBirth;
-                profileUpdateData.dob = typeof dobVal === 'string' ? new Date(dobVal) : dobVal;
+                profileUpdateData.dob = typeof dobVal === 'string' ? DateTimeHelper.toUtcDate(dobVal) : dobVal;
             }
             if (updateProfileDto.address !== undefined) profileUpdateData.address = updateProfileDto.address;
             if (updateProfileDto.gender !== undefined) profileUpdateData.gender = updateProfileDto.gender;
@@ -215,6 +216,8 @@ export class AccountService {
             message: '',
             data: null,
         };
+
+        console.log('[AccountService]: Changing password for accountId:', accountId);
 
         try {
             const account = await this.accountModel.findById(accountId).exec();

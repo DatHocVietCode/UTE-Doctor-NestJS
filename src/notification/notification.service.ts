@@ -177,5 +177,29 @@ export class NotificationService {
             message,
         });
     }
+
+    async createPatientAppointmentCancellationNotification(payload: {
+        patientEmail: string;
+        doctorName?: string;
+        date: string;
+        timeSlot: string;
+        hospitalName?: string;
+        reason?: string;
+    }) {
+        const timeSlotName = await emitTyped<string, string>(
+            this.eventEmitter,
+            'timeslot.get.name.by.id',
+            payload.timeSlot
+        );
+
+        const title = 'Thông báo hủy lịch khám';
+        const message = `Lịch khám ngày ${payload.date} lúc ${timeSlotName}${payload.hospitalName ? ` tại ${payload.hospitalName}` : ''} đã bị hủy${payload.doctorName ? ` bởi bác sĩ ${payload.doctorName}` : ''}${payload.reason ? `. Lý do: ${payload.reason}` : ''}.`; 
+
+        await this.storeNewNotification({
+            receiverEmail: [payload.patientEmail],
+            title,
+            message,
+        });
+    }
 }
 

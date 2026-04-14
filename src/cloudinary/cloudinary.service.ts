@@ -31,4 +31,25 @@ export class CloudinaryService {
     const dataUri = `data:${mimetype};base64,${fileBuffer.toString('base64')}`;
     return this.uploadBase64(dataUri, folder);
   }
+
+  async uploadVideoBuffer(
+    fileBuffer: Buffer,
+    mimetype: string,
+    folder?: string,
+  ): Promise<string> {
+    try {
+      const dataUri = `data:${mimetype};base64,${fileBuffer.toString('base64')}`;
+
+      const result = await cloudinary.uploader.upload(dataUri, {
+        resource_type: 'video',
+        folder,
+      });
+
+      this.logger.log(`Video uploaded: ${result.secure_url}`);
+      return result.secure_url;
+    } catch (error) {
+      this.logger.error('Cloudinary video upload failed', error as any);
+      throw error;
+    }
+  }
 }

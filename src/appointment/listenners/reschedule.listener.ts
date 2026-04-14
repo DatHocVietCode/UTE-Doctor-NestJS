@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { WalletService } from '../../wallet/wallet.service';
+import { DateTimeHelper } from 'src/utils/helpers/datetime.helper';
 
 @Injectable()
 export class RescheduleListener {
@@ -24,13 +25,28 @@ export class RescheduleListener {
                 `Processing refund for appointment ${payload.appointmentId}: ${payload.refundAmount} coins`
             );
 
+            const oldDateText = DateTimeHelper.formatUtc(payload.oldTimeSlotId, 'vi-VN', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+            }) ?? 'N/A';
+            const newDateText = DateTimeHelper.formatUtc(payload.newDate, 'vi-VN', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+            }) ?? 'N/A';
+
             // Add coins to patient's wallet (80% of consultation fee)
             await this.walletService.addCoins(
                 payload.patientId,
                 payload.refundAmount,
                 `refund-reschedule-${payload.appointmentId}`,
                 payload.appointmentId,
-                `Hoãn lịch khám từ ${new Date(payload.oldTimeSlotId).toLocaleString('vi-VN')} sang ${new Date(payload.newDate).toLocaleString('vi-VN')}`
+                `HoÃ£n lá»‹ch khÃ¡m tá»« ${oldDateText} sang ${newDateText}`
             );
 
             this.logger.log(
