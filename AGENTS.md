@@ -145,6 +145,7 @@ npm run test:e2e
 - Prefer direct service-to-service calls over event emitters unless truly asynchronous
 - Standardize authentication using JWT
 - Remove passing userId/email manually in request body or params
+- Separate reward points (`coin`) from monetary value (`credit`) to avoid financial ambiguity
 
 ## Authentication Rules
 
@@ -195,6 +196,16 @@ npm run test:e2e
 - Source of truth is `VN_PAY_EXPIRE_MINUTES` (default 15).
 - Do NOT hardcode independent TTL values for booking lock/pending cleanup.
 
+## Wallet Domain Separation Rules
+
+- `Credit` is financial value (money-equivalent) and must be used for payment/refund accounting.
+- `Coin` is reward value and must only be used as discount, never as full payment.
+- Coin discount policy is percentage-based with per-transaction cap.
+- Coin ledger must support expiration (`expiresAt`) and expired coin must be excluded from available balance.
+- Coin cannot be converted to credit and cannot be withdrawn.
+- Booking APIs must return amount breakdown (`originalAmount`, `discountAmount`, `finalAmount`) for FE display consistency.
+- Refund flows (cancel/shift-cancel) should credit `CreditWallet`, not `CoinWallet`.
+
 ## Chat Messaging Migration Rules
 
 - Chat message pipeline is migrating incrementally to queue-based processing; keep backward compatibility at every phase.
@@ -210,6 +221,13 @@ npm run test:e2e
   - `CHAT_REALTIME_MODE=redis`: worker publishes to Redis channel and gateway fans out from pub/sub
 - Keep `clientMessageId` idempotency protection enabled (unique sparse index + duplicate skip in worker).
 - Typing/presence events are realtime-only and must not go through RabbitMQ.
+
+## API Contract Submodule Rules
+
+- `api-contract/` is a separate submodule and the source of truth for FE integration contracts.
+- After ANY edit in `api-contract/` (for example `api-contract/api.md`), you MUST commit and push that submodule immediately.
+- Do NOT delay contract-submodule push until BE root changes are ready; FE integration depends on latest submodule state.
+- When sharing updates with FE, always provide the pushed submodule branch and latest commit hash.
 
 Notes:
 - Some folders and filenames are in kebab-case, including Vietnamese names (e.g., `chuyen-khoa`, `tiep-tan`).

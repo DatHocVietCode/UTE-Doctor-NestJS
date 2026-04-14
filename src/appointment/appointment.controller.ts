@@ -4,14 +4,17 @@ import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { JwtAuthGuard } from "src/common/guards/jws-auth.guard";
 import { AuthUser } from "src/common/interfaces/auth-user";
 import { AppointmentBookingService } from "./appointment-booking.service";
+import { AppointmentRescheduleService } from "./appointment-reschedule.service";
 import { AppointmentService } from "./appointment.service";
-import { AppointmentBookingDto, AppointmentBookingRequestDto, CompleteAppointmentDto, RescheduleAppointmentDto } from "./dto/appointment-booking.dto";
+import { AppointmentBookingDto, AppointmentBookingRequestDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
+import { AppointmentRescheduleDto } from './dto/appointment-reschedule.dto';
 
 @Controller('appointment')
 export class AppointmentController {
     constructor(
         private readonly appointmentService: AppointmentService,
         private readonly appointmentBookingService: AppointmentBookingService,
+        private readonly appointmentRescheduleService: AppointmentRescheduleService,
     ) {}
 
     @Get('completed/doctor')
@@ -125,16 +128,19 @@ export class AppointmentController {
 
         return appointment;
     }
-    @Patch('/reschedule')
+    @Patch(':id/reschedule')
     @UseGuards(JwtAuthGuard)
-    async rescheduleAppointment(@Body() dto: RescheduleAppointmentDto, @Req() req: any) {
+    async rescheduleAppointment(
+        @Param('id') appointmentId: string,
+        @Body() dto: AppointmentRescheduleDto,
+        @Req() req: any,
+    ) {
         try {
-            // The service now resolves the snapshot time from the selected slot and date.
-            const result = await this.appointmentService.rescheduleAppointment(
-                dto.appointmentId,
-                dto.newDate,
-                dto.newTimeSlotId,
-                dto.reason
+            const result = await this.appointmentRescheduleService.rescheduleAppointment(
+                {
+                    ...dto,
+                    appointmentId,
+                },
             );
             return result;
         } catch (error: any) {

@@ -163,8 +163,8 @@ export class MailService {
     );
 
     const refundLine = payload.shouldRefund && payload.refundAmount !== undefined
-      ? `<p>Số coin hoàn: <b>${payload.refundAmount}</b></p>`
-      : '<p>Đơn hủy không phát sinh hoàn coin.</p>';
+      ? `<p>Số credit hoàn: <b>${payload.refundAmount}</b></p>`
+      : '<p>Đơn hủy không phát sinh hoàn credit.</p>';
 
     const html = `
       <h2>Xin chào ${payload.patientEmail},</h2>
