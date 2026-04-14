@@ -30,9 +30,10 @@ export class VnPayPaymentService {
     try {
       // Xử lý IP address: extract IPv4 từ IPv6 hoặc x-forwarded-for
       const ipAddr = this.extractIPv4(ip);
+      const amountVnd = Math.max(0, Math.floor(amount || 0));
 
       const paymentParams = {
-        vnp_Amount: amount * 100,
+        vnp_Amount: amountVnd,
         vnp_IpAddr: ipAddr,
         vnp_TxnRef: orderId,
         vnp_OrderInfo: `Thanh toan don hang ${orderId}`,
@@ -88,7 +89,8 @@ export class VnPayPaymentService {
       console.log('[VNPay] return query:', query);
       const isValid = this.vnpay.verifyReturnUrl(query as any);
       const orderId = String(query['vnp_TxnRef'] || '');
-      const amount = Number(query['vnp_Amount'] || 0) / 100;
+      // Convert back from VNPay smallest unit to VND at boundary layer.
+      const amount = Math.max(0, Math.floor(Number(query['vnp_Amount'] || 0) / 100));
       const responseCode = String(query['vnp_ResponseCode'] || '');
       const transactionStatus = String(query['vnp_TransactionStatus'] || '');
       const paidAt = this.parseVnpPayDateToUtc(query['vnp_PayDate']);

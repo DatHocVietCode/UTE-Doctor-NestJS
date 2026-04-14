@@ -1,8 +1,8 @@
 import { Body, Controller, HttpException, HttpStatus, Post } from "@nestjs/common";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode as rc } from "src/common/enum/reponse-code.enum";
-import { LoginUserReqDto, RegisterUserReqDto } from "./dto/auth-user.dto";
 import { AuthService } from "./auth.service";
+import { LoginUserReqDto, RegisterUserReqDto } from "./dto/auth-user.dto";
 
 @Controller("auth")
 export class AuthController
@@ -78,6 +78,10 @@ export class AuthController
             if (result.code === rc.SUCCESS) return result;
             throw new HttpException(result.message, HttpStatus.UNAUTHORIZED);
         } catch (err: any) {
+            // Preserve explicit HTTP exceptions (especially 401) for FE refresh flow handling.
+            if (err instanceof HttpException) {
+                throw err;
+            }
             throw new HttpException(
                 { code: rc.SERVER_ERROR, message: err?.message ?? err, data: null },
                 HttpStatus.INTERNAL_SERVER_ERROR,

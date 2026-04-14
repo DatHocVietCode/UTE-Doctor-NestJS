@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { WalletService } from '../../wallet/wallet.service';
+import { CreditService } from '../../wallet/credit.service';
 
 @Injectable()
 export class CancelListener {
     private readonly logger = new Logger(CancelListener.name);
 
-    constructor(private readonly walletService: WalletService) {}
+    constructor(private readonly creditService: CreditService) {}
 
     @OnEvent('appointment.cancelled')
     async handleAppointmentCancelled(payload: {
@@ -18,21 +18,50 @@ export class CancelListener {
         timeSlotId: string;
     }) {
         try {
-            this.logger.debug(
-                `Processing refund for cancelled appointment ${payload.appointmentId}: ${payload.refundAmount} coins`
+            const idempotencyReason = `refund-cancel-${payload.appointmentId}`;
+            const alreadyRefunded = await this.creditService.hasCompletedCreditTransaction(
+                payload.appointmentId,
+                idempotencyReason,
             );
 
-            // Add coins to patient's wallet (100% of consultation fee)
-            await this.walletService.addCoins(
+            if (alreadyRefunded) {
+                this.logger.warn(
+                    `Skip duplicate cancel refund for appointment ${payload.appointmentId}`,
+                );
+                return;
+            }
+
+            // Refund must never exceed original charged fee.
+            const normalizedRefundAmount = Math.max(
+                0,
+                Math.min(
+                    Math.floor(payload.refundAmount || 0),
+                    Math.max(0, Math.floor(payload.consultationFee || 0)),
+                ),
+            );
+
+            if (normalizedRefundAmount <= 0) {
+                this.logger.warn(
+                    `Skip cancel refund for appointment ${payload.appointmentId}: normalized refund is 0`,
+                );
+                return;
+            }
+
+            this.logger.debug(
+                `Processing refund for cancelled appointment ${payload.appointmentId}: ${normalizedRefundAmount} credit`
+            );
+
+            // Refund monetary value to credit wallet; coin wallet is reward-only.
+            await this.creditService.addCredit(
                 payload.patientId,
-                payload.refundAmount,
-                `refund-cancel-${payload.appointmentId}`,
+                normalizedRefundAmount,
+                idempotencyReason,
                 payload.appointmentId,
-                `Hủy lịch khám, hoàn 100% coin`
+                'Huy lich kham, hoan tien vao credit'
             );
 
             this.logger.log(
-                `Successfully credited ${payload.refundAmount} coins to patient ${payload.patientId} for cancelled appointment ${payload.appointmentId}`
+                `Successfully credited ${normalizedRefundAmount} credit to patient ${payload.patientId} for cancelled appointment ${payload.appointmentId}`
             );
         } catch (error: any) {
             this.logger.error(
@@ -52,21 +81,42 @@ export class CancelListener {
         reason: string;
     }) {
         try {
-            this.logger.debug(
-                `Processing refund for shift cancellation (appointment ${payload.appointmentId}): ${payload.refundAmount} coins`
+            const idempotencyReason = `refund-shift-cancel-${payload.appointmentId}`;
+            const alreadyRefunded = await this.creditService.hasCompletedCreditTransaction(
+                payload.appointmentId,
+                idempotencyReason,
             );
 
-            // Add coins to patient's wallet
-            await this.walletService.addCoins(
+            if (alreadyRefunded) {
+                this.logger.warn(
+                    `Skip duplicate shift-cancel refund for appointment ${payload.appointmentId}`,
+                );
+                return;
+            }
+
+            const normalizedRefundAmount = Math.max(0, Math.floor(payload.refundAmount || 0));
+            if (normalizedRefundAmount <= 0) {
+                this.logger.warn(
+                    `Skip shift-cancel refund for appointment ${payload.appointmentId}: normalized refund is 0`,
+                );
+                return;
+            }
+
+            this.logger.debug(
+                `Processing refund for shift cancellation (appointment ${payload.appointmentId}): ${normalizedRefundAmount} credit`
+            );
+
+            // Shift-cancellation refund also goes to credit wallet.
+            await this.creditService.addCredit(
                 payload.patientId,
-                payload.refundAmount,
-                `refund-shift-cancel-${payload.appointmentId}`,
+                normalizedRefundAmount,
+                idempotencyReason,
                 payload.appointmentId,
                 payload.reason
             );
 
             this.logger.log(
-                `Successfully credited ${payload.refundAmount} coins to patient ${payload.patientId} for shift cancellation (appointment ${payload.appointmentId})`
+                `Successfully credited ${normalizedRefundAmount} credit to patient ${payload.patientId} for shift cancellation (appointment ${payload.appointmentId})`
             );
         } catch (error: any) {
             this.logger.error(

@@ -66,10 +66,10 @@ export class AppointmentBookingRequestDto {
 
   @IsOptional()
   @IsNumber()
-  coinsToUse?: number; // Number of coins to use for payment
+  coinsToUse?: number; // Optional discount amount requested by user, capped by policy.
 
   @IsOptional()
-  useCoin?: boolean; // Whether to use coins for this appointment
+  useCoin?: boolean; // Whether to apply coin discount on this appointment.
 }
 
 export class AppointmentBookingDto extends AppointmentBookingRequestDto {
@@ -126,23 +126,4 @@ export class CompleteAppointmentDto {
   @ValidateNested({ each: true })
   @Type(() => PrescriptionItemDto)
   prescriptions: PrescriptionItemDto[];
-}
-
-export class RescheduleAppointmentDto {
-  @IsNotEmpty()
-  @IsMongoId()
-  appointmentId: string;
-
-  @IsNotEmpty()
-  @IsString()
-  @IsIsoWithTimezone({ message: 'newDate must be ISO 8601 with timezone (Z or +/-HH:mm)' })
-  newDate: string;
-
-  @IsNotEmpty()
-  @IsMongoId()
-  newTimeSlotId: string;
-
-  @IsString()
-  @IsOptional()
-  reason?: string;
 }
