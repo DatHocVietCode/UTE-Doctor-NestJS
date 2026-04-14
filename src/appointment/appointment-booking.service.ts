@@ -14,23 +14,33 @@ import { Payment } from 'src/payment/schemas/payment.schema';
 import { BOOKING_PENDING_TTL_SECONDS, VNPAY_EXPIRE_MINUTES } from 'src/payment/vnpay/vnpay-timeout.config';
 import { TimeSlotLog, TimeSlotLogDocument } from 'src/timeslot/schemas/timeslot-log.schema';
 import { TimeHelper } from 'src/utils/helpers/time.helper';
-import { WalletService } from 'src/wallet/wallet.service';
+import { CoinService } from 'src/wallet/coin.service';
+import { CreditService } from 'src/wallet/credit.service';
 import { AppointmentBookingDto } from './dto/appointment-booking.dto';
 import { AppointmentStatus } from './enums/Appointment-status.enum';
 import { buildEnrichedAppointmentPayload } from './schemas/appointment-enriched';
 import { Appointment, AppointmentDocument } from './schemas/appointment.schema';
 import { AppointmentTimeHelper } from './utils/appointment-time.helper';
 
+type BookingAmountBreakdown = {
+  originalAmount: number;
+  discountAmount: number;
+  finalAmount: number;
+};
+
 @Injectable()
 export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AppointmentBookingService.name);
   private cleanupTimer?: NodeJS.Timeout;
+  private readonly coinDiscountRate = 0.1;
+  private readonly coinDiscountCap = 30000;
 
   constructor(
     private readonly eventEmitter: EventEmitter2,
     private readonly paymentService: PaymentService,
     private readonly redisService: RedisService,
-    private readonly walletService: WalletService,
+    private readonly coinService: CoinService,
+    private readonly creditService: CreditService,
     @InjectModel(Appointment.name) private readonly appointmentModel: Model<Appointment>,
     @InjectModel(TimeSlotLog.name) private readonly timeSlotLogModel: Model<TimeSlotLogDocument>,
     @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
@@ -60,6 +70,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     let appointmentDateNormalized: Date;
     let appointmentDateEpoch: number;
     let bookingDateEpoch: number;
+    let bookingAmounts = this.getDefaultAmountBreakdown(bookingAppointment.amount);
     let resolvedTimeSlot: Pick<TimeSlotLog, 'start' | 'end'> | null = null;
     
     try {
@@ -129,9 +140,14 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         return {
           code: ResponseCode.ERROR,
           message: 'Slot already booked',
-          data: null,
+          data: {
+            ...bookingAmounts,
+          },
         };
       }
+
+      // Coins now act as discount-only; final payment is handled by ONLINE/VNPAY or CREDIT.
+      bookingAmounts = await this.calculateBookingAmounts(bookingAppointment);
 
       const appointmentDoc = await this.createAppointmentWithTransaction({
         bookingId,
@@ -142,16 +158,64 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         scheduledAt: timeWindow.scheduledAt,
         startTime: timeWindow.startTime,
         endTime: timeWindow.endTime,
+        originalAmount: bookingAmounts.originalAmount,
+        discountAmount: bookingAmounts.discountAmount,
+        finalAmount: bookingAmounts.finalAmount,
         lockValue,
         slotKey,
       });
 
-      if (bookingAppointment.paymentMethod === PaymentMethodEnum.ONLINE) {
-        return await this.handleOnlinePayment(appointmentDoc, bookingAppointment, clientIp, lockValue, slotKey);
+      if (bookingAmounts.discountAmount > 0) {
+        const coinPaymentResult = await this.coinService.spendCoins(
+          bookingAppointment.patientId,
+          bookingAmounts.discountAmount,
+          'appointment_booking_discount',
+          appointmentDoc._id.toString(),
+          `Apply ${bookingAmounts.discountAmount} coin discount for appointment booking`,
+        );
+
+        if (coinPaymentResult.code !== ResponseCode.SUCCESS) {
+          return await this.failBooking(
+            appointmentDoc._id.toString(),
+            coinPaymentResult.message || 'Coin discount application failed',
+            lockValue,
+            slotKey,
+            undefined,
+            bookingAmounts,
+          );
+        }
       }
 
-      if (bookingAppointment.paymentMethod === PaymentMethodEnum.COIN) {
-        return await this.handleCoinPayment(appointmentDoc, bookingAppointment, lockValue, slotKey);
+      if (bookingAmounts.finalAmount === 0) {
+        return await this.confirmBooking(
+          appointmentDoc._id.toString(),
+          lockValue,
+          slotKey,
+          'Appointment confirmed successfully',
+          {
+            amount: 0,
+            paidAt: new Date(),
+          },
+          bookingAmounts,
+        );
+      }
+
+      if (
+        bookingAppointment.paymentMethod === PaymentMethodEnum.ONLINE ||
+        bookingAppointment.paymentMethod === PaymentMethodEnum.VNPAY
+      ) {
+        return await this.handleOnlinePayment(
+          appointmentDoc,
+          bookingAppointment,
+          clientIp,
+          lockValue,
+          slotKey,
+          bookingAmounts,
+        );
+      }
+
+      if (bookingAppointment.paymentMethod === PaymentMethodEnum.CREDIT) {
+        return await this.handleCreditPayment(appointmentDoc, bookingAppointment, lockValue, slotKey, bookingAmounts);
       }
 
       return await this.failBooking(
@@ -159,6 +223,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         'Offline payment is not supported',
         lockValue,
         slotKey,
+        undefined,
+        bookingAmounts,
       );
     } catch (error: any) {
       if (error instanceof BadRequestException) {
@@ -173,7 +239,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         return {
           code: ResponseCode.ERROR,
           message: 'Slot already booked',
-          data: null,
+          data: {
+            ...bookingAmounts,
+          },
         };
       }
 
@@ -181,7 +249,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       return {
         code: ResponseCode.ERROR,
         message: error?.message || 'Booking failed',
-        data: null,
+        data: {
+          ...bookingAmounts,
+        },
       };
     }
   }
@@ -216,6 +286,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     scheduledAt: number;
     startTime: number;
     endTime: number;
+    originalAmount: number;
+    discountAmount: number;
+    finalAmount: number;
     lockValue: string;
     slotKey: string;
   }): Promise<AppointmentDocument> {
@@ -247,8 +320,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
             endTime: input.endTime,
             appointmentStatus: AppointmentStatus.PENDING,
             serviceType: input.bookingAppointment.serviceType,
-            consultationFee: input.bookingAppointment.amount ?? undefined,
-            paymentAmount: input.bookingAppointment.amount ?? undefined,
+                        consultationFee: input.originalAmount,
+                        coinDiscountAmount: input.discountAmount,
+                        paymentAmount: input.finalAmount,
             timeSlot: new Types.ObjectId(input.bookingAppointment.timeSlotId),
             patientId: new Types.ObjectId(input.bookingAppointment.patientId),
             doctorId: new Types.ObjectId(input.doctorId),
@@ -290,9 +364,10 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     clientIp: string,
     lockValue: string,
     slotKey: string,
+    amounts: BookingAmountBreakdown,
   ): Promise<DataResponse> {
     const appointmentId = appointmentDoc._id.toString();
-    const amount = bookingAppointment.amount ?? 0;
+    const amount = amounts.finalAmount;
 
     try {
       const existingPayment = await this.paymentModel.findOne({
@@ -305,6 +380,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
           message: 'Payment already initiated for this appointment',
           data: {
             appointmentId,
+            ...amounts,
           },
         };
       }
@@ -328,6 +404,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         data: {
           appointmentId,
           paymentUrl,
+          ...amounts,
         },
       };
     } catch (error: any) {
@@ -337,6 +414,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
           message: 'Payment already initiated for this appointment',
           data: {
             appointmentId,
+            ...amounts,
           },
         };
       }
@@ -346,35 +424,49 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         error?.message || 'Booking failed',
         lockValue,
         slotKey,
+        undefined,
+        amounts,
       );
     }
   }
 
-  private async handleCoinPayment(
+  private async handleCreditPayment(
     appointmentDoc: AppointmentDocument,
     bookingAppointment: AppointmentBookingDto,
     lockValue: string,
     slotKey: string,
+    amounts: BookingAmountBreakdown,
   ): Promise<DataResponse> {
-    const coinsToUse = bookingAppointment.coinsToUse ?? bookingAppointment.amount ?? 0;
-    const paymentResult = await this.walletService.deductCoins(
+    const paymentResult = await this.creditService.deductCredit(
       bookingAppointment.patientId,
-      coinsToUse,
+      amounts.finalAmount,
       'appointment_booking',
       appointmentDoc._id.toString(),
-      `Thanh toán khám chữa bệnh bằng ${coinsToUse} coin`,
+      `Thanh toan lich kham bang credit: ${amounts.finalAmount}`,
     );
 
     if (paymentResult.code !== ResponseCode.SUCCESS) {
       return await this.failBooking(
         appointmentDoc._id.toString(),
-        paymentResult.message || 'Coin payment failed',
+        paymentResult.message || 'Credit payment failed',
         lockValue,
         slotKey,
+        undefined,
+        amounts,
       );
     }
 
-    return await this.confirmBooking(appointmentDoc._id.toString(), lockValue, slotKey, paymentResult.message);
+    return await this.confirmBooking(
+      appointmentDoc._id.toString(),
+      lockValue,
+      slotKey,
+      paymentResult.message,
+      {
+        amount: amounts.finalAmount,
+        paidAt: new Date(),
+      },
+      amounts,
+    );
   }
 
   private buildSlotBookedError() {
@@ -392,10 +484,10 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
 
   async handleVnpayReturn(orderId: string, success: boolean, reason?: string): Promise<DataResponse> {
     if (success) {
-      return this.confirmBooking(orderId, undefined, undefined, reason);
+      return this.confirmBooking(orderId, undefined, undefined, reason, undefined, undefined);
     }
 
-    return this.failBooking(orderId, reason || 'Payment failed', undefined, undefined);
+    return this.failBooking(orderId, reason || 'Payment failed', undefined, undefined, undefined, undefined);
   }
 
   async getPaymentStatus(orderId: string): Promise<{
@@ -433,7 +525,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         paidAt: input.paidAt,
         responseCode: input.responseCode,
         transactionStatus: input.transactionStatus,
-      });
+      }, undefined);
     }
 
     return this.failBooking(input.orderId, input.reason || 'Payment failed', undefined, undefined, {
@@ -441,7 +533,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       paidAt: input.paidAt,
       responseCode: input.responseCode,
       transactionStatus: input.transactionStatus,
-    });
+    }, undefined);
   }
 
   private async confirmBooking(
@@ -450,6 +542,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     slotKey?: string,
     note?: string,
     paymentMeta?: { amount?: number; paidAt?: Date | null; responseCode?: string; transactionStatus?: string },
+    amounts?: BookingAmountBreakdown,
   ): Promise<DataResponse> {
     const appointment = await this.appointmentModel.findById(orderId);
     if (!appointment) {
@@ -465,6 +558,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         message: `Appointment already finalized as ${appointment.appointmentStatus}`,
         data: {
           appointmentId: appointment._id.toString(),
+          ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
         },
       };
     }
@@ -473,7 +567,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       return {
         code: ResponseCode.ERROR,
         message: `Appointment cannot be confirmed from status ${appointment.appointmentStatus}`,
-        data: null,
+        data: {
+          ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
+        },
       };
     }
 
@@ -503,6 +599,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       message: note || 'Appointment confirmed successfully',
       data: {
         appointmentId: appointment._id.toString(),
+        ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
       },
     };
   }
@@ -513,6 +610,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     lockValue?: string,
     slotKey?: string,
     paymentMeta?: { amount?: number; paidAt?: Date | null; responseCode?: string; transactionStatus?: string },
+    amounts?: BookingAmountBreakdown,
   ): Promise<DataResponse> {
     const appointment = await this.appointmentModel.findById(orderId);
 
@@ -524,7 +622,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       return {
         code: ResponseCode.NOT_FOUND,
         message: 'Appointment not found',
-        data: null,
+        data: {
+          ...(amounts ?? this.getDefaultAmountBreakdown(undefined)),
+        },
       };
     }
 
@@ -538,6 +638,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         message: reason,
         data: {
           appointmentId: appointment._id.toString(),
+          ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
         },
       };
     }
@@ -551,6 +652,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         message: `Appointment already finalized as ${appointment.appointmentStatus}`,
         data: {
           appointmentId: appointment._id.toString(),
+          ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
         },
       };
     }
@@ -583,7 +685,55 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       message: reason,
       data: {
         appointmentId: appointment._id.toString(),
+        ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
       },
+    };
+  }
+
+  private getDefaultAmountBreakdown(amount?: number): BookingAmountBreakdown {
+    const originalAmount = Math.max(0, Math.floor(amount ?? 0));
+    return {
+      originalAmount,
+      discountAmount: 0,
+      finalAmount: originalAmount,
+    };
+  }
+
+  private buildAmountBreakdownFromAppointment(appointment: AppointmentDocument): BookingAmountBreakdown {
+    const originalAmount = Math.max(0, Math.floor(appointment.consultationFee ?? 0));
+    const discountAmount = Math.max(0, Math.floor((appointment as any).coinDiscountAmount ?? 0));
+    const finalAmount = Math.max(0, Math.floor(appointment.paymentAmount ?? originalAmount - discountAmount));
+
+    return {
+      originalAmount,
+      discountAmount,
+      finalAmount,
+    };
+  }
+
+  private async calculateBookingAmounts(bookingAppointment: AppointmentBookingDto): Promise<BookingAmountBreakdown> {
+    const originalAmount = Math.max(0, Math.floor(bookingAppointment.amount ?? 0));
+    if (!bookingAppointment.useCoin || originalAmount <= 0) {
+      return {
+        originalAmount,
+        discountAmount: 0,
+        finalAmount: originalAmount,
+      };
+    }
+
+    const discount = await this.coinService.calculateDiscount(
+      bookingAppointment.patientId,
+      originalAmount,
+      Boolean(bookingAppointment.useCoin),
+      bookingAppointment.coinsToUse,
+      this.coinDiscountRate,
+      this.coinDiscountCap,
+    );
+
+    return {
+      originalAmount,
+      discountAmount: discount.discountAmount,
+      finalAmount: Math.max(0, originalAmount - discount.discountAmount),
     };
   }
 
@@ -695,6 +845,20 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
 
     if (!dto.paymentMethod) {
       throw new BadRequestException('Payment method is required');
+    }
+
+    if (dto.paymentMethod === PaymentMethodEnum.COIN) {
+      // Coin is no longer a standalone payment method; it is discount-only via useCoin flag.
+      throw new BadRequestException('COIN payment method is deprecated. Use useCoin=true for discount with ONLINE/VNPAY/CREDIT');
+    }
+
+    if (
+      (dto.paymentMethod === PaymentMethodEnum.ONLINE ||
+        dto.paymentMethod === PaymentMethodEnum.VNPAY ||
+        dto.paymentMethod === PaymentMethodEnum.CREDIT) &&
+      (!dto.amount || dto.amount <= 0)
+    ) {
+      throw new BadRequestException('Amount must be greater than 0 for selected payment method');
     }
 
     if (!dto.patientEmail || !dto.patientId) {

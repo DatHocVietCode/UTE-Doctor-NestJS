@@ -11,11 +11,11 @@ import { Profile, ProfileSchema } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-log.schema";
 import { WalletModule } from "src/wallet/wallet.module";
 import { AppointmentBookingService } from "./appointment-booking.service";
+import { AppointmentRescheduleService } from './appointment-reschedule.service';
 import { AppointmentController } from "./appointment.controller";
 import { AppointmentService } from "./appointment.service";
 import { BookingListener } from "./listenners/booking.listenner";
 import { CancelListener } from "./listenners/cancel.listener";
-import { RescheduleListener } from "./listenners/reschedule.listener";
 import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
 
 
@@ -35,7 +35,7 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
         forwardRef(() => PaymentModule),
     ],
     controllers: [AppointmentController],
-      providers: [AppointmentService, AppointmentBookingService, RedisService, BookingListener, RescheduleListener, CancelListener],
+      providers: [AppointmentService, AppointmentBookingService, AppointmentRescheduleService, RedisService, BookingListener, CancelListener],
       exports: [AppointmentService, AppointmentBookingService]
 })
 export class AppointmentModule {}
