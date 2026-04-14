@@ -156,6 +156,22 @@ export class CreditService {
     }
   }
 
+  async hasCompletedCreditTransaction(appointmentId: string, reason: string): Promise<boolean> {
+    try {
+      const existing = await this.creditTransactionModel.findOne({
+        appointmentId: new mongoose.Types.ObjectId(appointmentId),
+        type: 'credit',
+        reason,
+        status: 'completed',
+      }).select('_id').lean();
+
+      return Boolean(existing);
+    } catch (error) {
+      this.logger.error(`Error checking existing credit transaction for appointment ${appointmentId}`, error);
+      return false;
+    }
+  }
+
   private async recordTransaction(
     patientId: string,
     type: 'credit' | 'debit',

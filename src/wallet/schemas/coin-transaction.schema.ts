@@ -5,22 +5,22 @@ export type CoinTransactionDocument = HydratedDocument<CoinTransaction>;
 
 @Schema({ timestamps: true })
 export class CoinTransaction {
-  _id: mongoose.Types.ObjectId;
+  _id!: mongoose.Types.ObjectId;
 
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true })
-  patientId: mongoose.Types.ObjectId;
+  patientId!: mongoose.Types.ObjectId;
 
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Appointment' })
   appointmentId?: mongoose.Types.ObjectId;
 
   @Prop({ enum: ['earn', 'spend'], required: true })
-  type: 'earn' | 'spend';
+  type!: 'earn' | 'spend';
 
   @Prop({ required: true, min: 0 })
-  amount: number;
+  amount!: number;
 
   @Prop({ required: true })
-  reason: string;
+  reason!: string;
 
   @Prop()
   description?: string;
@@ -30,13 +30,13 @@ export class CoinTransaction {
   expiresAt?: Date;
 
   @Prop({ default: 'completed' })
-  status: 'pending' | 'completed' | 'failed';
+  status!: 'pending' | 'completed' | 'failed';
 
   @Prop({ default: Date.now })
-  createdAt: Date;
+  createdAt!: Date;
 
   @Prop({ default: Date.now })
-  updatedAt: Date;
+  updatedAt!: Date;
 }
 
 export const CoinTransactionSchema = SchemaFactory.createForClass(CoinTransaction);
@@ -45,3 +45,16 @@ CoinTransactionSchema.index({ patientId: 1, createdAt: -1 });
 CoinTransactionSchema.index({ patientId: 1, type: 1 });
 CoinTransactionSchema.index({ appointmentId: 1 });
 CoinTransactionSchema.index({ patientId: 1, expiresAt: 1, type: 1 });
+
+// Ensure completion reward for the same appointment is only written once.
+CoinTransactionSchema.index(
+  { appointmentId: 1, type: 1, reason: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      appointmentId: { $exists: true },
+      type: 'earn',
+      reason: 'appointment_completed_reward',
+    },
+  },
+);

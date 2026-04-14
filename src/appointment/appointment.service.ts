@@ -14,6 +14,7 @@ import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
 import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
 import { TimeHelper } from "src/utils/helpers/time.helper";
+import { CoinService } from "src/wallet/coin.service";
 import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
@@ -31,6 +32,7 @@ export class AppointmentService {
         @InjectModel(Medicine.name) private readonly medicineModel: Model<MedicineDocument>,
         @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
         @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
+        private readonly coinService: CoinService,
     ) {}
 
     async bookAppointment(bookingAppointment: AppointmentBookingDto) {
@@ -162,6 +164,22 @@ export class AppointmentService {
 
     appointment.appointmentStatus = AppointmentStatus.COMPLETED;
     await appointment.save();
+
+    // Reward coin after appointment is completed. The reward method is idempotent per appointment.
+    const rewardResult = await this.coinService.rewardCoinForCompletedAppointment(
+        appointment.patientId.toString(),
+        appointment._id.toString(),
+        Math.max(0, Math.floor(appointment.consultationFee ?? 0)),
+    );
+    if (rewardResult.rewarded) {
+        console.log(
+            `[AppointmentService] Rewarded ${rewardResult.amount} coin for completed appointment ${appointment._id.toString()}`,
+        );
+    } else {
+        console.log(
+            `[AppointmentService] Coin reward skipped for appointment ${appointment._id.toString()}: ${rewardResult.message}`,
+        );
+    }
 
     const patient = await this.patientModel.findById(appointment.patientId);
     if (!patient) throw new NotFoundException('Patient not found');
@@ -462,8 +480,12 @@ export class AppointmentService {
 
         // 💰 Tiered refund logic based on cancellation timing
         const timeSlotId = appointment.timeSlot;
-        // Refund should be based on actual charged amount after discount, not the original fee.
-        const consultationFee = appointment.paymentAmount ?? appointment.consultationFee ?? 0;
+        // Refund should be based on actual charged amount and must never exceed original consultation fee.
+        const originalConsultationFee = Math.max(0, Math.floor(appointment.consultationFee ?? 0));
+        const chargedAmount = typeof appointment.paymentAmount === 'number'
+            ? Math.max(0, Math.min(Math.floor(appointment.paymentAmount), originalConsultationFee))
+            : originalConsultationFee;
+        const consultationFee = chargedAmount;
         let refundAmount = 0;
         let refundReason = '';
 

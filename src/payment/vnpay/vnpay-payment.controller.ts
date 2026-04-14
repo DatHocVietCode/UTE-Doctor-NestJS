@@ -30,7 +30,8 @@ export class VnPayPaymentController {
         orderId: result.orderId,
         success: result.status === 'COMPLETED',
         reason: result.reason,
-        amount: result.amount,
+        // Business amount is persisted when booking is created; callback amount is informational only.
+        amount: undefined,
         paidAt: result.paidAt,
         responseCode: result.responseCode,
         transactionStatus: result.transactionStatus,

@@ -162,7 +162,7 @@ export class ShiftService {
       
       return timeSlotData;
     } catch (error) {
-      console.error("[ShiftService] ❌ Lỗi khi lấy TimeSlotData:", error.message);
+      console.error("[ShiftService] ❌ Lỗi khi lấy TimeSlotData:", this.toErrorMessage(error));
       return [];
     }
   }
@@ -195,7 +195,7 @@ export class ShiftService {
       console.log(`[ShiftService] ✅ Đã tạo ${created.length} TimeSlotLog`);
       return Array.isArray(created) ? created : [];
     } catch (error) {
-      console.error("[ShiftService] ❌ Lỗi khi tạo TimeSlotLog từ TimeSlotData:", error?.message ?? error);
+      console.error("[ShiftService] ❌ Lỗi khi tạo TimeSlotLog từ TimeSlotData:", this.toErrorMessage(error));
       return [];
     }
   }
@@ -214,7 +214,7 @@ export class ShiftService {
       console.log(`[ShiftService] ✅ Returning ${created?.length ?? 0} created TimeSlotLogs`);
       return Array.isArray(created) ? created : [];
     } catch (error) {
-      console.error("[ShiftService] ❌ Error in handleCreateTimeSlotLogsFromData:", error?.message ?? error);
+      console.error("[ShiftService] ❌ Error in handleCreateTimeSlotLogsFromData:", this.toErrorMessage(error));
       return [];
     }
   }
@@ -415,10 +415,10 @@ export class ShiftService {
         data: shift.toObject(),
       };
     } catch (error) {
-      console.error("❌ [ShiftService] Lỗi khi xóa ca:", error.message);
+      console.error("❌ [ShiftService] Lỗi khi xóa ca:", this.toErrorMessage(error));
       return {
         code: rc.ERROR,
-        message: error.message || "Lỗi khi xóa ca.",
+        message: this.toErrorMessage(error) || "Lỗi khi xóa ca.",
         data: null,
       };
     }
@@ -500,8 +500,18 @@ export class ShiftService {
           // Push socket to patient (and optionally doctor room)
           this.eventEmitter.emit('socket.shift.cancelled', payload);
 
-          // Hoàn credit cho bệnh nhân theo số tiền đã thu sau discount.
-          const refundAmount = (appt as any).paymentAmount ?? appt.consultationFee ?? 100000;
+          // Refund must follow charged amount and never exceed original consultation fee.
+          const originalConsultationFee = Math.max(0, Math.floor(appt.consultationFee ?? 0));
+          const chargedAmount = typeof (appt as any).paymentAmount === 'number'
+            ? Math.max(0, Math.min(Math.floor((appt as any).paymentAmount), originalConsultationFee))
+            : originalConsultationFee;
+          const refundAmount = chargedAmount;
+
+          if (refundAmount <= 0) {
+            console.warn(`[ShiftService] Skip refund for appointment ${payload.appointmentId}: refund amount is 0`);
+            continue;
+          }
+
           this.eventEmitter.emit('wallet.refund.shift.cancelled', {
             appointmentId: appt._id?.toString?.() ?? String(appt._id),
             patientId: appt.patientId?.toString?.() ?? String(appt.patientId),
@@ -579,7 +589,7 @@ export class ShiftService {
       console.log(`[ShiftService] ✅ Returning ${timeSlotData?.length ?? 0} TimeSlotData for shift ${payload.shift}`);
       return Array.isArray(timeSlotData) ? timeSlotData : [];
     } catch (error) {
-      console.error("[ShiftService] ❌ Error in handleGetTimeSlotDataByShift:", error?.message ?? error);
+      console.error("[ShiftService] ❌ Error in handleGetTimeSlotDataByShift:", this.toErrorMessage(error));
       return [];
     }
   }

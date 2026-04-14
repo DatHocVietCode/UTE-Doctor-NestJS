@@ -103,4 +103,29 @@ export class WalletController {
       return res;
     }
   }
+
+  /**
+    * Get expiration-aware coin summary with FEFO consumption breakdown.
+   */
+  @Get('coin/summary')
+  @UseGuards(JwtAuthGuard)
+  async getCoinSummary(@Req() req: any) {
+    try {
+      const summary = await this.coinService.getCoinSummary(req.user.patientId);
+
+      const res: DataResponse = {
+        code: rc.SUCCESS,
+        message: 'Fetched coin summary successfully',
+        data: summary,
+      };
+      return res;
+    } catch (error) {
+      const res: DataResponse = {
+        code: rc.ERROR,
+        message: 'Failed to fetch coin summary',
+        data: null,
+      };
+      return res;
+    }
+  }
 }

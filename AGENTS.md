@@ -222,6 +222,13 @@ npm run test:e2e
 - Keep `clientMessageId` idempotency protection enabled (unique sparse index + duplicate skip in worker).
 - Typing/presence events are realtime-only and must not go through RabbitMQ.
 
+## API Contract Submodule Rules
+
+- `api-contract/` is a separate submodule and the source of truth for FE integration contracts.
+- After ANY edit in `api-contract/` (for example `api-contract/api.md`), you MUST commit and push that submodule immediately.
+- Do NOT delay contract-submodule push until BE root changes are ready; FE integration depends on latest submodule state.
+- When sharing updates with FE, always provide the pushed submodule branch and latest commit hash.
+
 Notes:
 - Some folders and filenames are in kebab-case, including Vietnamese names (e.g., `chuyen-khoa`, `tiep-tan`).
 - There is mixed usage of single and double quotes in the codebase; lint/format settings indicate the preferred style is single quotes.
