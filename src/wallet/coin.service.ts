@@ -1,35 +1,49 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import mongoose, { ClientSession, Model } from 'mongoose';
+import mongoose, { Model } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { COIN_EXPIRY_DAYS, COIN_REWARD_RATE } from './coin-reward.config';
-import {
-  CoinSummaryBreakdownItemDto,
-  CoinSummaryResponseDto,
-} from './dto/coin-summary-response.dto';
-import {
-  CoinSpendAllocation,
-  CoinSpendAllocationDocument,
-} from './schemas/coin-spend-allocation.schema';
 import { CoinTransaction, CoinTransactionDocument } from './schemas/coin-transaction.schema';
 import { CoinWallet, CoinWalletDocument } from './schemas/coin-wallet.schema';
 
 const DEFAULT_COIN_EXPIRE_DAYS = 180;
 const EXPIRING_SOON_DAYS = 7;
-const ERR_INSUFFICIENT_ALLOCATABLE_COIN = 'INSUFFICIENT_ALLOCATABLE_COIN';
 
-type EarnTransactionLean = {
+type CoinSummaryBreakdownItem = {
+  transactionId: string;
+  amount: number;
+  used: number;
+  remaining: number;
+  expiresAt: Date | null;
+  category: 'active' | 'expired' | 'non_expiring';
+  isExpiringSoon: boolean;
+};
+
+type CoinSummaryResult = {
+  totalBalance: number;
+  usableCoin: number;
+  expiredCoin: number;
+  expiringSoon: number;
+  breakdown: CoinSummaryBreakdownItem[];
+};
+
+type CoinSummaryLeanTx = {
   _id: mongoose.Types.ObjectId;
+  type: 'earn' | 'spend';
   amount: number;
   expiresAt?: Date;
   createdAt?: Date;
 };
 
-type EarnUsageProjection = {
-  earn: EarnTransactionLean;
-  used: number;
+type CoinConsumptionAllocation = {
+  transactionId: string;
+  amount: number;
+  consumed: number;
   remaining: number;
+  expiresAt: Date | null;
+  category: 'active' | 'non_expiring';
+  isExpiringSoon: boolean;
 };
 
 @Injectable()
@@ -39,8 +53,6 @@ export class CoinService {
   constructor(
     @InjectModel(CoinWallet.name) private readonly coinWalletModel: Model<CoinWalletDocument>,
     @InjectModel(CoinTransaction.name) private readonly coinTransactionModel: Model<CoinTransactionDocument>,
-    @InjectModel(CoinSpendAllocation.name)
-    private readonly coinSpendAllocationModel: Model<CoinSpendAllocationDocument>,
   ) {}
 
   async getOrCreateCoinWallet(patientId: string): Promise<CoinWalletDocument | null> {
@@ -62,28 +74,32 @@ export class CoinService {
     }
   }
 
-  // Available balance is computed from earn lots minus immutable allocation rows, excluding expired lots.
+  // Available balance excludes expired earn-transactions by design.
   async getAvailableCoinBalance(patientId: string): Promise<number> {
     const now = new Date();
-    // Guard against clock-skewed/future-created earns being counted in present-time balance.
-    const earnTransactions = await this.loadCompletedEarnTransactions(patientId, {
-      upToCreatedAt: now,
-      onlyUnexpiredAt: now,
-    });
+    const patientObjectId = new mongoose.Types.ObjectId(patientId);
 
-    if (earnTransactions.length === 0) {
-      return 0;
-    }
+    const [earnedAgg, spentAgg] = await Promise.all([
+      this.coinTransactionModel.aggregate<{ total: number }>([
+        {
+          $match: {
+            patientId: patientObjectId,
+            type: 'earn',
+            status: 'completed',
+            $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }, { expiresAt: { $gt: now } }],
+          },
+        },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+      this.coinTransactionModel.aggregate<{ total: number }>([
+        { $match: { patientId: patientObjectId, type: 'spend', status: 'completed' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+    ]);
 
-    const allocationMap = await this.loadAllocationMapForEarns(patientId, earnTransactions.map((tx) => tx._id));
-    const usableCoin = earnTransactions.reduce((sum, earn) => {
-      const amount = this.normalizeCoinAmount(earn.amount);
-      const used = Math.min(amount, allocationMap.get(earn._id.toString()) ?? 0);
-      const remaining = Math.max(0, amount - used);
-      return sum + remaining;
-    }, 0);
-
-    return Math.max(0, usableCoin);
+    const totalEarned = earnedAgg[0]?.total ?? 0;
+    const totalSpent = spentAgg[0]?.total ?? 0;
+    return Math.max(0, totalEarned - totalSpent);
   }
 
   async calculateDiscount(
@@ -125,7 +141,7 @@ export class CoinService {
     const dataRes: DataResponse = { code: rc.PENDING, message: '', data: null };
 
     try {
-      const normalizedAmount = this.normalizeCoinAmount(amount);
+      const normalizedAmount = Math.max(0, Math.floor(amount || 0));
       if (normalizedAmount <= 0) {
         dataRes.code = rc.ERROR;
         dataRes.message = 'Coin amount must be greater than 0';
@@ -167,133 +183,64 @@ export class CoinService {
   ): Promise<DataResponse> {
     const dataRes: DataResponse = { code: rc.PENDING, message: '', data: null };
 
-    const normalizedAmount = this.normalizeCoinAmount(amount);
-    if (normalizedAmount <= 0) {
-      dataRes.code = rc.ERROR;
-      dataRes.message = 'Coin amount must be greater than 0';
-      return dataRes;
-    }
-
-    const patientObjectId = new mongoose.Types.ObjectId(patientId);
-    const spendCreatedAt = new Date();
-    const session = await this.coinWalletModel.db.startSession();
-
     try {
-      let persistedWallet: CoinWalletDocument | null = null;
-
-      await session.withTransaction(async () => {
-        let wallet = await this.coinWalletModel.findOne({ patientId: patientObjectId }).session(session);
-        if (!wallet) {
-          wallet = new this.coinWalletModel({
-            patientId: patientObjectId,
-            coinBalance: 0,
-            totalCoinEarned: 0,
-            totalCoinUsed: 0,
-          });
-        }
-
-        const eligibleEarns = await this.loadCompletedEarnTransactions(
-          patientId,
-          {
-            upToCreatedAt: spendCreatedAt,
-            onlyUnexpiredAt: spendCreatedAt,
-          },
-          session,
-        );
-
-        const allocationMap = await this.loadAllocationMapForEarns(
-          patientId,
-          eligibleEarns.map((tx) => tx._id),
-          session,
-        );
-
-        // FEFO selection is fixed at spend-write time and persisted via allocation rows.
-        const sortedEligibleEarns = this.sortSpendableEarnTransactions(eligibleEarns, spendCreatedAt);
-        const allocationRows: Array<{
-          earnTransactionId: mongoose.Types.ObjectId;
-          amount: number;
-        }> = [];
-
-        let remainingSpend = normalizedAmount;
-        for (const earn of sortedEligibleEarns) {
-          if (remainingSpend <= 0) {
-            break;
-          }
-
-          const earnAmount = this.normalizeCoinAmount(earn.amount);
-          const usedAmount = Math.min(earnAmount, allocationMap.get(earn._id.toString()) ?? 0);
-          const availableAmount = Math.max(0, earnAmount - usedAmount);
-          if (availableAmount <= 0) {
-            continue;
-          }
-
-          const consumeAmount = Math.min(availableAmount, remainingSpend);
-          allocationRows.push({
-            earnTransactionId: earn._id,
-            amount: consumeAmount,
-          });
-          remainingSpend -= consumeAmount;
-        }
-
-        if (remainingSpend > 0) {
-          throw new Error(ERR_INSUFFICIENT_ALLOCATABLE_COIN);
-        }
-
-        const spendTransaction = await this.recordTransaction(
-          patientId,
-          'spend',
-          normalizedAmount,
-          reason,
-          appointmentId,
-          description,
-          undefined,
-          session,
-          spendCreatedAt,
-        );
-
-        if (!spendTransaction) {
-          throw new Error('FAILED_TO_CREATE_SPEND_TRANSACTION');
-        }
-
-        if (allocationRows.length > 0) {
-          // Mongoose requires ordered inserts when a session writes multiple allocation rows in one call.
-          await this.coinSpendAllocationModel.create(
-            allocationRows.map((row) => ({
-              spendTransactionId: spendTransaction._id,
-              earnTransactionId: row.earnTransactionId,
-              patientId: patientObjectId,
-              amount: row.amount,
-            })),
-            { session, ordered: true },
-          );
-        }
-
-        wallet.coinBalance = Math.max(0, wallet.coinBalance - normalizedAmount);
-        wallet.totalCoinUsed += normalizedAmount;
-        persistedWallet = await wallet.save({ session });
-
-        this.logger.debug(
-          `[CoinAllocation] spendTx=${spendTransaction._id.toString()} allocations=${allocationRows.length} requested=${normalizedAmount}`,
-        );
-      });
-
-      dataRes.code = rc.SUCCESS;
-      dataRes.message = `Deducted ${normalizedAmount} coins successfully`;
-      dataRes.data = persistedWallet;
-      return dataRes;
-    } catch (error: any) {
-      if (error?.message === ERR_INSUFFICIENT_ALLOCATABLE_COIN) {
+      const normalizedAmount = Math.max(0, Math.floor(amount || 0));
+      if (normalizedAmount <= 0) {
         dataRes.code = rc.ERROR;
-        dataRes.message = 'Insufficient coins';
+        dataRes.message = 'Coin amount must be greater than 0';
         return dataRes;
       }
 
+      const wallet = await this.getOrCreateCoinWallet(patientId);
+      if (!wallet) {
+        dataRes.code = rc.ERROR;
+        dataRes.message = 'Coin wallet not found';
+        return dataRes;
+      }
+
+      const available = await this.getAvailableCoinBalance(patientId);
+      if (available < normalizedAmount) {
+        dataRes.code = rc.ERROR;
+        dataRes.message = `Insufficient coins. Balance: ${available}, Required: ${normalizedAmount}`;
+        return dataRes;
+      }
+
+      const transactions = await this.loadCompletedCoinTransactions(patientId);
+      const earnTransactions = transactions.filter((tx) => tx.type === 'earn');
+      const { allocation, remainingSpend } = this.buildFefoSpendPlan(earnTransactions, normalizedAmount, new Date());
+
+      if (remainingSpend > 0) {
+        // This should not happen after the balance check; keep it as a guard for inconsistent history.
+        this.logger.warn(
+          `Unable to fully allocate coin spend for patient ${patientId}. Remaining unallocated amount: ${remainingSpend}`,
+        );
+        dataRes.code = rc.ERROR;
+        dataRes.message = 'Failed to allocate coin spend';
+        return dataRes;
+      }
+
+      // Materialized balance stays as a quick-read cache; FEFO allocation is enforced by transaction history.
+      wallet.coinBalance = Math.max(0, wallet.coinBalance - normalizedAmount);
+      wallet.totalCoinUsed += normalizedAmount;
+      await wallet.save();
+
+      this.logger.log(
+        `Spent ${normalizedAmount} coin for patient ${patientId} using FEFO lots: ${allocation
+          .map((item) => `${item.transactionId}:${item.consumed}`)
+          .join(', ')}`,
+      );
+
+      await this.recordTransaction(patientId, 'spend', normalizedAmount, reason, appointmentId, description);
+
+      dataRes.code = rc.SUCCESS;
+      dataRes.message = `Deducted ${normalizedAmount} coins successfully`;
+      dataRes.data = wallet;
+      return dataRes;
+    } catch (error) {
       this.logger.error(`Error spending coins from patient ${patientId}`, error);
       dataRes.code = rc.ERROR;
       dataRes.message = 'Failed to deduct coins';
       return dataRes;
-    } finally {
-      await session.endSession();
     }
   }
 
@@ -307,12 +254,14 @@ export class CoinService {
   ): number {
     const leftExpiry = left.expiresAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
     const rightExpiry = right.expiresAt?.getTime() ?? Number.MAX_SAFE_INTEGER;
+
     if (leftExpiry !== rightExpiry) {
       return leftExpiry - rightExpiry;
     }
 
     const leftCreatedAt = left.createdAt?.getTime() ?? 0;
     const rightCreatedAt = right.createdAt?.getTime() ?? 0;
+
     if (leftCreatedAt !== rightCreatedAt) {
       return leftCreatedAt - rightCreatedAt;
     }
@@ -326,6 +275,7 @@ export class CoinService {
   ): number {
     const leftCreatedAt = left.createdAt?.getTime() ?? 0;
     const rightCreatedAt = right.createdAt?.getTime() ?? 0;
+
     if (leftCreatedAt !== rightCreatedAt) {
       return leftCreatedAt - rightCreatedAt;
     }
@@ -333,99 +283,89 @@ export class CoinService {
     return left._id.toString().localeCompare(right._id.toString());
   }
 
-  private sortSpendableEarnTransactions(earns: EarnTransactionLean[], now: Date): EarnTransactionLean[] {
-    const activeEarns = earns
-      .filter((tx) => tx.expiresAt && tx.expiresAt > now)
+  private async loadCompletedCoinTransactions(patientId: string): Promise<CoinSummaryLeanTx[]> {
+    return this.coinTransactionModel
+      .find({
+        patientId: new mongoose.Types.ObjectId(patientId),
+        status: 'completed',
+      })
+      .select('_id type amount expiresAt createdAt')
+      .lean<CoinSummaryLeanTx[]>()
+      .exec();
+  }
+
+  private getExpiredEarns(transactions: CoinSummaryLeanTx[], now: Date): CoinSummaryLeanTx[] {
+    const expired = transactions
+      .filter((tx) => tx.type === 'earn' && tx.expiresAt && tx.expiresAt <= now)
       .sort((left, right) => this.compareByExpiryThenCreatedAt(left, right));
 
-    const nonExpiringEarns = earns
-      .filter((tx) => !tx.expiresAt)
+    if (expired.length > 0) {
+      this.logger.debug(`[GetExpiredEarns] expiredEarns=${expired.length}`);
+    }
+
+    return expired;
+  }
+
+  private getSpendableEarns(transactions: CoinSummaryLeanTx[], now: Date): CoinSummaryLeanTx[] {
+    const activeEarns = transactions
+      .filter((tx) => tx.type === 'earn' && tx.expiresAt && tx.expiresAt > now)
+      .sort((left, right) => this.compareByExpiryThenCreatedAt(left, right));
+
+    const nonExpiringEarns = transactions
+      .filter((tx) => tx.type === 'earn' && !tx.expiresAt)
       .sort((left, right) => this.compareByCreatedAt(left, right));
 
+    this.logger.debug(
+      `[GetSpendableEarns] activeEarns=${activeEarns.length}, nonExpiringEarns=${nonExpiringEarns.length}`,
+    );
+
+    // FEFO means the closest expiry is consumed first; non-expiring lots are the fallback bucket.
     return [...activeEarns, ...nonExpiringEarns];
   }
 
-  private async loadCompletedEarnTransactions(
-    patientId: string,
-    options?: {
-      upToCreatedAt?: Date;
-      onlyUnexpiredAt?: Date;
-    },
-    session?: ClientSession,
-  ): Promise<EarnTransactionLean[]> {
-    const query: any = {
-      patientId: new mongoose.Types.ObjectId(patientId),
-      status: 'completed',
-      type: 'earn',
-    };
+  private buildFefoSpendPlan(
+    earnTransactions: CoinSummaryLeanTx[],
+    spendAmount: number,
+    now: Date,
+  ): { allocation: CoinConsumptionAllocation[]; remainingSpend: number } {
+    let remainingSpend = this.normalizeCoinAmount(spendAmount);
+    const allocation: CoinConsumptionAllocation[] = [];
+    const expiringSoonThreshold = new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000);
 
-    if (options?.upToCreatedAt) {
-      query.createdAt = { $lte: options.upToCreatedAt };
-    }
+    const spendableEarns = this.getSpendableEarns(earnTransactions, now);
+    this.logger.debug(
+      `[BuildFefoSpendPlan] spendAmount=${spendAmount}, spendableEarns=${spendableEarns.length}, earnTotal=${earnTransactions.length}`,
+    );
 
-    if (options?.onlyUnexpiredAt) {
-      const expiresAtFilter = {
-        $or: [
-          { expiresAt: { $exists: false } },
-          { expiresAt: null },
-          { expiresAt: { $gt: options.onlyUnexpiredAt } },
-        ],
-      };
-
-      if (query.$and) {
-        query.$and.push(expiresAtFilter);
-      } else {
-        query.$and = [expiresAtFilter];
+    for (const earn of spendableEarns) {
+      if (remainingSpend <= 0) {
+        break;
       }
+
+      const amount = this.normalizeCoinAmount(earn.amount);
+      if (amount <= 0) {
+        continue;
+      }
+
+      const consumed = Math.min(amount, remainingSpend);
+      remainingSpend -= consumed;
+
+      allocation.push({
+        transactionId: earn._id.toString(),
+        amount,
+        consumed,
+        remaining: Math.max(0, amount - consumed),
+        expiresAt: earn.expiresAt ?? null,
+        category: earn.expiresAt ? 'active' : 'non_expiring',
+        isExpiringSoon: Boolean(earn.expiresAt && earn.expiresAt <= expiringSoonThreshold),
+      });
     }
 
-    const mongoQuery = this.coinTransactionModel
-      .find(query)
-      .select('_id amount expiresAt createdAt')
-      .lean<EarnTransactionLean[]>();
+    this.logger.debug(
+      `[BuildFefoSpendPlan] result: allocation=${allocation.length}, remainingSpend=${remainingSpend}`,
+    );
 
-    if (session) {
-      mongoQuery.session(session);
-    }
-
-    return mongoQuery.exec();
-  }
-
-  private async loadAllocationMapForEarns(
-    patientId: string,
-    earnIds: mongoose.Types.ObjectId[],
-    session?: ClientSession,
-  ): Promise<Map<string, number>> {
-    const allocationMap = new Map<string, number>();
-    if (earnIds.length === 0) {
-      return allocationMap;
-    }
-
-    const aggregate = this.coinSpendAllocationModel.aggregate<{ _id: mongoose.Types.ObjectId; totalAllocated: number }>([
-      {
-        $match: {
-          patientId: new mongoose.Types.ObjectId(patientId),
-          earnTransactionId: { $in: earnIds },
-        },
-      },
-      {
-        $group: {
-          _id: '$earnTransactionId',
-          totalAllocated: { $sum: '$amount' },
-        },
-      },
-    ]);
-
-    if (session) {
-      aggregate.session(session);
-    }
-
-    const rows = await aggregate.exec();
-    for (const row of rows) {
-      allocationMap.set(row._id.toString(), this.normalizeCoinAmount(row.totalAllocated));
-    }
-
-    return allocationMap;
+    return { allocation, remainingSpend };
   }
 
   private async recordTransaction(
@@ -436,11 +376,9 @@ export class CoinService {
     appointmentId?: string,
     description?: string,
     expiresAt?: Date,
-    session?: ClientSession,
-    createdAt?: Date,
   ): Promise<CoinTransactionDocument | null> {
     try {
-      const payload: any = {
+      const transaction = new this.coinTransactionModel({
         patientId: new mongoose.Types.ObjectId(patientId),
         type,
         amount,
@@ -449,15 +387,9 @@ export class CoinService {
         description,
         status: 'completed',
         expiresAt: type === 'earn' ? expiresAt : undefined,
-      };
+      });
 
-      if (createdAt) {
-        payload.createdAt = createdAt;
-        payload.updatedAt = createdAt;
-      }
-
-      const transaction = new this.coinTransactionModel(payload);
-      return transaction.save(session ? { session } : undefined);
+      return await transaction.save();
     } catch (error) {
       this.logger.error(`Error recording coin transaction for patient ${patientId}`, error);
       return null;
@@ -484,95 +416,116 @@ export class CoinService {
 
   async getCoinTransactionCount(patientId: string): Promise<number> {
     try {
-      return this.coinTransactionModel.countDocuments({ patientId: new mongoose.Types.ObjectId(patientId) });
+      return await this.coinTransactionModel.countDocuments({ patientId: new mongoose.Types.ObjectId(patientId) });
     } catch (error) {
       this.logger.error(`Error counting coin transactions for patient ${patientId}`, error);
       return 0;
     }
   }
 
-  async getCoinSummary(patientId: string): Promise<CoinSummaryResponseDto> {
+  async getCoinSummary(patientId: string): Promise<CoinSummaryResult> {
     const now = new Date();
-    const expiringSoonThreshold = new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000);
 
     try {
-      // Summary must represent "as-of now" lots only; future-created earns are excluded.
-      const earns = await this.loadCompletedEarnTransactions(patientId, {
-        upToCreatedAt: now,
-      });
-      if (earns.length === 0) {
-        return {
-          totalBalance: 0,
-          usableCoin: 0,
-          expiredCoin: 0,
-          expiringSoon: 0,
-          breakdown: [],
-        };
-      }
+      const transactions = await this.loadCompletedCoinTransactions(patientId);
 
-      const allocationMap = await this.loadAllocationMapForEarns(
-        patientId,
-        earns.map((tx) => tx._id),
-      );
-
-      const expiredEarns = earns
-        .filter((tx) => tx.expiresAt && tx.expiresAt <= now)
-        .sort((left, right) => this.compareByExpiryThenCreatedAt(left, right));
-
-      const activeEarns = earns
-        .filter((tx) => tx.expiresAt && tx.expiresAt > now)
-        .sort((left, right) => this.compareByExpiryThenCreatedAt(left, right));
-
-      const nonExpiringEarns = earns
-        .filter((tx) => !tx.expiresAt)
-        .sort((left, right) => this.compareByCreatedAt(left, right));
-
-      const orderedEarns = [...expiredEarns, ...activeEarns, ...nonExpiringEarns];
-
-      const breakdown: CoinSummaryBreakdownItemDto[] = [];
-      let usableCoin = 0;
-      let expiredCoin = 0;
-      let expiringSoon = 0;
-
-      for (const earn of orderedEarns) {
-        const amount = this.normalizeCoinAmount(earn.amount);
-        const used = Math.min(amount, allocationMap.get(earn._id.toString()) ?? 0);
-        const remaining = Math.max(0, amount - used);
-
-        const hasExpiry = Boolean(earn.expiresAt);
-        const isExpired = Boolean(hasExpiry && earn.expiresAt && earn.expiresAt <= now);
-        const isExpiringSoon = Boolean(
-          hasExpiry && earn.expiresAt && earn.expiresAt > now && earn.expiresAt <= expiringSoonThreshold,
+      const earns = transactions.filter((tx) => tx.type === 'earn');
+      const spends = transactions.filter((tx) => tx.type === 'spend');
+      
+      if (earns.length > 0) {
+        this.logger.debug(
+          `[CoinSummary] Patient ${patientId}: Total earns=${earns.length}, details=${earns
+            .map((e) => `{id:${e._id}, amt:${e.amount}, exp:${e.expiresAt}, created:${e.createdAt}}`)
+            .join('; ')}`,
         );
+      }
+      
+      if (spends.length > 0) {
+        this.logger.debug(
+          `[CoinSummary] Patient ${patientId}: Total spends=${spends.length}, details=${spends
+            .map((s) => `{id:${s._id}, amt:${s.amount}}`)
+            .join('; ')}`,
+        );
+      }
+      
+      const totalSpent = spends.reduce((sum, tx) => sum + Math.max(0, Math.floor(tx.amount || 0)), 0);
+      this.logger.debug(`[CoinSummary] Patient ${patientId}: totalSpent=${totalSpent}`);
 
-        const category: CoinSummaryBreakdownItemDto['category'] = !hasExpiry
-          ? 'non_expiring'
-          : isExpired
-            ? 'expired'
-            : 'active';
+      const expiredEarns = this.getExpiredEarns(earns, now);
+      const spendableEarns = this.getSpendableEarns(earns, now);
+      const spendPlan = this.buildFefoSpendPlan(earns, totalSpent, now);
 
-        if (category === 'expired') {
-          expiredCoin += remaining;
-        } else {
-          usableCoin += remaining;
-        }
+      const breakdown: CoinSummaryBreakdownItem[] = [];
+      const expiredCoin = expiredEarns.reduce((sum, earn) => sum + Math.max(0, Math.floor(earn.amount || 0)), 0);
+      const expiringSoonThreshold = new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000);
 
-        if (category === 'active' && isExpiringSoon) {
-          expiringSoon += remaining;
-        }
-
-        // Expose epoch milliseconds in API contract to keep FE rendering timezone-safe and deterministic.
+      // Add expired earns to breakdown.
+      for (const earn of expiredEarns) {
+        const amount = Math.max(0, Math.floor(earn.amount || 0));
         breakdown.push({
           transactionId: earn._id.toString(),
           amount,
-          used,
-          remaining,
-          createdAt: earn.createdAt ? earn.createdAt.getTime() : null,
-          expiresAt: earn.expiresAt ? earn.expiresAt.getTime() : null,
-          category,
-          isExpiringSoon,
+          used: 0,
+          remaining: amount,
+          expiresAt: earn.expiresAt ?? null,
+          category: 'expired',
+          isExpiringSoon: false,
         });
       }
+
+      // Track which earns were already allocated by FEFO spend plan.
+      const allocatedTransactionIds = new Set(spendPlan.allocation.map((a) => a.transactionId));
+
+      let usableCoin = 0;
+      let expiringSoon = 0;
+
+      // Add allocated (touched by spend) spendable earns to breakdown.
+      for (const item of spendPlan.allocation) {
+        const isActive = item.category === 'active';
+        if (isActive && item.isExpiringSoon) {
+          expiringSoon += item.remaining;
+        }
+        usableCoin += item.remaining;
+
+        breakdown.push({
+          transactionId: item.transactionId,
+          amount: item.amount,
+          used: item.consumed,
+          remaining: item.remaining,
+          expiresAt: item.expiresAt,
+          category: item.category,
+          isExpiringSoon: item.isExpiringSoon,
+        });
+      }
+
+      // Add unallocated (untouched by spend) spendable earns to breakdown.
+      for (const earn of spendableEarns) {
+        if (allocatedTransactionIds.has(earn._id.toString())) {
+          continue; // Already added above.
+        }
+
+        const amount = Math.max(0, Math.floor(earn.amount || 0));
+        const isExpiringSoon = earn.expiresAt && earn.expiresAt <= expiringSoonThreshold;
+
+        usableCoin += amount;
+        if (isExpiringSoon) {
+          expiringSoon += amount;
+        }
+
+        breakdown.push({
+          transactionId: earn._id.toString(),
+          amount,
+          used: 0,
+          remaining: amount,
+          expiresAt: earn.expiresAt ?? null,
+          category: earn.expiresAt ? 'active' : 'non_expiring',
+          isExpiringSoon: Boolean(isExpiringSoon),
+        });
+      }
+
+      this.logger.debug(
+        `[CoinSummary] Final breakdown for patient ${patientId}: total=${breakdown.length}, usable=${usableCoin}, expired=${expiredCoin}, expiringSoon=${expiringSoon}`,
+      );
 
       return {
         totalBalance: Math.max(0, usableCoin + expiredCoin),
@@ -598,8 +551,8 @@ export class CoinService {
     appointmentId: string,
     consultationFee: number,
   ): Promise<{ rewarded: boolean; amount: number; message: string }> {
-    const normalizedFee = this.normalizeCoinAmount(consultationFee);
-    const rewardAmount = this.normalizeCoinAmount(normalizedFee * COIN_REWARD_RATE);
+    const normalizedFee = Math.max(0, Math.floor(consultationFee || 0));
+    const rewardAmount = Math.max(0, Math.floor(normalizedFee * COIN_REWARD_RATE));
 
     if (rewardAmount <= 0) {
       return {
@@ -613,15 +566,12 @@ export class CoinService {
     const appointmentObjectId = new mongoose.Types.ObjectId(appointmentId);
     const expiresAt = new Date(Date.now() + COIN_EXPIRY_DAYS * 24 * 60 * 60 * 1000);
 
-    const existing = await this.coinTransactionModel
-      .findOne({
-        appointmentId: appointmentObjectId,
-        type: 'earn',
-        reason: 'appointment_completed_reward',
-        status: 'completed',
-      })
-      .select('_id')
-      .lean();
+    const existing = await this.coinTransactionModel.findOne({
+      appointmentId: appointmentObjectId,
+      type: 'earn',
+      reason: 'appointment_completed_reward',
+      status: 'completed',
+    }).select('_id').lean();
 
     if (existing) {
       this.logger.log(`Skip duplicate coin reward for appointment ${appointmentId}`);
@@ -635,15 +585,12 @@ export class CoinService {
     const session = await this.coinWalletModel.db.startSession();
     try {
       await session.withTransaction(async () => {
-        const duplicateInTxn = await this.coinTransactionModel
-          .findOne({
-            appointmentId: appointmentObjectId,
-            type: 'earn',
-            reason: 'appointment_completed_reward',
-            status: 'completed',
-          })
-          .session(session)
-          .select('_id');
+        const duplicateInTxn = await this.coinTransactionModel.findOne({
+          appointmentId: appointmentObjectId,
+          type: 'earn',
+          reason: 'appointment_completed_reward',
+          status: 'completed',
+        }).session(session).select('_id');
 
         if (duplicateInTxn) {
           return;
@@ -666,21 +613,18 @@ export class CoinService {
           },
         );
 
-        await this.coinTransactionModel.create(
-          [
-            {
-              patientId: patientObjectId,
-              appointmentId: appointmentObjectId,
-              type: 'earn',
-              amount: rewardAmount,
-              reason: 'appointment_completed_reward',
-              description: `Reward ${rewardAmount} coin after appointment completion`,
-              expiresAt,
-              status: 'completed',
-            },
-          ],
-          { session },
-        );
+        await this.coinTransactionModel.create([
+          {
+            patientId: patientObjectId,
+            appointmentId: appointmentObjectId,
+            type: 'earn',
+            amount: rewardAmount,
+            reason: 'appointment_completed_reward',
+            description: `Reward ${rewardAmount} coin after appointment completion`,
+            expiresAt,
+            status: 'completed',
+          },
+        ], { session });
       });
 
       this.logger.log(
