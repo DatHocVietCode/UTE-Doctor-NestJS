@@ -5,8 +5,12 @@ import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { COIN_EXPIRY_DAYS, COIN_REWARD_RATE } from './coin-reward.config';
 import {
-    CoinSpendAllocation,
-    CoinSpendAllocationDocument,
+  CoinSummaryBreakdownItemDto,
+  CoinSummaryResponseDto,
+} from './dto/coin-summary-response.dto';
+import {
+  CoinSpendAllocation,
+  CoinSpendAllocationDocument,
 } from './schemas/coin-spend-allocation.schema';
 import { CoinTransaction, CoinTransactionDocument } from './schemas/coin-transaction.schema';
 import { CoinWallet, CoinWalletDocument } from './schemas/coin-wallet.schema';
@@ -14,24 +18,6 @@ import { CoinWallet, CoinWalletDocument } from './schemas/coin-wallet.schema';
 const DEFAULT_COIN_EXPIRE_DAYS = 180;
 const EXPIRING_SOON_DAYS = 7;
 const ERR_INSUFFICIENT_ALLOCATABLE_COIN = 'INSUFFICIENT_ALLOCATABLE_COIN';
-
-type CoinSummaryBreakdownItem = {
-  transactionId: string;
-  amount: number;
-  used: number;
-  remaining: number;
-  expiresAt: Date | null;
-  category: 'active' | 'expired' | 'non_expiring';
-  isExpiringSoon: boolean;
-};
-
-type CoinSummaryResult = {
-  totalBalance: number;
-  usableCoin: number;
-  expiredCoin: number;
-  expiringSoon: number;
-  breakdown: CoinSummaryBreakdownItem[];
-};
 
 type EarnTransactionLean = {
   _id: mongoose.Types.ObjectId;
@@ -505,7 +491,7 @@ export class CoinService {
     }
   }
 
-  async getCoinSummary(patientId: string): Promise<CoinSummaryResult> {
+  async getCoinSummary(patientId: string): Promise<CoinSummaryResponseDto> {
     const now = new Date();
     const expiringSoonThreshold = new Date(now.getTime() + EXPIRING_SOON_DAYS * 24 * 60 * 60 * 1000);
 
@@ -543,7 +529,7 @@ export class CoinService {
 
       const orderedEarns = [...expiredEarns, ...activeEarns, ...nonExpiringEarns];
 
-      const breakdown: CoinSummaryBreakdownItem[] = [];
+      const breakdown: CoinSummaryBreakdownItemDto[] = [];
       let usableCoin = 0;
       let expiredCoin = 0;
       let expiringSoon = 0;
@@ -559,7 +545,7 @@ export class CoinService {
           hasExpiry && earn.expiresAt && earn.expiresAt > now && earn.expiresAt <= expiringSoonThreshold,
         );
 
-        const category: CoinSummaryBreakdownItem['category'] = !hasExpiry
+        const category: CoinSummaryBreakdownItemDto['category'] = !hasExpiry
           ? 'non_expiring'
           : isExpired
             ? 'expired'
@@ -575,12 +561,14 @@ export class CoinService {
           expiringSoon += remaining;
         }
 
+        // Expose epoch milliseconds in API contract to keep FE rendering timezone-safe and deterministic.
         breakdown.push({
           transactionId: earn._id.toString(),
           amount,
           used,
           remaining,
-          expiresAt: earn.expiresAt ?? null,
+          createdAt: earn.createdAt ? earn.createdAt.getTime() : null,
+          expiresAt: earn.expiresAt ? earn.expiresAt.getTime() : null,
           category,
           isExpiringSoon,
         });
