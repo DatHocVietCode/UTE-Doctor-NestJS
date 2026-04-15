@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
+import { OnEvent } from "@nestjs/event-emitter";
 import * as appointmentEnriched from "src/appointment/schemas/appointment-enriched";
 import { NotificationService } from "../notification.service";
 
@@ -7,9 +7,7 @@ import { NotificationService } from "../notification.service";
 @Injectable()
 export class AppointmentNotificationListener
 {
-    constructor (private readonly notificationService: NotificationService,
-                private readonly eventEmitter: EventEmitter2
-    ) {}
+    constructor (private readonly notificationService: NotificationService) {}
 
     @OnEvent('notify.patient.booking.success')
     handlePatientNotification(payload: appointmentEnriched.AppointmentEnriched) {

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { CreditService } from '../../wallet/credit.service';
+import { CreditService } from '../../wallet/credit/credit.service';
 
 @Injectable()
 export class CancelListener {

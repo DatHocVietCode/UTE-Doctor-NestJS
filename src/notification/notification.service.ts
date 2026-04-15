@@ -6,12 +6,50 @@ import { AppointmentEnriched } from "src/appointment/schemas/appointment-enriche
 import { PaginationQueryDto } from "src/common/dto/pagination-query.dto";
 import { PaginationResult } from "src/common/dto/pagination-result.dto";
 import { emitTyped } from "src/utils/helpers/event.helper";
+import type { CoinExpiryReminderEventPayload } from "src/wallet/coin/coin-expiry-reminder/dto/coin-expiry-reminder.dto";
 import { Notification, NotificationDocument } from "./schemas/notification.schema";
 
 @Injectable()
 export class NotificationService {
     constructor(@InjectModel(Notification.name) private notificationModel: Model<NotificationDocument>
                 ,private readonly eventEmitter: EventEmitter2) {}
+
+    private toEpoch(value: unknown): number | null {
+        if (value instanceof Date) {
+            return value.getTime();
+        }
+
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return Math.floor(value);
+        }
+
+        if (typeof value === 'string') {
+            const parsed = new Date(value).getTime();
+            return Number.isNaN(parsed) ? null : parsed;
+        }
+
+        return null;
+    }
+
+    private normalizeNotificationTimestamps(notification: any): any {
+        if (!notification) {
+            return notification;
+        }
+
+        const normalized = { ...notification };
+        normalized.createdAt = this.toEpoch(normalized.createdAt);
+        normalized.updatedAt = this.toEpoch(normalized.updatedAt);
+
+        if (normalized.details && typeof normalized.details === 'object') {
+            normalized.details = {
+                ...normalized.details,
+                expiresAt: this.toEpoch(normalized.details.expiresAt),
+                runAt: this.toEpoch(normalized.details.runAt),
+            };
+        }
+
+        return normalized;
+    }
 
     async storeNewNotification(notification: Partial<NotificationDocument>) {
         const newNoti = new this.notificationModel(notification);
@@ -86,7 +124,8 @@ export class NotificationService {
             this.notificationModel.countDocuments(),
         ]);
 
-        return new PaginationResult(data, total, page, limit);
+        const normalizedData = data.map((item) => this.normalizeNotificationTimestamps(item));
+        return new PaginationResult(normalizedData, total, page, limit);
     }
     async getNotificationsByEmail(
         email: string,
@@ -114,7 +153,8 @@ export class NotificationService {
             this.notificationModel.countDocuments(filter),
         ]);
 
-        return new PaginationResult(data, total, page, limit);
+        const normalizedData = data.map((item) => this.normalizeNotificationTimestamps(item));
+        return new PaginationResult(normalizedData, total, page, limit);
     }
 
     async countUnreadByEmail(email: string): Promise<number> {
@@ -134,7 +174,7 @@ export class NotificationService {
         ).lean();
 
         if (!notif) throw new NotFoundException('[NotificationService] Notification not found');
-        return notif;
+        return this.normalizeNotificationTimestamps(notif);
     }
 
     async createPatientShiftCancellationNotification(payload: {
@@ -199,6 +239,33 @@ export class NotificationService {
             receiverEmail: [payload.patientEmail],
             title,
             message,
+        });
+    }
+
+    async createCoinExpiryReminderNotification(payload: CoinExpiryReminderEventPayload) {
+        if (!payload?.patientEmail) {
+            return;
+        }
+
+        const expiresAtEpoch = this.toEpoch(payload.expiresAt);
+        const runAtEpoch = this.toEpoch(payload.runAt);
+        const title = 'Thông báo coin sắp hết hạn';
+        // Persist reminder so client can recover missed realtime pushes by polling notification APIs.
+        const message = `Bạn có ${payload.amount} coin sắp hết hạn. Vui lòng sử dụng trước khi hết hạn.`;
+
+        await this.storeNewNotification({
+            receiverEmail: [payload.patientEmail],
+            title,
+            message,
+            details: {
+                type: 'coin_expiry_reminder',
+                jobId: payload.jobId,
+                transactionId: payload.transactionId,
+                amount: payload.amount,
+                expiresAt: expiresAtEpoch,
+                runAt: runAtEpoch,
+                reminderDays: payload.reminderDays,
+            },
         });
     }
 }

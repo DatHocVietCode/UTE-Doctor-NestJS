@@ -62,6 +62,14 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
+  async acquireLock(lockKey: string, lockValue: string, ttlSeconds = 300): Promise<boolean> {
+    return this.tryAcquireLock(lockKey, lockValue, ttlSeconds);
+  }
+
+  async releaseLock(lockKey: string, lockValue: string): Promise<void> {
+    await this.tryReleaseLock(lockKey, lockValue);
+  }
+
   async subscribe(channel: string, handler: (message: any) => void): Promise<void> {
     try {
       await this.subClient.subscribe(channel);
@@ -91,9 +99,16 @@ export class RedisService implements OnModuleDestroy {
   }
 
   async acquireSlotLock(lockKey: string, lockValue: string, ttlSeconds = 300): Promise<boolean> {
+    return this.tryAcquireLock(lockKey, lockValue, ttlSeconds);
+  }
+
+  async releaseSlotLock(lockKey: string, lockValue: string): Promise<void> {
+    await this.tryReleaseLock(lockKey, lockValue);
+  }
+
+  private async tryAcquireLock(lockKey: string, lockValue: string, ttlSeconds: number): Promise<boolean> {
     try {
       const result = await this.client.set(lockKey, lockValue, 'EX', ttlSeconds, 'NX');
-      console.log("SET RESULT:", result, "KEY:", lockKey);
       return result === 'OK';
     } catch (error) {
       this.logger.warn(`Redis lock acquisition failed for ${lockKey}: ${(error as Error).message}`);
@@ -101,12 +116,12 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
-  async releaseSlotLock(lockKey: string, lockValue: string): Promise<void> {
+  // Use a shared compare-and-delete path so job and slot locks stay consistent.
+  private async tryReleaseLock(lockKey: string, lockValue: string): Promise<void> {
     try {
       const currentValue = await this.client.get(lockKey);
       if (currentValue === lockValue) {
         await this.client.del(lockKey);
-        console.log(`Lock released for ${lockKey}`);
       }
     } catch (error) {
       this.logger.warn(`Redis lock release failed for ${lockKey}: ${(error as Error).message}`);

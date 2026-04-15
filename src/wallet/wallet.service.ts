@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { DataResponse } from 'src/common/dto/data-respone';
-import { CoinService } from './coin.service';
-import { CreditService } from './credit.service';
+import { CoinService } from './coin/coin.service';
+import { CreditService } from './credit/credit.service';
 
 @Injectable()
 export class WalletService {

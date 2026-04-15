@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import type { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
+import type { CoinExpiryReminderEventPayload } from 'src/wallet/coin/coin-expiry-reminder/dto/coin-expiry-reminder.dto';
 import { MailService } from "./mail.service";
 
 
@@ -78,6 +79,15 @@ export class MailListener {
             await this.mailService.sendPatientAppointmentCancellationMail(payload);
         } catch (error) {
             this.logMailError('mail.patient.appointment.cancelled', error);
+        }
+    }
+
+    @OnEvent('mail.coin.expiry.reminder')
+    async handleCoinExpiryReminder(payload: CoinExpiryReminderEventPayload) {
+        try {
+            await this.mailService.sendCoinExpiryReminderMail(payload);
+        } catch (error) {
+            this.logMailError('mail.coin.expiry.reminder', error);
         }
     }
 }
