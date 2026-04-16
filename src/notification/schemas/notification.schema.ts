@@ -28,6 +28,10 @@ export class Notification {
   @Prop({ type: mongoose.Schema.Types.Mixed, required: false })
   details?: Record<string, unknown>;
 
+  // Retry-safe dedup key: unique per notification business event and recipient.
+  @Prop({ required: false, unique: true, sparse: true, index: true })
+  idempotencyKey?: string;
+
   @Prop({ default: Date.now })
   createdAt?: Date;
 

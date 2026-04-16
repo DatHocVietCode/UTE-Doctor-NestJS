@@ -2,15 +2,26 @@ import { Injectable } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import { COIN_EXPIRY_REMINDER_NOTIFICATION_EVENT } from "src/wallet/coin/coin-expiry-reminder/coin-expiry-reminder.constants";
 import type { CoinExpiryReminderEventPayload } from "src/wallet/coin/coin-expiry-reminder/dto/coin-expiry-reminder.dto";
-import { NotificationService } from "../notification.service";
+import { NotificationJobPublisher } from "../notification-job.publisher";
 
 @Injectable()
 export class CoinExpiryReminderNotificationListener {
-    constructor(private readonly notificationService: NotificationService) {}
+    constructor(private readonly notificationPublisher: NotificationJobPublisher) {}
 
     @OnEvent(COIN_EXPIRY_REMINDER_NOTIFICATION_EVENT)
-    handleCoinExpiryReminder(payload: CoinExpiryReminderEventPayload) {
-        // Persist reminder notification to support client polling fallback when realtime push is missed.
-        this.notificationService.createCoinExpiryReminderNotification(payload);
+    async handleCoinExpiryReminder(payload: CoinExpiryReminderEventPayload) {
+        if (!payload?.patientEmail) {
+            return;
+        }
+
+        const recipientEmail = payload.patientEmail.trim().toLowerCase();
+
+        await this.notificationPublisher.publish({
+            type: 'COIN_EXPIRY_REMINDER',
+            data: payload,
+            createdAt: Date.now(),
+            recipientEmail,
+            idempotencyKey: `COIN_EXPIRY_REMINDER:${payload.transactionId}`,
+        });
     }
 }

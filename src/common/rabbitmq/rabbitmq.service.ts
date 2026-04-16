@@ -82,6 +82,26 @@ export class RabbitMqService implements OnModuleDestroy {
     });
   }
 
+  async publishWithQueueOptions(
+    queueName: string,
+    payload: unknown,
+    queueOptions: Options.AssertQueue,
+    options?: Options.Publish,
+  ): Promise<boolean> {
+    const ready = await this.ensureConnected();
+    if (!ready || !this.channel) {
+      return false;
+    }
+
+    await this.channel.assertQueue(queueName, queueOptions);
+    const buffer = Buffer.from(JSON.stringify(payload));
+    return this.channel.sendToQueue(queueName, buffer, {
+      persistent: true,
+      contentType: 'application/json',
+      ...options,
+    });
+  }
+
   async publishToExchange(
     exchangeName: string,
     routingKey: string,
@@ -178,6 +198,39 @@ export class RabbitMqService implements OnModuleDestroy {
     }
 
     await this.channel.assertQueue(queueName, { durable: true });
+    await this.channel.prefetch(prefetch);
+
+    await this.channel.consume(queueName, async (message) => {
+      if (!message || !this.channel) {
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(message.content.toString('utf-8'));
+        await handler(message, parsed);
+        this.channel.ack(message);
+      } catch (error) {
+        this.logger.warn(`RabbitMQ consume handler failed for ${queueName}: ${(error as Error).message}`);
+        this.channel.nack(message, false, false);
+      }
+    });
+
+    this.logger.log(`RabbitMQ consumer attached to queue: ${queueName}`);
+    return true;
+  }
+
+  async consumeWithQueueOptions(
+    queueName: string,
+    queueOptions: Options.AssertQueue,
+    handler: ConsumeHandler,
+    prefetch = 20,
+  ): Promise<boolean> {
+    const ready = await this.ensureConnected();
+    if (!ready || !this.channel) {
+      return false;
+    }
+
+    await this.channel.assertQueue(queueName, queueOptions);
     await this.channel.prefetch(prefetch);
 
     await this.channel.consume(queueName, async (message) => {
