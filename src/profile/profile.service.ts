@@ -77,7 +77,7 @@ export class ProfileService {
     const profile = await this.findByEmail(payload.email);
     if (!profile) return null;
 
-    console.log('[ProfileService]: Fetch profile: ', profile)
+    //console.log('[ProfileService]: Fetch profile: ', profile)
 
     return {
       id: profile._id.toString(),

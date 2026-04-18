@@ -6,9 +6,9 @@ import { Account, AccountDocument } from 'src/account/schemas/account.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { RoleEnum } from 'src/common/enum/role.enum';
+import { AuthUser } from 'src/common/interfaces/auth-user';
 import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
 import { getProfileByEntity } from 'src/utils/helpers/profile.helper';
-import { AuthUser } from 'src/common/interfaces/auth-user';
 import { CreatePatientDto } from './dto/create-patient.dto';
 import { PatientProfileDTO } from './dto/patient.dto';
 import {
@@ -160,7 +160,7 @@ export class PatientService {
       medicalHistory: medicalHistory as any[],
     };
 
-    console.log("[PatientSubscriber] Patient info fetched with new collections:", JSON.stringify(dto, null, 2));
+    //console.log("[PatientSubscriber] Patient info fetched with new collections:", JSON.stringify(dto, null, 2));
     
     return dto;
   }

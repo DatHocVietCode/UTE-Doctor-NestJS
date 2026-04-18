@@ -3,8 +3,8 @@ import { Server, Socket } from 'socket.io';
 
 @Injectable()
 export class SocketRoomService {
-  joinRoom(client: Socket, room: string) {
-    client.join(room);
+  async joinRoom(client: Socket, room: string) {
+    await client.join(room);
     console.log(`[Socket][${client.nsp.name}] ${client.id} joined room ${room}`);
   }
 
