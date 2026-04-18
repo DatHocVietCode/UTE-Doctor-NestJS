@@ -128,6 +128,23 @@ npm run test:e2e
 - Real-time: WebSockets via `@nestjs/platform-socket.io` (`socket` module).
 - Integrations: Cloudinary, mailer (nodemailer), payment (VNPay), PDF generation (puppeteer), etc.
 
+## Socket Architecture
+
+- Socket.IO middleware handles authentication only.
+- Gateways handle connection lifecycle and namespace event routing only.
+- Services own business logic, including Redis-backed presence tracking.
+- Presence tracking uses `user:{userId}:devices` SET plus `online_users` for multi-device, multi-instance support.
+- TTL is a fallback safety net; the device set remains the source of truth.
+- Prefer reusable services and avoid duplicating JWT parsing or Redis commands in gateway handlers.
+- Future socket features such as notifications or booking sync should build on the same middleware -> gateway -> service split.
+
+Socket connection flow guidance (FE + BE):
+- Old flow (deprecated as global rule): connect -> `JOIN_ROOM` -> `ROOM_JOINED` -> business events.
+- New flow (current): connect with `handshake.auth.token` -> middleware auth gate -> gateway lifecycle/presence -> business events.
+- `JOIN_ROOM` remains required only for email-room namespaces (`/appointment`, `/payment/vnpay`, `/patient-profile`, `/notification`).
+- `/chat` should use chat-specific room events (`CHAT_JOIN_USER`, `CHAT_JOIN_CONVERSATION`) instead of relying on `JOIN_ROOM` as a handshake gate.
+- FE clients should emit `heartbeat` every 25-30 seconds on long-lived connections to refresh Redis presence TTL.
+
 ## Coding Conventions (Inferred)
 
 - Language: TypeScript throughout.
