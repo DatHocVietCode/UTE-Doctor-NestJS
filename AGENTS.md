@@ -229,6 +229,24 @@ npm run test:e2e
 - Do NOT delay contract-submodule push until BE root changes are ready; FE integration depends on latest submodule state.
 - When sharing updates with FE, always provide the pushed submodule branch and latest commit hash.
 
+## Unified Notification Architecture Rules
+
+- Notification realtime must use one socket event: `NOTIFICATION_RECEIVED`.
+- Preferred notification namespace for FE bell/realtime center is `/notification`.
+- Payload contract must be typed discriminated union (`NotificationPayload`) with:
+  - `type`
+  - `data` (domain DTO, no flattening)
+  - `createdAt` (epoch ms UTC)
+  - `recipientEmail`
+  - `idempotencyKey`
+- Notification processing flow must be asynchronous:
+  - domain listener -> RabbitMQ queue `notification.jobs`
+  - queue consumer -> notification handler registry
+  - handler -> Mongo persistence + Redis publish
+  - socket bridge -> emit `NOTIFICATION_RECEIVED`
+- Avoid switch-case in notification processing and FE rendering; use handler registry pattern keyed by `type`.
+- Keep backward compatibility for old domain-specific socket events temporarily, but treat them as deprecated.
+
 Notes:
 - Some folders and filenames are in kebab-case, including Vietnamese names (e.g., `chuyen-khoa`, `tiep-tan`).
 - There is mixed usage of single and double quotes in the codebase; lint/format settings indicate the preferred style is single quotes.

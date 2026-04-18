@@ -3,6 +3,7 @@ import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import type { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
 import { emitTyped } from "src/utils/helpers/event.helper";
+import type { CoinExpiryReminderEventPayload } from 'src/wallet/coin/coin-expiry-reminder/dto/coin-expiry-reminder.dto';
 
 @Injectable()
 export class MailService {
@@ -178,5 +179,19 @@ export class MailService {
     `;
 
     await this.sendMail(payload.patientEmail, "Thông báo hủy lịch khám - UTE Doctor", html);
+  }
+
+  async sendCoinExpiryReminderMail(payload: CoinExpiryReminderEventPayload) {
+    const expiresAtIso = new Date(payload.expiresAt).toISOString();
+    const remainingDaysText = payload.reminderDays > 1 ? `${payload.reminderDays} ngày` : '1 ngày';
+    const html = `
+      <h2>Xin chào ${payload.patientName || 'bạn'},</h2>
+      <p>Bạn có ${payload.amount} coin sẽ hết hạn sau ${remainingDaysText}.</p>
+      <p><b>Mã giao dịch:</b> ${payload.transactionId}</p>
+      <p><b>Thời điểm hết hạn:</b> ${expiresAtIso}</p>
+      <p>Vui lòng sử dụng coin trước thời điểm này để không bị mất giá trị thưởng.</p>
+    `;
+
+    await this.sendMail(payload.patientEmail, 'Coin sắp hết hạn - UTE Doctor', html);
   }
 }
