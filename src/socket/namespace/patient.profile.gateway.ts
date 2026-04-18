@@ -1,19 +1,18 @@
-import { SubscribeMessage, WebSocketGateway } from "@nestjs/websockets";
 import { OnEvent } from "@nestjs/event-emitter";
-import { JwtService } from '@nestjs/jwt';
+import { WebSocketGateway } from "@nestjs/websockets";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { SocketEventsEnum } from "src/common/enum/socket-events.enum";
-import { BaseGateway } from "../base/base.gateway";
-import { SocketRoomService } from "../socket.service";
 import { PatientProfileDTO } from "src/patient/dto/patient.dto";
-import { Socket } from "socket.io";
+import { BaseGateway } from "../base/base.gateway";
+import { PresenceService } from "../presence.service";
+import { SocketRoomService } from "../socket.service";
 
 
 @WebSocketGateway({ cors: true, namespace: '/patient-profile' })
 export class PatientProfileGateway extends BaseGateway {
-    constructor(socketRoomService: SocketRoomService, jwtService: JwtService) {
-        super(socketRoomService, jwtService);
+    constructor(socketRoomService: SocketRoomService, presenceService: PresenceService) {
+        super(socketRoomService, presenceService);
     }
 
     // Listen for events to push patient profile
@@ -35,6 +34,6 @@ export class PatientProfileGateway extends BaseGateway {
         .emit(SocketEventsEnum.PATIENT_PROFILE, dataRes);
 
         console.log('[Socket] Patient profile pushed to room:', payload.roomEmail);
-        console.log('[Socket] Data pushed', dataRes)
+        //console.log('[Socket] Data pushed', dataRes)
     }
 }

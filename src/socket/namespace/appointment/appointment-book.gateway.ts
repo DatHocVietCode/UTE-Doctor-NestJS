@@ -1,15 +1,15 @@
 // appointment-booking.gateway.ts
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
-import { JwtService } from '@nestjs/jwt';
 import {
-  ConnectedSocket,
-  MessageBody,
-  SubscribeMessage,
-  WebSocketGateway
+    ConnectedSocket,
+    MessageBody,
+    SubscribeMessage,
+    WebSocketGateway
 } from '@nestjs/websockets';
 import { Socket } from 'socket.io';
 import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
 import { BaseGateway } from 'src/socket/base/base.gateway';
+import { PresenceService } from 'src/socket/presence.service';
 import { SocketRoomService } from 'src/socket/socket.service';
 
 @WebSocketGateway({
@@ -20,9 +20,9 @@ export class AppointmentBookingGateway extends BaseGateway {
 
   constructor(private readonly eventEmitter: EventEmitter2,
     socketRoomService: SocketRoomService,
-    jwtService: JwtService,
+    presenceService: PresenceService,
   ) {
-    super(socketRoomService, jwtService);
+    super(socketRoomService, presenceService);
   }
 
   // Khi FE chọn bác sĩ

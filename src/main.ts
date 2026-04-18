@@ -1,8 +1,10 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import * as path from 'path';
+import { AppModule } from './app.module';
+import { SocketAuthMiddleware } from './socket/middleware/socket-auth.middleware';
+import { SocketAdapter } from './socket/socket.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -22,6 +24,8 @@ async function bootstrap() {
     transform: true,
     forbidNonWhitelisted: true,
   }));
+
+  app.useWebSocketAdapter(new SocketAdapter(app, app.get(SocketAuthMiddleware)));
 
 
   app.setGlobalPrefix('api');

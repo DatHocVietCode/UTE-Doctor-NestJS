@@ -3,7 +3,7 @@ import { Socket } from 'socket.io';
 import { AuthUser } from 'src/common/interfaces/auth-user';
 
 /**
- * Type definition for JWT payload stored in socket.data.user
+ * Type definition for JWT payload stored in socket.data.authUser
  */
 export interface JwtSocketPayload {
   accountId?: string;
@@ -16,7 +16,7 @@ export interface JwtSocketPayload {
 
 /**
  * Custom decorator to extract authenticated user from WebSocket connection
- * User data is attached to socket.data.user during JWT verification in afterInit
+ * User data is attached by SocketAuthMiddleware and consumed by gateway handlers
  * 
  * @example
  * ```typescript
@@ -44,7 +44,7 @@ export interface JwtSocketPayload {
 export const WsUser = createParamDecorator(
   (data: string | undefined, ctx: ExecutionContext): AuthUser => {
     const client = ctx.switchToWs().getClient<Socket>();
-    const rawUser = (client.data as any).user;
+    const rawUser = (client.data as any).authUser;
 
     if (!rawUser) {
       throw new Error('User not found in socket data. JWT verification may have failed.');
