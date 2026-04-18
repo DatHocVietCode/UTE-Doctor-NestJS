@@ -1,14 +1,14 @@
-import {
-  OnGatewayInit,
-  SubscribeMessage,
-  WebSocketGateway,
-  WebSocketServer,
-} from '@nestjs/websockets';
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import {
+    OnGatewayInit,
+    SubscribeMessage,
+    WebSocketGateway,
+    WebSocketServer,
+} from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { SocketRoomService } from '../socket.service';
 import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
+import { SocketRoomService } from '../socket.service';
 
 @WebSocketGateway({
   cors: true,
@@ -22,6 +22,16 @@ export class BaseGateway implements OnGatewayInit {
     protected readonly socketRoomService: SocketRoomService,
     protected readonly jwtService: JwtService,
   ) {}
+
+  private normalizeRoom(room: string): string {
+    const normalized = room?.trim();
+    if (!normalized) {
+      return '';
+    }
+
+    // Email rooms are matched case-insensitively by convention across FE/BE.
+    return normalized.includes('@') ? normalized.toLowerCase() : normalized;
+  }
 
   /**
    * JWT verification at connection level.
@@ -62,7 +72,7 @@ export class BaseGateway implements OnGatewayInit {
   @SubscribeMessage(SocketEventsEnum.JOIN_ROOM)
   handleJoinRoom(client: Socket) {
     const user = (client.data as any)?.user;
-    const email = user?.email;
+    const email = this.normalizeRoom(user?.email || '');
     if (!email) {
       console.log('[Socket] No email found in JWT payload');
       return;
@@ -79,7 +89,12 @@ export class BaseGateway implements OnGatewayInit {
   }
 
   emitToRoom(room: string, event: string, data: any) {
-    this.server.to(room).emit(event, data);
+    const targetRoom = this.normalizeRoom(room);
+    if (!targetRoom) {
+      return;
+    }
+
+    this.server.to(targetRoom).emit(event, data);
   }
 
   emitToAll(event: string, data: any) {

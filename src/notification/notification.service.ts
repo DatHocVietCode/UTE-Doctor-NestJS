@@ -1,71 +1,109 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { EventEmitter2 } from "@nestjs/event-emitter";
-import { InjectModel } from "@nestjs/mongoose";
-import { Model } from "mongoose";
-import { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
-import { PaginationQueryDto } from "src/common/dto/pagination-query.dto";
-import { PaginationResult } from "src/common/dto/pagination-result.dto";
-import { emitTyped } from "src/utils/helpers/event.helper";
-import { Notification, NotificationDocument } from "./schemas/notification.schema";
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto';
+import { PaginationResult } from 'src/common/dto/pagination-result.dto';
+import type { NotificationPayload, NotificationType } from './dto/notification-payload.dto';
+import { AppointmentCancelledNotificationHandler } from './handlers/appointment-cancelled-notification.handler';
+import { AppointmentSuccessNotificationHandler } from './handlers/appointment-success-notification.handler';
+import { CoinExpiryNotificationHandler } from './handlers/coin-expiry-notification.handler';
+import { NotificationHandlerMeta } from './handlers/notification-handler.interface';
+import type { HandlerRegistry } from './handlers/notification-handler.types';
+import { PaymentSuccessNotificationHandler } from './handlers/payment-success-notification.handler';
+import { Notification, NotificationDocument } from './schemas/notification.schema';
 
 @Injectable()
 export class NotificationService {
-    constructor(@InjectModel(Notification.name) private notificationModel: Model<NotificationDocument>
-                ,private readonly eventEmitter: EventEmitter2) {}
+    private readonly logger = new Logger(NotificationService.name);
+    private readonly handlers: HandlerRegistry;
+
+    constructor(
+        @InjectModel(Notification.name)
+        private readonly notificationModel: Model<NotificationDocument>,
+        private readonly coinExpiryHandler: CoinExpiryNotificationHandler,
+        private readonly appointmentSuccessHandler: AppointmentSuccessNotificationHandler,
+        private readonly appointmentCancelledHandler: AppointmentCancelledNotificationHandler,
+        private readonly paymentSuccessHandler: PaymentSuccessNotificationHandler,
+    ) {
+        // Registry avoids switch-case branching and keeps each type handler isolated.
+        this.handlers = {
+            COIN_EXPIRY_REMINDER: this.coinExpiryHandler,
+            APPOINTMENT_SUCCESS: this.appointmentSuccessHandler,
+            APPOINTMENT_CANCELLED: this.appointmentCancelledHandler,
+            PAYMENT_SUCCESS: this.paymentSuccessHandler,
+        };
+    }
+
+    private toEpoch(value: unknown): number | null {
+        if (value instanceof Date) {
+            return value.getTime();
+        }
+
+        if (typeof value === 'number' && Number.isFinite(value)) {
+            return Math.floor(value);
+        }
+
+        if (typeof value === 'string') {
+            const parsed = new Date(value).getTime();
+            return Number.isNaN(parsed) ? null : parsed;
+        }
+
+        return null;
+    }
+
+    private normalizeNotificationTimestamps(notification: any): any {
+        if (!notification) {
+            return notification;
+        }
+
+        const normalized = { ...notification };
+        normalized.createdAt = this.toEpoch(normalized.createdAt);
+        normalized.updatedAt = this.toEpoch(normalized.updatedAt);
+
+        if (normalized.details && typeof normalized.details === 'object') {
+            normalized.details = {
+                ...normalized.details,
+                expiresAt: this.toEpoch(normalized.details.expiresAt),
+                runAt: this.toEpoch(normalized.details.runAt),
+            };
+        }
+
+        return normalized;
+    }
 
     async storeNewNotification(notification: Partial<NotificationDocument>) {
         const newNoti = new this.notificationModel(notification);
         return await newNoti.save();
     }
 
-    async createPatientAppointmentNotification(payload: AppointmentEnriched) {
-        let timeSlotName = '';
-        timeSlotName = await emitTyped<string, string>(
-            this.eventEmitter,
-            'timeslot.get.name.by.id',
-            payload.timeSlot.toString()
-        );
-        const body = {
-            title: 'Đặt lịch khám thành công',
-            message: `Bạn đã đặt lịch khám thành công vào ngày ${payload.date} lúc ${timeSlotName} tại ${payload.hospitalName}.`,
-            details: {
-                bacSi: payload.doctorName || 'Chưa chọn',
-                dichVu: payload.serviceType,
-                hinhThucThanhToan: payload.paymentMethod,
-                amount: payload.amount,
-            },
+    async process(payload: NotificationPayload): Promise<void> {
+        const handler = this.handlers[payload.type as NotificationType];
+        if (!handler) {
+            this.logger.warn(`No notification handler registered for type ${payload.type}`);
+            return;
+        }
+
+        const meta: NotificationHandlerMeta = {
+            recipientEmail: payload.recipientEmail,
+            createdAt: payload.createdAt,
+            idempotencyKey: payload.idempotencyKey,
         };
 
-        // Use notiService to st
-        await this.storeNewNotification({
-            receiverEmail: [payload.patientEmail],
-            ...body
-        });
+        await handler.handle(payload.data as never, meta);
     }
 
-    async createDoctorAppointmentNotification(payload: AppointmentEnriched) {
-        const timeSlotName = await emitTyped<string, string>(
-            this.eventEmitter,
-            'timeslot.get.name.by.id',
-            payload.timeSlot._id.toString()!
-        );
-        const body = {
-            title: 'Đặt lịch khám thành công',
-            message: `Bạn đã được thêm mới lịch khám vào ngày: ${payload.date} lúc ${timeSlotName} tại ${payload.hospitalName}.`,
-            details: {
-                bacSi: payload.doctorName || 'Chưa chọn',
-                dichVu: payload.paymentMethod,
-                hinhThucThanhToan: payload.paymentMethod,
-                thoiGian: "Ngày: " + payload.date + " lúc " +  timeSlotName,
-                amount: payload.amount,
-            },
-        };
+    async storeIfNotExists(notification: Partial<NotificationDocument>): Promise<boolean> {
+        try {
+            await this.storeNewNotification(notification);
+            return true;
+        } catch (error) {
+            // Duplicate key means this notification has already been processed.
+            if ((error as { code?: number }).code === 11000) {
+                return false;
+            }
 
-        // Use notiService to st
-        await this.storeNewNotification({
-            receiverEmail: [payload.doctorEmail!], // chắc chắn có email bác sĩ
-            ...body
-        });
+            throw error;
+        }
     }
 
     async getNotifications(
@@ -86,7 +124,8 @@ export class NotificationService {
             this.notificationModel.countDocuments(),
         ]);
 
-        return new PaginationResult(data, total, page, limit);
+        const normalizedData = data.map((item) => this.normalizeNotificationTimestamps(item));
+        return new PaginationResult(normalizedData, total, page, limit);
     }
     async getNotificationsByEmail(
         email: string,
@@ -114,7 +153,8 @@ export class NotificationService {
             this.notificationModel.countDocuments(filter),
         ]);
 
-        return new PaginationResult(data, total, page, limit);
+        const normalizedData = data.map((item) => this.normalizeNotificationTimestamps(item));
+        return new PaginationResult(normalizedData, total, page, limit);
     }
 
     async countUnreadByEmail(email: string): Promise<number> {
@@ -134,72 +174,8 @@ export class NotificationService {
         ).lean();
 
         if (!notif) throw new NotFoundException('[NotificationService] Notification not found');
-        return notif;
+        return this.normalizeNotificationTimestamps(notif);
     }
 
-    async createPatientShiftCancellationNotification(payload: {
-        patientEmail: string;
-        doctorName?: string;
-        date: string;
-        timeSlot: string;
-        hospitalName?: string;
-        reason?: string;
-    }) {
-        const timeSlotName = await emitTyped<string, string>(
-            this.eventEmitter,
-            'timeslot.get.name.by.id',
-            payload.timeSlot
-        );
-
-        const title = 'Thông báo hủy ca khám';
-        const message = `Ca khám ngày ${payload.date} lúc ${timeSlotName}${payload.hospitalName ? ` tại ${payload.hospitalName}` : ''} đã bị hủy${payload.doctorName ? ` bởi bác sĩ ${payload.doctorName}` : ''}${payload.reason ? `. Lý do: ${payload.reason}` : ''}. Vui lòng đặt lại lịch hoặc liên hệ hỗ trợ.`;
-
-        await this.storeNewNotification({
-            receiverEmail: [payload.patientEmail],
-            title,
-            message,
-        });
-    }
-
-    async createDoctorShiftCancellationNotification(payload: {
-        doctorEmail: string;
-        date: string;
-        shift: string;
-        reason?: string;
-        affectedAppointmentsCount: number;
-    }) {
-        const title = 'Xác nhận hủy ca trực';
-        const message = `Bạn đã hủy ca ${payload.shift === 'morning' ? 'sáng' : payload.shift === 'afternoon' ? 'trưa' : 'ngoài giờ'} ngày ${payload.date}${payload.reason ? `. Lý do: ${payload.reason}` : ''}. Có ${payload.affectedAppointmentsCount} lịch hẹn bị ảnh hưởng. Bệnh nhân đã được thông báo và hoàn coin.`;
-
-        await this.storeNewNotification({
-            receiverEmail: [payload.doctorEmail],
-            title,
-            message,
-        });
-    }
-
-    async createPatientAppointmentCancellationNotification(payload: {
-        patientEmail: string;
-        doctorName?: string;
-        date: string;
-        timeSlot: string;
-        hospitalName?: string;
-        reason?: string;
-    }) {
-        const timeSlotName = await emitTyped<string, string>(
-            this.eventEmitter,
-            'timeslot.get.name.by.id',
-            payload.timeSlot
-        );
-
-        const title = 'Thông báo hủy lịch khám';
-        const message = `Lịch khám ngày ${payload.date} lúc ${timeSlotName}${payload.hospitalName ? ` tại ${payload.hospitalName}` : ''} đã bị hủy${payload.doctorName ? ` bởi bác sĩ ${payload.doctorName}` : ''}${payload.reason ? `. Lý do: ${payload.reason}` : ''}.`; 
-
-        await this.storeNewNotification({
-            receiverEmail: [payload.patientEmail],
-            title,
-            message,
-        });
-    }
 }
 

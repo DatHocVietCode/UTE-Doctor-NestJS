@@ -1,6 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import mongoose, { Document, Types } from 'mongoose';
-import { Profile } from 'src/profile/schema/profile.schema';
+import mongoose, { Document } from 'mongoose';
 
 export type NotificationDocument = Notification & Document;
 
@@ -24,6 +23,20 @@ export class Notification {
   // gửi broadcast cho tất cả user
   @Prop({ default: false })
   isBroadcast: boolean;
+
+  // Optional structured payload for FE to render without parsing message text.
+  @Prop({ type: mongoose.Schema.Types.Mixed, required: false })
+  details?: Record<string, unknown>;
+
+  // Retry-safe dedup key: unique per notification business event and recipient.
+  @Prop({ required: false, unique: true, sparse: true, index: true })
+  idempotencyKey?: string;
+
+  @Prop({ default: Date.now })
+  createdAt?: Date;
+
+  @Prop({ default: Date.now })
+  updatedAt?: Date;
 }
 
 export const NotificationSchema = SchemaFactory.createForClass(Notification);

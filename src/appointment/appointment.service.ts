@@ -14,7 +14,7 @@ import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
 import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
 import { TimeHelper } from "src/utils/helpers/time.helper";
-import { CoinService } from "src/wallet/coin.service";
+import { CoinService } from 'src/wallet/coin/coin.service';
 import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
