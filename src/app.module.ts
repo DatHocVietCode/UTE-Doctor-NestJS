@@ -11,6 +11,7 @@ import { PatientModule } from 'src/patient/patient.module';
 import { DoctorPostModule } from 'src/post/post.module';
 import { PrescriptionModule } from 'src/prescription/prescription.module';
 import { ProfileModule } from 'src/profile/profile.module';
+import { ReceptionistModule } from 'src/receptionist/receptionist.module';
 import { ReviewModule } from 'src/review/review.module';
 import { ShiftModule } from 'src/shift/shift.module';
 import { AccountModule } from './account/account.module';
@@ -66,6 +67,7 @@ import { OtpModule } from './utils/otp/otp.module';
     TimeSlotModule,
     MedicineModule,
     PrescriptionModule,
+    ReceptionistModule,
     ReviewModule,
     UserContextModule,
     CloudinaryModule,
