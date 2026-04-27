@@ -1,5 +1,4 @@
 import { Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { ConnectedSocket, MessageBody, SubscribeMessage, WebSocketGateway } from '@nestjs/websockets';
 import { Socket } from 'socket.io';
 import { CHAT_MESSAGE_REDIS_CHANNEL } from 'src/chat/chat-queue.constants';
@@ -11,24 +10,26 @@ import { RedisService } from 'src/common/redis/redis.service';
 import { BaseGateway } from '../../base/base.gateway';
 import type { JwtSocketPayload } from '../../decorators/ws-user.decorator';
 import { WsUser } from '../../decorators/ws-user.decorator';
+import { PresenceService } from '../../presence.service';
 import { SocketRoomService } from '../../socket.service';
 
 /**
  * Chat Gateway
- * - JWT verification is inherited from BaseGateway (connection level)
+ * - JWT verification happens in Socket.IO middleware
+ * - Connection lifecycle/presence is handled by the base gateway
  * - Uses @WsUser() decorator to get authenticated user
  */
 @WebSocketGateway({ cors: true, namespace: '/chat' })
 export class ChatGateway extends BaseGateway implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(ChatGateway.name);
+  private readonly chatLogger = new Logger(ChatGateway.name);
 
   constructor(
     private readonly chatService: ChatService, 
     private readonly redisService: RedisService,
     socketRoomService: SocketRoomService,
-    jwtService: JwtService,
+    presenceService: PresenceService,
   ) {
-    super(socketRoomService, jwtService);
+    super(socketRoomService, presenceService);
   }
 
   async onModuleInit(): Promise<void> {
@@ -53,7 +54,7 @@ export class ChatGateway extends BaseGateway implements OnModuleInit, OnModuleDe
       await this.broadcastMessage(conversationId, response, senderId);
     });
 
-    this.logger.log('Chat gateway subscribed to Redis chat.message channel');
+    this.chatLogger.log('Chat gateway subscribed to Redis chat.message channel');
   }
 
   async onModuleDestroy(): Promise<void> {

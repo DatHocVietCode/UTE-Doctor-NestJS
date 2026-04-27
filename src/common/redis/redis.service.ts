@@ -62,6 +62,10 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
+  getClient(): Redis {
+    return this.client;
+  }
+
   async acquireLock(lockKey: string, lockValue: string, ttlSeconds = 300): Promise<boolean> {
     return this.tryAcquireLock(lockKey, lockValue, ttlSeconds);
   }
