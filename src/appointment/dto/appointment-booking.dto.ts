@@ -1,6 +1,7 @@
 import { Type } from "class-transformer";
 import {
   IsArray,
+  IsBoolean,
   IsEmail,
   IsEnum,
   IsMongoId,
@@ -8,9 +9,12 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Min,
   ValidateNested
 } from "class-validator";
+import { PaymentCategory } from "src/appointment/enums/payment-category.enum";
 import { ServiceType } from "src/appointment/enums/service-type.enum";
+import { VisitType } from "src/appointment/enums/visit-type.enum";
 import { IsIsoWithTimezone } from "src/common/validators/is-iso-with-timezone.validator";
 import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 
@@ -57,6 +61,19 @@ export class AppointmentBookingRequestDto {
   paymentMethod: PaymentMethodEnum;
 
   @IsOptional()
+  @IsEnum(VisitType)
+  visitType?: VisitType;
+
+  @IsOptional()
+  @IsEnum(PaymentCategory)
+  paymentCategory?: PaymentCategory;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  depositAmount?: number;
+
+  @IsOptional()
   @IsNumber()
   amount?: number;
 
@@ -69,6 +86,7 @@ export class AppointmentBookingRequestDto {
   coinsToUse?: number; // Optional discount amount requested by user, capped by policy.
 
   @IsOptional()
+  @IsBoolean()
   useCoin?: boolean; // Whether to apply coin discount on this appointment.
 }
 
