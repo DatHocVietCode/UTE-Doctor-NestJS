@@ -18,10 +18,10 @@ export class ReceptionistController {
 		};
 	}
 
-	@Get('visits')
-	async getVisits() {
-		return this.receptionistService.getVisits();
-	}
+	// @Get('visits')
+	// async getVisits() {
+	// 	return this.receptionistService.getVisits();
+	// }
 
 	@Get('billing/:visitId')
 	async getBilling(@Param('visitId') visitId: string) {
