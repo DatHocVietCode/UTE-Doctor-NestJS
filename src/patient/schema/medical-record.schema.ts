@@ -151,11 +151,14 @@ export class VitalSignRecord {
 export type VitalSignRecordDocument = HydratedDocument<VitalSignRecord>;
 export const VitalSignRecordSchemaV2 = SchemaFactory.createForClass(VitalSignRecord);
 
-// Encounter/visit record (per appointment), immutable once created
+// Encounter/visit record (per visit, with appointment compatibility during migration).
 @Schema({ timestamps: true })
 export class MedicalEncounter {
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', required: true, unique: true })
-  appointmentId: Types.ObjectId;
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Visit', unique: true, sparse: true })
+  visitId?: Types.ObjectId;
+
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', unique: true, sparse: true })
+  appointmentId?: Types.ObjectId;
 
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true, index: true })
   patientId: Types.ObjectId;

@@ -1,19 +1,23 @@
 import {
-    BadRequestException,
-    ConflictException,
-    Injectable,
-    NotFoundException,
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppointmentStatus } from 'src/appointment/enums/Appointment-status.enum';
 import {
-    Appointment,
-    AppointmentDocument,
+  Appointment,
+  AppointmentDocument,
 } from 'src/appointment/schemas/appointment.schema';
 import { Doctor } from 'src/doctor/schema/doctor.schema';
+import { MedicalEncounterService } from 'src/patient/medical-encounter.service';
 import { Patient } from 'src/patient/schema/patient.schema';
 import { Profile } from 'src/profile/schema/profile.schema';
+import { TimeSlotLog, TimeSlotLogDocument } from 'src/timeslot/schemas/timeslot-log.schema';
 import { CompleteVisitDto } from './dto/complete-visit.dto';
 import { VisitStatus } from './enums/visit-status.enum';
 import { Visit, VisitDocument } from './schemas/visit.schema';
@@ -30,17 +34,23 @@ type ReceptionistVisitItem = {
 
 @Injectable()
 export class VisitService {
+  private readonly logger = new Logger(VisitService.name);
+
   constructor(
+    private readonly eventEmitter: EventEmitter2,
     @InjectModel(Visit.name)
     private readonly visitModel: Model<VisitDocument>,
     @InjectModel(Appointment.name)
     private readonly appointmentModel: Model<AppointmentDocument>,
+    @InjectModel(TimeSlotLog.name)
+    private readonly timeSlotLogModel: Model<TimeSlotLogDocument>,
     @InjectModel(Patient.name)
     private readonly patientModel: Model<any>,
     @InjectModel(Doctor.name)
     private readonly doctorModel: Model<any>,
     @InjectModel(Profile.name)
     private readonly profileModel: Model<any>,
+    private readonly medicalEncounterService: MedicalEncounterService,
   ) {}
 
   async getTodayVisitsForReceptionist(): Promise<ReceptionistVisitItem[]> {
@@ -140,6 +150,117 @@ export class VisitService {
 
       console.log("First visit:", visits[0]);
     return visits as ReceptionistVisitItem[];
+  }
+
+  async getTodayVisitsForDoctor(doctorId: string): Promise<ReceptionistVisitItem[]> {
+    const startOfDayUtc = Date.UTC(
+      new Date().getUTCFullYear(),
+      new Date().getUTCMonth(),
+      new Date().getUTCDate(),
+      0,
+      0,
+      0,
+      0,
+    );
+    const endOfDayUtc = Date.UTC(
+      new Date().getUTCFullYear(),
+      new Date().getUTCMonth(),
+      new Date().getUTCDate(),
+      23,
+      59,
+      59,
+      999,
+    );
+
+    const visits = await this.visitModel
+      .aggregate([
+        {
+          $match: {
+            doctorId: new Types.ObjectId(doctorId),
+            status: { $in: ['CHECKED_IN', 'IN_PROGRESS'] },
+          },
+        },
+        {
+          $lookup: {
+            from: this.appointmentModel.collection.name,
+            localField: 'appointmentId',
+            foreignField: '_id',
+            as: 'appointment',
+          },
+        },
+        { $unwind: '$appointment' },
+        {
+          $match: {
+            'appointment.scheduledAt': {
+              $gte: startOfDayUtc,
+              $lte: endOfDayUtc,
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: this.patientModel.collection.name,
+            localField: 'patientId',
+            foreignField: '_id',
+            as: 'patient',
+          },
+        },
+        { $unwind: { path: '$patient', preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: this.profileModel.collection.name,
+            localField: 'patient.profileId',
+            foreignField: '_id',
+            as: 'patientProfile',
+          },
+        },
+        { $unwind: { path: '$patientProfile', preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: this.doctorModel.collection.name,
+            localField: 'doctorId',
+            foreignField: '_id',
+            as: 'doctor',
+          },
+        },
+        { $unwind: { path: '$doctor', preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: this.profileModel.collection.name,
+            localField: 'doctor.profileId',
+            foreignField: '_id',
+            as: 'doctorProfile',
+          },
+        },
+        { $unwind: { path: '$doctorProfile', preserveNullAndEmptyArrays: true } },
+        {
+          $sort: {
+            'appointment.scheduledAt': 1,
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            visitId: '$_id',
+            appointmentId: { $toString: '$appointment._id' },
+            status: 1,
+            scheduledAt: '$appointment.scheduledAt',
+            patientName: { $ifNull: ['$patientProfile.name', ''] },
+            doctorName: { $ifNull: ['$doctorProfile.name', ''] },
+            appointmentStatus: '$appointment.appointmentStatus',
+          },
+        },
+      ])
+      .exec();
+
+    return visits as ReceptionistVisitItem[];
+  }
+
+  async getVisitById(visitId: string) {
+    if (!Types.ObjectId.isValid(visitId)) {
+      return null;
+    }
+    return this.visitModel.findById(visitId).exec();
   }
 
   async createVisitFromAppointment(appointment: {
@@ -268,9 +389,105 @@ export class VisitService {
     return visit;
   }
 
-  async completeVisit(visitId: string, _data?: CompleteVisitDto): Promise<VisitDocument> {
-    // Completion delegates to transition guard logic so state rules stay in one place.
-    return this.updateVisitStatus(visitId, VisitStatus.COMPLETED);
+  async completeVisit(
+    visitId: string,
+    data: CompleteVisitDto,
+  ): Promise<{ visit: VisitDocument; encounterId: string }> {
+    if (!Types.ObjectId.isValid(visitId)) {
+      throw new BadRequestException('Invalid visitId');
+    }
+
+    const session = await this.visitModel.db.startSession();
+    try {
+      let completedVisit: VisitDocument | null = null;
+      let encounterId = '';
+
+      // Keep completion atomic so the visit, encounter, appointment, and time slot move together.
+      await session.withTransaction(async () => {
+        const visit = await this.visitModel.findById(visitId).session(session);
+        if (!visit) {
+          throw new NotFoundException('Visit not found');
+        }
+
+        if (visit.status !== VisitStatus.IN_PROGRESS) {
+          throw new BadRequestException('Visit can only be COMPLETED from IN_PROGRESS');
+        }
+
+        const appointment = await this.appointmentModel
+          .findById(visit.appointmentId)
+          .select('appointmentStatus doctorId patientId timeSlot')
+          .session(session)
+          .exec();
+
+        if (!appointment) {
+          throw new NotFoundException('Appointment not found for visit');
+        }
+
+        if (!appointment.doctorId || !appointment.patientId) {
+          throw new BadRequestException('Appointment is missing doctorId or patientId for visit completion');
+        }
+
+        const encounter = await this.medicalEncounterService.createVisitEncounter({
+          visitId: visit._id,
+          appointmentId: visit.appointmentId,
+          patientId: appointment.patientId,
+          doctorId: appointment.doctorId,
+          diagnosis: data.diagnosis,
+          note: data.note,
+          prescriptions: data.prescriptions,
+          session,
+        });
+
+        if (appointment.timeSlot) {
+          await this.timeSlotLogModel.updateOne(
+            { _id: appointment.timeSlot },
+            { $set: { status: 'completed' } },
+            { session },
+          );
+        }
+
+        await this.appointmentModel.updateOne(
+          { _id: appointment._id },
+          { $set: { appointmentStatus: AppointmentStatus.COMPLETED } },
+          { session },
+        );
+
+        visit.status = VisitStatus.COMPLETED;
+        visit.completedAt = Date.now();
+        await visit.save({ session });
+
+        completedVisit = visit;
+        encounterId = encounter._id.toString();
+      });
+
+      if (!completedVisit) {
+        throw new NotFoundException('Visit completion did not persist');
+      }
+
+      const committedVisit = completedVisit as VisitDocument;
+      this.logger.log(`Visit ${visitId} completed with encounter ${encounterId}`);
+      this.eventEmitter.emit('domain.visit.completed', {
+        visitId: committedVisit._id.toString(),
+        encounterId,
+        completedAt: committedVisit.completedAt,
+      });
+
+      return { visit: completedVisit, encounterId };
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async completeVisitByAppointmentId(
+    appointmentId: string,
+    data: CompleteVisitDto,
+  ): Promise<{ visit: VisitDocument; encounterId: string }> {
+    const visit = await this.visitModel.findOne({ appointmentId }).select('_id').lean().exec();
+    if (!visit) {
+      throw new NotFoundException('Visit not found for appointment');
+    }
+
+    return this.completeVisit(visit._id.toString(), data);
   }
 
   private assertStatusTransitionValid(

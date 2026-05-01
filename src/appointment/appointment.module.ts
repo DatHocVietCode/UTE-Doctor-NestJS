@@ -9,6 +9,7 @@ import { PaymentModule } from "src/payment/payment.module";
 import { Payment, PaymentSchema } from "src/payment/schemas/payment.schema";
 import { Profile, ProfileSchema } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-log.schema";
+import { VisitModule } from "src/visit/visit.module";
 import { WalletModule } from "src/wallet/wallet.module";
 import { AppointmentBookingService } from "./appointment-booking.service";
 import { AppointmentRescheduleService } from './appointment-reschedule.service';
@@ -31,6 +32,7 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
           { name: Payment.name, schema: PaymentSchema },
         ]),
         MedicineModule,
+        VisitModule,
         WalletModule,
         forwardRef(() => PaymentModule),
     ],
