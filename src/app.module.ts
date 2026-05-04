@@ -32,6 +32,7 @@ import { TimeSlotModule } from './timeslot/timeslot.module';
 import { UserContextModule } from './user-context/user-context.module';
 import { OtpModule } from './utils/otp/otp.module';
 import { VisitModule } from './visit/visit.module';
+import { BillingModule } from 'src/billing/billing.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -76,6 +77,8 @@ import { VisitModule } from './visit/visit.module';
 	DoctorPostModule,
     ChatModule,
     VisitModule,
+    // Billing module: creates draft billing after visit completion
+    BillingModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
   controllers: [AppController],

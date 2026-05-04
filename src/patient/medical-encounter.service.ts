@@ -3,8 +3,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import { Medicine, MedicineDocument } from 'src/medicine/schema/medicine.schema';
 import {
-  MedicalEncounter,
-  MedicalEncounterDocument,
+    MedicalEncounter,
+    MedicalEncounterDocument,
 } from './schema/medical-record.schema';
 
 type EncounterPrescriptionInput = {

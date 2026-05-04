@@ -10,13 +10,13 @@ import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
 import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
 import { TimeHelper } from "src/utils/helpers/time.helper";
+import { VisitService } from 'src/visit/visit.service';
 import { CoinService } from 'src/wallet/coin/coin.service';
 import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
 import { AppointmentTimeHelper } from "./utils/appointment-time.helper";
-import { VisitService } from 'src/visit/visit.service';
 
 @Injectable()
 export class AppointmentService {

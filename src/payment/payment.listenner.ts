@@ -14,12 +14,9 @@ export class PaymentListener {
     async processPayment(payload: any) : Promise<string | null> {
        const { method, amount, appointmentId } = payload;
 
-        console.log(`[PaymentListener] Processing payment with method: ${method}`);
-        if (method == PaymentMethodEnum.VNPAY || method == PaymentMethodEnum.ONLINE) {
-            const ip = payload.ip || '127.0.0.1'; // fallback nếu chưa có IP
-            return this.vnPaySerivce.createPayment(appointmentId, amount, ip);
-        }   
-         // Handle other payment methods here
-         return null;
+        // DEPRECATION: Inline payment triggered by appointment events is disabled.
+        // TODO: REMOVE AFTER FULL MIGRATION
+        console.warn(`[Deprecated] appointment.handle.payment event ignored for appointment ${appointmentId}`, { method, amount });
+        return null;
     }
 }

@@ -5,8 +5,8 @@ import {
   AppointmentSchema,
 } from 'src/appointment/schemas/appointment.schema';
 import { Doctor, DoctorSchema } from 'src/doctor/schema/doctor.schema';
-import { Patient, PatientSchema } from 'src/patient/schema/patient.schema';
 import { PatientModule } from 'src/patient/patient.module';
+import { Patient, PatientSchema } from 'src/patient/schema/patient.schema';
 import { Profile, ProfileSchema } from 'src/profile/schema/profile.schema';
 import { TimeSlotLog, TimeSlotLogSchema } from 'src/timeslot/schemas/timeslot-log.schema';
 import { VisitBookingListener } from './listenners/visit-booking.listenner';

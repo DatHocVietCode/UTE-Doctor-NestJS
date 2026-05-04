@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppointmentStatus } from 'src/appointment/enums/Appointment-status.enum';
 import { Appointment, AppointmentDocument } from 'src/appointment/schemas/appointment.schema';
+import { BillingService } from 'src/billing/billing.service';
 
 type MockPaymentInput = {
 	visitId?: string;
@@ -14,6 +15,7 @@ export class ReceptionistService {
 	constructor(
 		@InjectModel(Appointment.name)
 		private readonly appointmentModel: Model<AppointmentDocument>,
+		private readonly billingService: BillingService,
 	) {}
 
 	async getVisits() {
@@ -129,5 +131,37 @@ export class ReceptionistService {
 				simulated: true,
 			},
 		};
+	}
+
+	async applyCreditToBilling(billingId: string, creditToUse: number) {
+		if (!Types.ObjectId.isValid(billingId)) {
+			throw new NotFoundException('Billing not found');
+		}
+
+		if (typeof creditToUse !== 'number' || !Number.isFinite(creditToUse) || creditToUse < 0) {
+			throw new BadRequestException('Invalid creditToUse');
+		}
+
+		return this.billingService.applyCredit(billingId, creditToUse);
+	}
+
+	async applyCoinToBilling(billingId: string, coinToUse: number) {
+		if (!Types.ObjectId.isValid(billingId)) {
+			throw new NotFoundException('Billing not found');
+		}
+
+		if (typeof coinToUse !== 'number' || !Number.isFinite(coinToUse) || coinToUse < 0) {
+			throw new BadRequestException('Invalid coinToUse');
+		}
+
+		return this.billingService.applyCoin(billingId, coinToUse);
+	}
+
+	async finalizeBilling(billingId: string) {
+		if (!Types.ObjectId.isValid(billingId)) {
+			throw new NotFoundException('Billing not found');
+		}
+
+		return this.billingService.finalizeBilling(billingId);
 	}
 }
