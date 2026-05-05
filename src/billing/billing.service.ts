@@ -1,15 +1,14 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import mongoose, { Connection, Types } from 'mongoose';
-import { InjectConnection } from '@nestjs/mongoose';
-import { Billing, BillingDocument, BillingStatus } from './billing.schema';
-import { MedicalEncounter, MedicalEncounterDocument } from 'src/patient/schema/medical-record.schema';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import mongoose, { Connection, Model, Types } from 'mongoose';
 import { Appointment, AppointmentDocument } from 'src/appointment/schemas/appointment.schema';
+import { MedicalEncounter, MedicalEncounterDocument } from 'src/patient/schema/medical-record.schema';
+import { PaymentService } from 'src/payment/payment.service';
 import { Visit, VisitDocument } from 'src/visit/schemas/visit.schema';
-import { CreditService } from 'src/wallet/credit/credit.service';
 import { CoinService } from 'src/wallet/coin/coin.service';
+import { CreditService } from 'src/wallet/credit/credit.service';
+import { Billing, BillingDocument, BillingStatus } from './billing.schema';
 
 @Injectable()
 export class BillingService {
@@ -22,6 +21,7 @@ export class BillingService {
     @InjectModel(Visit.name) private readonly visitModel: Model<VisitDocument>,
     private readonly config: ConfigService,
     @InjectConnection() private readonly connection: Connection,
+    private readonly paymentService: PaymentService,
     private readonly creditService?: CreditService,
     private readonly coinService?: CoinService,
   ) {}
@@ -259,30 +259,53 @@ export class BillingService {
       throw new NotFoundException('Billing not found');
     }
 
-    const billing = await this.billingModel.findById(billingId).exec();
-    if (!billing) {
-      throw new NotFoundException('Billing not found');
+    const session = await this.billingModel.db.startSession();
+    try {
+      let finalizedBilling: BillingDocument | null = null;
+      let payment = null as Awaited<ReturnType<PaymentService['createPaymentForBilling']>> | null;
+
+      await session.withTransaction(async () => {
+        const billing = await this.billingModel.findById(billingId).session(session).exec();
+        if (!billing) {
+          throw new NotFoundException('Billing not found');
+        }
+
+        if (billing.status !== BillingStatus.DRAFT && billing.status !== BillingStatus.FINALIZED) {
+          throw new BadRequestException('Billing can only be finalized from DRAFT status');
+        }
+
+        if (billing.status === BillingStatus.DRAFT) {
+          billing.status = BillingStatus.FINALIZED;
+          await billing.save({ session });
+        }
+
+        finalizedBilling = billing;
+        payment = await this.paymentService.createPaymentForBilling(billingId, { session });
+      });
+
+      if (!finalizedBilling || !payment) {
+        throw new BadRequestException('Billing finalization failed');
+      }
+
+      const finalizedBillingSnapshot = finalizedBilling as BillingDocument;
+      const paymentSnapshot = payment as NonNullable<typeof payment>;
+
+      this.logger.log(`[FINALIZE_BILLING] billing=${billingId} visit=${finalizedBillingSnapshot.visitId?.toString()}`);
+
+      return {
+        code: 'SUCCESS',
+        message: 'Billing finalized',
+        data: {
+          billingId: finalizedBillingSnapshot._id.toString(),
+          status: finalizedBillingSnapshot.status,
+          paymentId: paymentSnapshot._id.toString(),
+          paymentStatus: paymentSnapshot.status,
+          amount: paymentSnapshot.amount,
+          method: paymentSnapshot.method,
+        },
+      };
+    } finally {
+      await session.endSession();
     }
-
-    // Idempotent finalize: when already FINALIZED, return current state without mutation.
-    if (billing.status === BillingStatus.FINALIZED) {
-      this.logger.log(`[FINALIZE_BILLING] no-op billing=${billingId} status=FINALIZED`);
-      return billing;
-    }
-
-    if (billing.status !== BillingStatus.DRAFT) {
-      throw new BadRequestException('Billing can only be finalized from DRAFT status');
-    }
-
-    if ((billing.finalPayable ?? 0) < 0) {
-      throw new BadRequestException('finalPayable must be >= 0');
-    }
-
-    billing.status = BillingStatus.FINALIZED;
-    await billing.save();
-
-    this.logger.log(`[FINALIZE_BILLING] billing=${billingId} visit=${billing.visitId?.toString()}`);
-
-    return billing;
   }
 }

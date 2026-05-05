@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import { VnPayPaymentService } from "./vnpay/vnpay-payment.service";
-import { PaymentMethodEnum } from "./enums/payment-method.enum";
 
 
 

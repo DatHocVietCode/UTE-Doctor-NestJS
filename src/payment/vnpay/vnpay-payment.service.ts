@@ -9,6 +9,7 @@ export interface VnpayReturnResult {
   valid: boolean;
   status: PaymentResultStatus;
   orderId: string;
+  billingId: string;
   amount: number;
   responseCode: string;
   transactionStatus: string;
@@ -26,17 +27,17 @@ export class VnPayPaymentService {
     hashAlgorithm: HashAlgorithm.SHA512,
   });
 
-  createPayment(orderId: string, amount: number, ip: string): string {
+  createPaymentUrl(txnRef: string, amount: number, ip: string): string {
     try {
-      // Xử lý IP address: extract IPv4 từ IPv6 hoặc x-forwarded-for
+      // VNPay expects a stable reference; billingId is now the canonical txnRef for payment callbacks.
       const ipAddr = this.extractIPv4(ip);
       const amountVnd = Math.max(0, Math.floor(amount || 0));
 
       const paymentParams = {
         vnp_Amount: amountVnd,
         vnp_IpAddr: ipAddr,
-        vnp_TxnRef: orderId,
-        vnp_OrderInfo: `Thanh toan don hang ${orderId}`,
+        vnp_TxnRef: txnRef,
+        vnp_OrderInfo: `Thanh toan hoa don ${txnRef}`,
         vnp_ReturnUrl: process.env.VN_PAY_RETURNURL!,
         vnp_CreateDate: Number(moment().format("YYYYMMDDHHmmss")),
         vnp_ExpireDate: Number(moment().add(VNPAY_EXPIRE_MINUTES, "minutes").format("YYYYMMDDHHmmss")),
@@ -88,7 +89,7 @@ export class VnPayPaymentService {
     try {
       console.log('[VNPay] return query:', query);
       const isValid = this.vnpay.verifyReturnUrl(query as any);
-      const orderId = String(query['vnp_TxnRef'] || '');
+      const billingId = String(query['vnp_TxnRef'] || '');
       // Convert back from VNPay smallest unit to VND at boundary layer.
       const amount = Math.max(0, Math.floor(Number(query['vnp_Amount'] || 0) / 100));
       const responseCode = String(query['vnp_ResponseCode'] || '');
@@ -100,7 +101,8 @@ export class VnPayPaymentService {
         return {
           valid: false,
           status: 'FAILED',
-          orderId,
+          orderId: billingId,
+          billingId,
           amount,
           responseCode: responseCode || '97',
           transactionStatus,
@@ -112,11 +114,12 @@ export class VnPayPaymentService {
       const isSuccess = responseCode === '00' && transactionStatus === '00';
 
       if (isSuccess) {
-        console.log('[VNPay] payment success for order:', orderId);
+        console.log('[VNPay] payment success for billing:', billingId);
         return {
           valid: true,
           status: 'COMPLETED',
-          orderId,
+          orderId: billingId,
+          billingId,
           amount,
           responseCode,
           transactionStatus,
@@ -125,12 +128,13 @@ export class VnPayPaymentService {
       }
 
       console.warn(
-        `[VNPay] payment failed for order ${orderId}: responseCode=${responseCode}, transactionStatus=${transactionStatus}`,
+        `[VNPay] payment failed for billing ${billingId}: responseCode=${responseCode}, transactionStatus=${transactionStatus}`,
       );
       return {
         valid: true,
         status: 'FAILED',
-        orderId,
+        orderId: billingId,
+        billingId,
         amount,
         responseCode,
         transactionStatus,
@@ -144,6 +148,7 @@ export class VnPayPaymentService {
         valid: false,
         status: 'FAILED',
         orderId: String(query?.['vnp_TxnRef'] || ''),
+        billingId: String(query?.['vnp_TxnRef'] || ''),
         amount: 0,
         responseCode: '99',
         transactionStatus: '',

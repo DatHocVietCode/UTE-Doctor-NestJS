@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { Appointment, AppointmentSchema } from 'src/appointment/schemas/appointment.schema';
+import { MedicalEncounter, MedicalEncounterSchema } from 'src/patient/schema/medical-record.schema';
+import { PaymentModule } from 'src/payment/payment.module';
+import { Visit, VisitSchema } from 'src/visit/schemas/visit.schema';
+import { CoinModule } from 'src/wallet/coin/coin.module';
+import { CreditModule } from 'src/wallet/credit/credit.module';
+import { BillingListener } from './billing.listener';
 import { Billing, BillingSchema } from './billing.schema';
 import { BillingService } from './billing.service';
-import { BillingListener } from './billing.listener';
-import { MedicalEncounter, MedicalEncounterSchema } from 'src/patient/schema/medical-record.schema';
-import { Appointment, AppointmentSchema } from 'src/appointment/schemas/appointment.schema';
-import { Visit, VisitSchema } from 'src/visit/schemas/visit.schema';
-import { CreditModule } from 'src/wallet/credit/credit.module';
-import { CoinModule } from 'src/wallet/coin/coin.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { CoinModule } from 'src/wallet/coin/coin.module';
       { name: Appointment.name, schema: AppointmentSchema },
       { name: Visit.name, schema: VisitSchema },
     ]),
+    PaymentModule,
     CreditModule,
     CoinModule,
   ],

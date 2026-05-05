@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
+import { BillingModule } from 'src/billing/billing.module';
 import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
 import { DoctorModule } from 'src/doctor/doctor.module';
 import { MedicineModule } from 'src/medicine/medicine.module';
@@ -32,7 +33,6 @@ import { TimeSlotModule } from './timeslot/timeslot.module';
 import { UserContextModule } from './user-context/user-context.module';
 import { OtpModule } from './utils/otp/otp.module';
 import { VisitModule } from './visit/visit.module';
-import { BillingModule } from 'src/billing/billing.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -44,6 +44,7 @@ import { BillingModule } from 'src/billing/billing.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         uri: config.get<string>('MONGO_DB_URI'),
+         autoIndex: true, // Enable autoIndex in development for easier debugging; consider disabling in production for performance
       }),
     }),
     EventEmitterModule.forRoot(),
