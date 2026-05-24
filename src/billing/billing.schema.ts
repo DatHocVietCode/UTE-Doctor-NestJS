@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { HydratedDocument, Types } from 'mongoose';
+import { PaymentCategory } from 'src/appointment/enums/payment-category.enum';
 
 export enum BillingStatus {
   DRAFT = 'DRAFT',
@@ -42,6 +43,10 @@ export class Billing {
 
   @Prop({ type: Number, default: 0 })
   finalPayable!: number;
+
+  // Snapshot from Appointment so billing display/finalization does not depend on mutable appointment reads.
+  @Prop({ type: String, enum: PaymentCategory, default: PaymentCategory.DICH_VU })
+  paymentCategory!: PaymentCategory;
 
   // Medication fulfillment snapshot for billing (financial authoritative data).
   // Snapshot at time of billing finalization to prevent future drift.

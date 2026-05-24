@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import mongoose, { Connection, Model, Types } from 'mongoose';
+import { PaymentCategory } from 'src/appointment/enums/payment-category.enum';
 import { Appointment, AppointmentDocument } from 'src/appointment/schemas/appointment.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { WalletSummaryDto } from 'src/common/dto/wallet-summary.dto';
@@ -60,6 +61,10 @@ export class BillingService {
     // enforce uniqueness: if billing exists, return it
     const existing = await this.billingModel.findOne({ visitId }).lean().exec();
     if (existing) {
+      // Existing drafts are returned as-is so old pricing/payment snapshots are not silently rewritten.
+      this.logger.debug(
+        `[BillingDraft] existing billing returned visitId=${visitId} billingId=${existing._id?.toString?.() ?? 'unknown'} status=${existing.status} paymentCategory=${existing.paymentCategory ?? 'none'} insuranceAmount=${existing.insuranceAmount ?? 0} finalPayable=${existing.finalPayable ?? 0}`,
+      );
       this.logger.log(`Billing already exists for visit ${visitId}`);
       return existing;
     }
@@ -124,9 +129,10 @@ export class BillingService {
 
     const totalAmount = consultationFee + medicationFee;
 
-    const coverageRate = Number(this.config.get('INSURANCE_COVERAGE_RATE')) || 0;
-    const paymentCategory = (appointment as any)?.paymentCategory as string | undefined;
-    const isBHYT = paymentCategory === 'BHYT';
+    const rawCoverageRate = this.config.get('INSURANCE_COVERAGE_RATE');
+    const coverageRate = Number(rawCoverageRate) || 0;
+    const paymentCategory = (appointment as any)?.paymentCategory as PaymentCategory | undefined;
+    const isBHYT = paymentCategory === PaymentCategory.BHYT;
 
     const insuranceAmount = isBHYT ? totalAmount * coverageRate : 0;
 
@@ -146,9 +152,14 @@ export class BillingService {
       creditUsed: 0,
       coinUsed: 0,
       finalPayable,
+      paymentCategory: paymentCategory ?? PaymentCategory.DICH_VU,
       medications,
       status: BillingStatus.DRAFT,
     } as any);
+
+    this.logger.debug(
+      `[BillingDraft] visitId=${visitId} encounterAppointmentId=${encounter?.appointmentId?.toString?.() ?? 'none'} resolvedAppointmentId=${appointmentId?.toString?.() ?? 'none'} appointmentFound=${Boolean(appointment)} paymentCategory=${paymentCategory ?? 'none'} depositUsed=${depositUsed} consultationFee=${consultationFee} medicationFee=${medicationFee} totalAmount=${totalAmount} rawCoverageRate=${rawCoverageRate ?? 'undefined'} coverageRate=${coverageRate} isBHYT=${isBHYT} insuranceAmount=${insuranceAmount} finalPayable=${finalPayable}`,
+    );
 
     this.logger.log(`Created draft billing for visit ${visitId} (billingId=${billing._id})`);
     return billing;
@@ -300,6 +311,7 @@ export class BillingService {
 
           const coverageRate = Number(this.config.get('INSURANCE_COVERAGE_RATE')) || 0;
           const visit = await this.visitModel.findById(billing.visitId).session(session).lean().exec();
+          let paymentCategory = billing.paymentCategory as PaymentCategory | undefined;
           if (visit?.appointmentId) {
             const appointment = await this.appointmentModel
               .findById(visit.appointmentId)
@@ -307,10 +319,11 @@ export class BillingService {
               .session(session)
               .lean()
               .exec();
-            const paymentCategory = (appointment as any)?.paymentCategory as string | undefined;
-            const isBHYT = paymentCategory === 'BHYT';
-            billing.insuranceAmount = isBHYT ? billing.totalAmount * coverageRate : 0;
+            paymentCategory = ((appointment as any)?.paymentCategory as PaymentCategory | undefined) ?? paymentCategory;
           }
+          const isBHYT = paymentCategory === PaymentCategory.BHYT;
+          billing.paymentCategory = paymentCategory ?? PaymentCategory.DICH_VU;
+          billing.insuranceAmount = isBHYT ? billing.totalAmount * coverageRate : 0;
 
           const afterInsurance = billing.totalAmount - billing.insuranceAmount;
           const afterDeposit = afterInsurance - (billing.depositUsed ?? 0);

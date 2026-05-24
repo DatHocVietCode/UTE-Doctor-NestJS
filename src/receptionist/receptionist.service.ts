@@ -61,6 +61,7 @@ export class ReceptionistService {
 						creditUsed: billing.creditUsed,
 						coinUsed: billing.coinUsed,
 						finalPayable: billing.finalPayable,
+						paymentCategory: billing.paymentCategory ?? null,
 						// Expose the immutable billing medication snapshot so the receptionist UI uses the same prices used for totals.
 						medications: billing.medications.map(med => ({
 							medicineId: med.medicineId?.toString() ?? null,

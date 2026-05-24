@@ -2,6 +2,7 @@ import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import mongoose, { HydratedDocument } from "mongoose";
 import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 import { AppointmentStatus } from "../enums/Appointment-status.enum";
+import { PaymentCategory } from "../enums/payment-category.enum";
 import { ServiceType } from "../enums/service-type.enum";
 
 export type AppointmentDocument = HydratedDocument<Appointment>;
@@ -38,6 +39,14 @@ export class Appointment {
 
     @Prop()
     consultationFee!: number;
+
+    // Billing uses this appointment snapshot to decide whether BHYT coverage applies.
+    @Prop({ type: String, enum: PaymentCategory, default: PaymentCategory.DICH_VU })
+    paymentCategory!: PaymentCategory;
+
+    // Amount already collected before final billing; BHYT bookings normalize this to zero.
+    @Prop({ type: Number, default: 0 })
+    depositAmount!: number;
 
     // Snapshot discount from coin usage at booking time.
     @Prop({ default: 0 })

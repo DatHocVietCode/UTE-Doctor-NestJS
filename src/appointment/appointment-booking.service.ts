@@ -310,6 +310,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
             appointmentStatus: AppointmentStatus.PENDING,
             serviceType: input.bookingAppointment.serviceType,
                         consultationFee: input.originalAmount,
+                        paymentCategory: input.bookingAppointment.paymentCategory,
+                        depositAmount: input.bookingAppointment.depositAmount ?? 0,
                         coinDiscountAmount: input.discountAmount,
                         paymentAmount: input.finalAmount,
             timeSlot: new Types.ObjectId(input.bookingAppointment.timeSlotId),
@@ -774,12 +776,14 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     const visitType = dto.visitType ?? VisitType.OFFLINE;
     let depositAmount = this.toSafeMoneyValue(dto.depositAmount);
 
-    if (dto.paymentCategory === PaymentCategory.BHYT) {
+    const paymentCategory = dto.paymentCategory ?? PaymentCategory.DICH_VU;
+
+    if (paymentCategory === PaymentCategory.BHYT) {
       // BHYT visits never require deposit in the new workflow.
       depositAmount = 0;
     }
 
-    if (dto.paymentCategory === PaymentCategory.DICH_VU) {
+    if (paymentCategory === PaymentCategory.DICH_VU) {
       // DICH_VU allows deposit; preserve the provided value after sanitization.
       depositAmount = this.toSafeMoneyValue(dto.depositAmount);
     }
@@ -787,6 +791,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     return {
       ...dto,
       visitType,
+      paymentCategory,
       depositAmount,
     };
   }
