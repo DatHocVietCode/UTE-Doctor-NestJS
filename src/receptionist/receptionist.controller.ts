@@ -5,6 +5,7 @@ import { RoleGuard } from 'src/common/guards/role.guard';
 import { Roles } from 'src/common/guards/roles.decorator';
 import { ApplyCoinDto } from './dto/apply-coin.dto';
 import { ApplyCreditDto } from './dto/apply-credit.dto';
+import { FinalizeBillingDto } from './dto/finalize-billing.dto';
 import { ReceptionistService } from './receptionist.service';
 
 @Controller('receptionist')
@@ -52,8 +53,11 @@ export class ReceptionistController {
 	}
 
 	@Post('billings/:billingId/finalize')
-	async finalizeBilling(@Param('billingId') billingId: string) {
-		return this.receptionistService.finalizeBilling(billingId);
+	async finalizeBilling(
+		@Param('billingId') billingId: string,
+		@Body() body: FinalizeBillingDto,
+	) {
+		return this.receptionistService.finalizeBilling(billingId, body);
 	}
 
 	@Get('payments/:billingId/qr')

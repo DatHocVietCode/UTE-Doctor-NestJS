@@ -67,6 +67,7 @@ export class MedicalEncounterService {
     return Promise.all(
       prescriptions.map(async (item) => {
         let medicineObjectId: Types.ObjectId | null = null;
+        let unitPriceSnapshot = 0;
 
         if (item.medicineId) {
           try {
@@ -79,20 +80,32 @@ export class MedicalEncounterService {
           }
         }
 
+        // Snapshot current unit price from medicine at prescription time for billing reference.
+        if (medicineObjectId) {
+          const medicine = await this.medicineModel.findById(medicineObjectId).select('unitPrice').lean();
+          unitPriceSnapshot = medicine ? Math.max(0, Math.floor(medicine.unitPrice ?? 0)) : 0;
+        }
+
         let name = item.name;
         if (!name && medicineObjectId) {
           const medicine = await this.medicineModel.findById(medicineObjectId).select('name').lean();
           name = medicine?.name ?? 'Unknown medicine';
         }
 
-        const prescription: EncounterPrescriptionInput = {
+        const prescribedQty = typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1;
+        const estimatedLineTotal = prescribedQty * unitPriceSnapshot;
+
+        const prescription = {
           name: name || 'Unknown medicine',
-          quantity: typeof item.quantity === 'number' && item.quantity > 0 ? item.quantity : 1,
+          quantity: prescribedQty,
+          prescribedQty,
+          unitPriceSnapshot,
+          estimatedLineTotal,
           note: item.note,
         };
 
         if (medicineObjectId) {
-          prescription.medicineId = medicineObjectId;
+          (prescription as any).medicineId = medicineObjectId;
         }
 
         return prescription;

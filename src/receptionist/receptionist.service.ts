@@ -61,6 +61,16 @@ export class ReceptionistService {
 						creditUsed: billing.creditUsed,
 						coinUsed: billing.coinUsed,
 						finalPayable: billing.finalPayable,
+						// Expose the immutable billing medication snapshot so the receptionist UI uses the same prices used for totals.
+						medications: billing.medications.map(med => ({
+							medicineId: med.medicineId?.toString() ?? null,
+							medicineName: med.medicineName,
+							prescribedQty: med.prescribedQty,
+							dispensedQty: med.dispensedQty,
+							unitPrice: med.unitPrice,
+							source: med.source,
+							lineTotal: med.lineTotal,
+						})),
 					},
 				};
 			} catch (err) {
@@ -153,12 +163,12 @@ export class ReceptionistService {
 		return this.billingService.applyCoin(billingId, coinToUse);
 	}
 
-	async finalizeBilling(billingId: string) {
+	async finalizeBilling(billingId: string, fulfillment?: { medications: Array<{ medicineId?: string; dispensedQty: number; source: string }> }) {
 		if (!Types.ObjectId.isValid(billingId)) {
 			throw new NotFoundException('Billing not found');
 		}
 
-		return this.billingService.finalizeBilling(billingId);
+		return this.billingService.finalizeBilling(billingId, fulfillment as any);
 	}
 
 	async getQrPaymentForBilling(billingId: string, ipAddr: string) {
