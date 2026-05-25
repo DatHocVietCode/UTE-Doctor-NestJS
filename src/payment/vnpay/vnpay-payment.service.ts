@@ -9,6 +9,7 @@ export interface VnpayReturnResult {
   valid: boolean;
   status: PaymentResultStatus;
   orderId: string;
+  txnRef: string;
   billingId: string;
   amount: number;
   responseCode: string;
@@ -27,7 +28,7 @@ export class VnPayPaymentService {
     hashAlgorithm: HashAlgorithm.SHA512,
   });
 
-  createPaymentUrl(txnRef: string, amount: number, ip: string): string {
+  createPaymentUrl(txnRef: string, amount: number, ip: string, orderInfo?: string): string {
     try {
       // VNPay expects a stable reference; billingId is now the canonical txnRef for payment callbacks.
       const ipAddr = this.extractIPv4(ip);
@@ -37,7 +38,7 @@ export class VnPayPaymentService {
         vnp_Amount: amountVnd,
         vnp_IpAddr: ipAddr,
         vnp_TxnRef: txnRef,
-        vnp_OrderInfo: `Thanh toan hoa don ${txnRef}`,
+        vnp_OrderInfo: orderInfo ?? `Thanh toan hoa don ${txnRef}`,
         vnp_ReturnUrl: process.env.VN_PAY_RETURNURL!,
         vnp_CreateDate: Number(moment().format("YYYYMMDDHHmmss")),
         vnp_ExpireDate: Number(moment().add(VNPAY_EXPIRE_MINUTES, "minutes").format("YYYYMMDDHHmmss")),
@@ -89,7 +90,8 @@ export class VnPayPaymentService {
     try {
       console.log('[VNPay] return query:', query);
       const isValid = this.vnpay.verifyReturnUrl(query as any);
-      const billingId = String(query['vnp_TxnRef'] || '');
+      const txnRef = String(query['vnp_TxnRef'] || '');
+      const billingId = txnRef;
       // Convert back from VNPay smallest unit to VND at boundary layer.
       const amount = Math.max(0, Math.floor(Number(query['vnp_Amount'] || 0) / 100));
       const responseCode = String(query['vnp_ResponseCode'] || '');
@@ -102,6 +104,7 @@ export class VnPayPaymentService {
           valid: false,
           status: 'FAILED',
           orderId: billingId,
+          txnRef,
           billingId,
           amount,
           responseCode: responseCode || '97',
@@ -119,6 +122,7 @@ export class VnPayPaymentService {
           valid: true,
           status: 'COMPLETED',
           orderId: billingId,
+          txnRef,
           billingId,
           amount,
           responseCode,
@@ -134,6 +138,7 @@ export class VnPayPaymentService {
         valid: true,
         status: 'FAILED',
         orderId: billingId,
+        txnRef,
         billingId,
         amount,
         responseCode,
@@ -148,6 +153,7 @@ export class VnPayPaymentService {
         valid: false,
         status: 'FAILED',
         orderId: String(query?.['vnp_TxnRef'] || ''),
+        txnRef: String(query?.['vnp_TxnRef'] || ''),
         billingId: String(query?.['vnp_TxnRef'] || ''),
         amount: 0,
         responseCode: '99',

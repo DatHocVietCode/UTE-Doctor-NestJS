@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import mongoose, { Connection, Model, Types } from 'mongoose';
 import { PaymentCategory } from 'src/appointment/enums/payment-category.enum';
+import { DepositStatus } from 'src/appointment/enums/deposit-status.enum';
 import { Appointment, AppointmentDocument } from 'src/appointment/schemas/appointment.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { WalletSummaryDto } from 'src/common/dto/wallet-summary.dto';
@@ -136,7 +137,10 @@ export class BillingService {
 
     const insuranceAmount = isBHYT ? totalAmount * coverageRate : 0;
 
-    const depositUsed = (appointment as any)?.depositAmount ?? 0;
+    // Only a paid deposit is financial evidence; requested depositAmount alone is not collected money.
+    const depositUsed = (appointment as any)?.depositStatus === DepositStatus.PAID
+      ? Math.max(0, Math.floor((appointment as any)?.depositPaidAmount ?? 0))
+      : 0;
 
     const afterInsurance = totalAmount - insuranceAmount;
     const afterDeposit = afterInsurance - (depositUsed ?? 0);

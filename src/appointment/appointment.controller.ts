@@ -151,16 +151,11 @@ export class AppointmentController {
     @Patch('/cancel')
     @UseGuards(JwtAuthGuard)
     async cancelAppointment(@Body() dto: { appointmentId: string; reason?: string }, @Req() req: any) {
-        try {
-            // Cancellation timing checks are centralized in the service against scheduledAt.
-            const result = await this.appointmentService.cancelAppointment(
-                dto.appointmentId,
-                dto.reason
-            );
-            return result;
-        } catch (error: any) {
-            throw new Error(`Failed to cancel appointment: ${error.message}`);
-        }
+        // Cancellation timing and visit lifecycle checks are centralized in the service.
+        return this.appointmentService.cancelAppointment(
+            dto.appointmentId,
+            dto.reason
+        );
     }
 
     @Patch(':id/confirm')

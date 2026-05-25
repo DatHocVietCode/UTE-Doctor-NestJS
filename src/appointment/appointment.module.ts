@@ -1,5 +1,6 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
+import { Billing, BillingSchema } from "src/billing/billing.schema";
 import { RedisService } from "src/common/redis/redis.service";
 import { Doctor, DoctorSchema } from "src/doctor/schema/doctor.schema";
 import { MedicineModule } from "src/medicine/medicine.module";
@@ -9,6 +10,7 @@ import { PaymentModule } from "src/payment/payment.module";
 import { Payment, PaymentSchema } from "src/payment/schemas/payment.schema";
 import { Profile, ProfileSchema } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-log.schema";
+import { Visit, VisitSchema } from "src/visit/schemas/visit.schema";
 import { VisitModule } from "src/visit/visit.module";
 import { WalletModule } from "src/wallet/wallet.module";
 import { AppointmentBookingService } from "./appointment-booking.service";
@@ -30,6 +32,8 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
           { name: Profile.name, schema: ProfileSchema },
           { name: MedicalEncounter.name, schema: MedicalEncounterSchema },
           { name: Payment.name, schema: PaymentSchema },
+          { name: Visit.name, schema: VisitSchema },
+          { name: Billing.name, schema: BillingSchema },
         ]),
         MedicineModule,
         VisitModule,

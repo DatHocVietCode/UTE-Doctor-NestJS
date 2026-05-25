@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
@@ -18,6 +19,7 @@ import { CoinService } from 'src/wallet/coin/coin.service';
 import { CreditService } from 'src/wallet/credit/credit.service';
 import { AppointmentBookingDto } from './dto/appointment-booking.dto';
 import { AppointmentStatus } from './enums/Appointment-status.enum';
+import { DepositStatus } from './enums/deposit-status.enum';
 import { PaymentCategory } from './enums/payment-category.enum';
 import { VisitType } from './enums/visit-type.enum';
 import { buildEnrichedAppointmentPayload } from './schemas/appointment-enriched';
@@ -39,6 +41,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
 
   constructor(
     private readonly eventEmitter: EventEmitter2,
+    private readonly config: ConfigService,
     private readonly paymentService: PaymentService,
     private readonly redisService: RedisService,
     private readonly coinService: CoinService,
@@ -74,7 +77,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     let appointmentDateNormalized: Date;
     let appointmentDateEpoch: number;
     let bookingDateEpoch: number;
-    let bookingAmounts = this.getDefaultAmountBreakdown(bookingAppointment.amount);
+    let bookingAmounts = this.getDefaultAmountBreakdown(this.resolveConsultationFee());
     let resolvedTimeSlot: Pick<TimeSlotLog, 'start' | 'end'> | null = null;
     
     try {
@@ -150,8 +153,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         };
       }
 
-      // Coins now act as discount-only; final payment is handled by ONLINE/VNPAY or CREDIT.
-      bookingAmounts = await this.calculateBookingAmounts(bookingAppointment);
+      // Client-sent amount is deprecated; fee snapshots now come from server policy.
+      bookingAmounts = this.getDefaultAmountBreakdown(this.resolveConsultationFee());
 
       const appointmentDoc = await this.createAppointmentWithTransaction({
         bookingId,
@@ -169,25 +172,40 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         slotKey,
       });
 
-      if (bookingAmounts.discountAmount > 0) {
-        const coinPaymentResult = await this.coinService.spendCoins(
-          bookingAppointment.patientId,
-          bookingAmounts.discountAmount,
-          'appointment_booking_discount',
-          appointmentDoc._id.toString(),
-          `Apply ${bookingAmounts.discountAmount} coin discount for appointment booking`,
-        );
-
-        if (coinPaymentResult.code !== ResponseCode.SUCCESS) {
+      if (bookingAppointment.paymentCategory === PaymentCategory.DICH_VU) {
+        let depositPayment: { paymentId: string; paymentUrl: string; amount: number; purpose: string };
+        try {
+          depositPayment = await this.paymentService.createDepositPaymentForAppointment(
+            appointmentDoc._id.toString(),
+            bookingAppointment.depositAmount ?? 0,
+            clientIp,
+          );
+        } catch (error: any) {
           return await this.failBooking(
             appointmentDoc._id.toString(),
-            coinPaymentResult.message || 'Coin discount application failed',
+            error?.message || 'Deposit payment creation failed',
             lockValue,
             slotKey,
             undefined,
             bookingAmounts,
           );
         }
+
+        const payload = await this.buildBookingPayload(appointmentDoc);
+        this.eventEmitter.emit('appointment.booking.pending', payload);
+
+        return {
+          code: ResponseCode.PENDING,
+          message: 'Appointment created. Complete deposit payment to confirm booking.',
+          data: {
+            appointmentId: appointmentDoc._id.toString(),
+            depositStatus: DepositStatus.PENDING,
+            depositAmount: bookingAppointment.depositAmount ?? 0,
+            depositPaymentId: depositPayment.paymentId,
+            paymentUrl: depositPayment.paymentUrl,
+            ...bookingAmounts,
+          },
+        };
       }
 
       if (bookingAmounts.finalAmount === 0) {
@@ -204,14 +222,12 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         );
       }
 
-      // DEPRECATION CHANGE: Do NOT create payment during booking anymore.
-      // Always confirm the booking and defer payment to the billing flow.
-      this.logger.warn(`[Deprecated] Inline payment during booking suppressed for appointment ${appointmentDoc._id.toString()}`);
+      // BHYT has no deposit requirement; remaining payment is handled by billing.
       return await this.confirmBooking(
         appointmentDoc._id.toString(),
         lockValue,
         slotKey,
-        'Booking confirmed (payment deferred — use billing flow)',
+        'Booking confirmed (payment deferred - use billing flow)',
         undefined, // no payment meta persisted here
         bookingAmounts,
       );
@@ -312,6 +328,10 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
                         consultationFee: input.originalAmount,
                         paymentCategory: input.bookingAppointment.paymentCategory,
                         depositAmount: input.bookingAppointment.depositAmount ?? 0,
+                        depositStatus: input.bookingAppointment.paymentCategory === PaymentCategory.DICH_VU
+                          ? DepositStatus.PENDING
+                          : DepositStatus.NOT_REQUIRED,
+                        depositPaidAmount: 0,
                         coinDiscountAmount: input.discountAmount,
                         paymentAmount: input.finalAmount,
             timeSlot: new Types.ObjectId(input.bookingAppointment.timeSlotId),
@@ -463,6 +483,10 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         message: `Appointment already finalized as ${appointment.appointmentStatus}`,
         data: {
           appointmentId: appointment._id.toString(),
+          depositStatus: appointment.depositStatus,
+          depositAmount: appointment.depositAmount ?? 0,
+          depositPaidAmount: appointment.depositPaidAmount ?? 0,
+          depositPaidAt: appointment.depositPaidAt ?? null,
           ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
         },
       };
@@ -473,6 +497,11 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         code: ResponseCode.ERROR,
         message: `Appointment cannot be confirmed from status ${appointment.appointmentStatus}`,
         data: {
+          appointmentId: appointment._id.toString(),
+          depositStatus: appointment.depositStatus,
+          depositAmount: appointment.depositAmount ?? 0,
+          depositPaidAmount: appointment.depositPaidAmount ?? 0,
+          depositPaidAt: appointment.depositPaidAt ?? null,
           ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
         },
       };
@@ -504,6 +533,10 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       message: note || 'Appointment confirmed successfully',
       data: {
         appointmentId: appointment._id.toString(),
+        depositStatus: appointment.depositStatus,
+        depositAmount: appointment.depositAmount ?? 0,
+        depositPaidAmount: appointment.depositPaidAmount ?? 0,
+        depositPaidAt: appointment.depositPaidAt ?? null,
         ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
       },
     };
@@ -563,6 +596,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     }
 
     appointment.appointmentStatus = AppointmentStatus.FAILED;
+    if (appointment.depositStatus === DepositStatus.PENDING) {
+      appointment.depositStatus = DepositStatus.FAILED;
+    }
     if (typeof paymentMeta?.amount === 'number') {
       appointment.paymentAmount = paymentMeta.amount;
     }
@@ -593,6 +629,13 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
       },
     };
+  }
+
+  private resolveConsultationFee(): number {
+    const configuredFee = Number(this.config.get('CONSULTATION_FEE'));
+    return Number.isFinite(configuredFee) && !Number.isNaN(configuredFee)
+      ? Math.max(0, Math.floor(configuredFee))
+      : 0;
   }
 
   private getDefaultAmountBreakdown(amount?: number): BookingAmountBreakdown {
@@ -757,13 +800,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       throw new BadRequestException('COIN payment method is deprecated. Use useCoin=true for discount with ONLINE/VNPAY/CREDIT');
     }
 
-    if (
-      (dto.paymentMethod === PaymentMethodEnum.ONLINE ||
-        dto.paymentMethod === PaymentMethodEnum.VNPAY ||
-        dto.paymentMethod === PaymentMethodEnum.CREDIT) &&
-      (!dto.amount || dto.amount <= 0)
-    ) {
-      throw new BadRequestException('Amount must be greater than 0 for selected payment method');
+    if (dto.paymentCategory === PaymentCategory.DICH_VU && (!dto.depositAmount || dto.depositAmount <= 0)) {
+      throw new BadRequestException('depositAmount must be greater than 0 for DICH_VU bookings');
     }
 
     if (!dto.patientEmail || !dto.patientId) {

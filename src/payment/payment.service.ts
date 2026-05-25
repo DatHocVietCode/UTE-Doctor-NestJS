@@ -3,7 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
+import { AppointmentStatus } from 'src/appointment/enums/Appointment-status.enum';
+import { DepositStatus } from 'src/appointment/enums/deposit-status.enum';
+import { buildEnrichedAppointmentPayload } from 'src/appointment/schemas/appointment-enriched';
+import { Appointment, AppointmentDocument } from 'src/appointment/schemas/appointment.schema';
 import { Billing, BillingDocument, BillingStatus } from 'src/billing/billing.schema';
+import { Doctor, DoctorDocument } from 'src/doctor/schema/doctor.schema';
+import { Patient, PatientDocument } from 'src/patient/schema/patient.schema';
+import { TimeSlotLog, TimeSlotLogDocument } from 'src/timeslot/schemas/timeslot-log.schema';
 import { Visit, VisitDocument } from 'src/visit/schemas/visit.schema';
 import { COIN_DEFAULT_EXPIRE_DAYS, COIN_REWARD_RATE } from 'src/wallet/coin/coin-reward.config';
 import { CoinSpendAllocation, CoinSpendAllocationDocument } from 'src/wallet/coin/schemas/coin-spend-allocation.schema';
@@ -11,7 +18,7 @@ import { CoinTransaction, CoinTransactionDocument } from 'src/wallet/coin/schema
 import { CoinWallet, CoinWalletDocument } from 'src/wallet/coin/schemas/coin-wallet.schema';
 import { CreditTransaction, CreditTransactionDocument } from 'src/wallet/credit/schemas/credit-transaction.schema';
 import { CreditWallet, CreditWalletDocument } from 'src/wallet/credit/schemas/credit-wallet.schema';
-import { PaymentFlowMethodEnum, PaymentFlowStatusEnum } from './enums/payment-flow.enum';
+import { PaymentFlowMethodEnum, PaymentFlowStatusEnum, PaymentPurposeEnum } from './enums/payment-flow.enum';
 import { Payment, PaymentDocument } from './schemas/payment.schema';
 import { VnPayPaymentService } from './vnpay/vnpay-payment.service';
 
@@ -28,8 +35,12 @@ export class PaymentService {
 
 	constructor(
 		@InjectModel(Payment.name) private readonly paymentModel: Model<PaymentDocument>,
+		@InjectModel(Appointment.name) private readonly appointmentModel: Model<AppointmentDocument>,
 		@InjectModel(Billing.name) private readonly billingModel: Model<BillingDocument>,
 		@InjectModel(Visit.name) private readonly visitModel: Model<VisitDocument>,
+		@InjectModel(TimeSlotLog.name) private readonly timeSlotLogModel: Model<TimeSlotLogDocument>,
+		@InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
+		@InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
 		@InjectModel(CreditWallet.name) private readonly creditWalletModel: Model<CreditWalletDocument>,
 		@InjectModel(CreditTransaction.name) private readonly creditTransactionModel: Model<CreditTransactionDocument>,
 		@InjectModel(CoinWallet.name) private readonly coinWalletModel: Model<CoinWalletDocument>,
@@ -58,7 +69,10 @@ export class PaymentService {
 			throw new BadRequestException('Payment can only be created after billing is FINALIZED');
 		}
 
-		const existingPayment = await this.paymentModel.findOne({ billingId: billing._id }).session(options?.session ?? null).exec();
+		const existingPayment = await this.paymentModel.findOne({
+			purpose: PaymentPurposeEnum.BILLING,
+			billingId: billing._id,
+		}).session(options?.session ?? null).exec();
 		if (existingPayment) {
 			if (existingPayment.status === PaymentFlowStatusEnum.SUCCESS) {
 				throw new BadRequestException('Payment already completed for this billing');
@@ -68,6 +82,7 @@ export class PaymentService {
 
 		const payment = await this.paymentModel.create([
 			{
+				purpose: PaymentPurposeEnum.BILLING,
 				billingId: billing._id,
 				amount: Math.max(0, Math.floor(billing.finalPayable ?? 0)),
 				method: options?.method ?? PaymentFlowMethodEnum.QR,
@@ -93,6 +108,10 @@ export class PaymentService {
 		}
 
 		// BillingId is the canonical VNPay txnRef now, so the callback can resolve payment state safely.
+		if (!payment.billingId) {
+			throw new BadRequestException('Payment is missing billingId');
+		}
+
 		const paymentUrl = this.vnPayPaymentService.createPaymentUrl(payment.billingId.toString(), payment.amount, ipAddr);
 		this.logger.warn(`QR payment requested for billing ${billingId} (paymentId=${payment._id.toString()})`);
 
@@ -107,6 +126,107 @@ export class PaymentService {
 		return this.createPaymentUrlForBilling(billingId, ipAddr);
 	}
 
+	async createDepositPaymentForAppointment(appointmentId: string, amount: number, ipAddr: string) {
+		if (!Types.ObjectId.isValid(appointmentId)) {
+			throw new NotFoundException('Appointment not found');
+		}
+
+		const appointment = await this.appointmentModel.findById(appointmentId).exec();
+		if (!appointment) {
+			throw new NotFoundException('Appointment not found');
+		}
+
+		const normalizedAmount = Math.max(0, Math.floor(amount || 0));
+		if (normalizedAmount <= 0) {
+			throw new BadRequestException('Deposit amount must be greater than 0');
+		}
+
+		const existingPayment = await this.paymentModel.findOne({
+			purpose: PaymentPurposeEnum.APPOINTMENT_DEPOSIT,
+			appointmentId: appointment._id,
+		}).exec();
+
+		if (existingPayment) {
+			if (existingPayment.status === PaymentFlowStatusEnum.SUCCESS) {
+				throw new BadRequestException('Deposit already paid for this appointment');
+			}
+
+			const paymentUrl = this.vnPayPaymentService.createPaymentUrl(
+				existingPayment._id.toString(),
+				existingPayment.amount,
+				ipAddr,
+				`Dat coc lich kham ${appointment._id.toString()}`,
+			);
+			return {
+				paymentId: existingPayment._id.toString(),
+				paymentUrl,
+				amount: existingPayment.amount,
+				purpose: existingPayment.purpose,
+			};
+		}
+
+		const [payment] = await this.paymentModel.create([
+			{
+				purpose: PaymentPurposeEnum.APPOINTMENT_DEPOSIT,
+				appointmentId: appointment._id,
+				amount: normalizedAmount,
+				method: PaymentFlowMethodEnum.QR,
+				status: PaymentFlowStatusEnum.PENDING,
+				idempotencyKey: `APPOINTMENT_DEPOSIT:${appointment._id.toString()}`,
+				expireAt: this.buildPaymentExpireAt(),
+			},
+		]);
+
+		appointment.depositPaymentId = payment._id;
+		await appointment.save();
+
+		const paymentUrl = this.vnPayPaymentService.createPaymentUrl(
+			payment._id.toString(),
+			payment.amount,
+			ipAddr,
+			`Dat coc lich kham ${appointment._id.toString()}`,
+		);
+
+		this.logger.log(`Created deposit payment for appointment ${appointmentId}`);
+		return {
+			paymentId: payment._id.toString(),
+			paymentUrl,
+			amount: payment.amount,
+			purpose: payment.purpose,
+		};
+	}
+
+	async handleVnpayPaymentResultByTxnRef(
+		txnRef: string,
+		performedBy?: string,
+		metadata?: { transactionId?: string; paidAt?: Date | null; responseCode?: string; transactionStatus?: string },
+	) {
+		const directPayment = Types.ObjectId.isValid(txnRef)
+			? await this.paymentModel.findById(txnRef).exec()
+			: null;
+
+		if (directPayment?.purpose === PaymentPurposeEnum.APPOINTMENT_DEPOSIT) {
+			return this.markDepositPaymentSuccess(directPayment._id.toString(), performedBy, metadata);
+		}
+
+		return this.markPaymentSuccessByBillingId(txnRef, performedBy, 'QR', metadata);
+	}
+
+	async handleVnpayPaymentFailureByTxnRef(
+		txnRef: string,
+		metadata?: { transactionId?: string; paidAt?: Date | null; responseCode?: string; transactionStatus?: string },
+	) {
+		const directPayment = Types.ObjectId.isValid(txnRef)
+			? await this.paymentModel.findById(txnRef).exec()
+			: null;
+
+		if (directPayment?.purpose !== PaymentPurposeEnum.APPOINTMENT_DEPOSIT) {
+			return null;
+		}
+
+		return this.markDepositPaymentFailed(directPayment._id.toString(), metadata);
+	}
+
 	async markPaymentSuccessByBillingId(
 		billingId: string,
 		performedBy?: string,
@@ -117,7 +237,10 @@ export class PaymentService {
 			throw new NotFoundException('Billing not found');
 		}
 
-		const payment = await this.paymentModel.findOne({ billingId: new Types.ObjectId(billingId) }).exec();
+		const payment = await this.paymentModel.findOne({
+			purpose: PaymentPurposeEnum.BILLING,
+			billingId: new Types.ObjectId(billingId),
+		}).exec();
 		if (!payment) {
 			throw new NotFoundException('Payment not found');
 		}
@@ -143,6 +266,10 @@ export class PaymentService {
 				const payment = await this.paymentModel.findById(paymentId).session(session).exec();
 				if (!payment) {
 					throw new NotFoundException('Payment not found');
+				}
+
+				if (payment.purpose !== PaymentPurposeEnum.BILLING || !payment.billingId) {
+					throw new BadRequestException('Payment is not a billing payment');
 				}
 
 				if (payment.expireAt && payment.expireAt.getTime() < Date.now()) {
@@ -258,6 +385,179 @@ export class PaymentService {
 		} finally {
 			await session.endSession();
 		}
+	}
+
+	private async markDepositPaymentSuccess(
+		paymentId: string,
+		performedBy?: string,
+		metadata?: { transactionId?: string; paidAt?: Date | null; responseCode?: string; transactionStatus?: string },
+	) {
+		const session = await this.paymentModel.db.startSession();
+		try {
+			let result: any = null;
+			let confirmedAppointment: AppointmentDocument | null = null;
+			let shouldEmitBookingSuccess = false;
+
+			await session.withTransaction(async () => {
+				const payment = await this.paymentModel.findById(paymentId).session(session).exec();
+				if (!payment) {
+					throw new NotFoundException('Payment not found');
+				}
+				if (payment.purpose !== PaymentPurposeEnum.APPOINTMENT_DEPOSIT || !payment.appointmentId) {
+					throw new BadRequestException('Payment is not an appointment deposit payment');
+				}
+				if (payment.expireAt && payment.expireAt.getTime() < Date.now()) {
+					throw new BadRequestException('Payment expired');
+				}
+
+				const appointment = await this.appointmentModel.findById(payment.appointmentId).session(session).exec();
+				if (!appointment) {
+					throw new NotFoundException('Appointment not found');
+				}
+				if (
+					appointment.appointmentStatus !== AppointmentStatus.PENDING &&
+					appointment.appointmentStatus !== AppointmentStatus.CONFIRMED
+				) {
+					throw new BadRequestException(`Appointment cannot accept deposit from status ${appointment.appointmentStatus}`);
+				}
+
+				const paidAt = metadata?.paidAt ?? payment.paidAt ?? new Date();
+				const wasAlreadyPaid = payment.status === PaymentFlowStatusEnum.SUCCESS && appointment.depositStatus === DepositStatus.PAID;
+				payment.status = PaymentFlowStatusEnum.SUCCESS;
+				payment.expireAt = null;
+				payment.transactionId = metadata?.transactionId ?? payment.transactionId;
+				payment.paidAt = paidAt;
+				await payment.save({ session });
+
+				// Deposit PAID is the proof boundary that allows billing to use depositPaidAmount later.
+				appointment.depositStatus = DepositStatus.PAID;
+				appointment.depositPaidAmount = payment.amount;
+				appointment.depositPaidAt = paidAt.getTime();
+				appointment.depositPaymentId = payment._id;
+				if (appointment.appointmentStatus === AppointmentStatus.PENDING) {
+					appointment.appointmentStatus = AppointmentStatus.CONFIRMED;
+					shouldEmitBookingSuccess = !wasAlreadyPaid;
+				}
+				await appointment.save({ session });
+
+				confirmedAppointment = appointment;
+				result = {
+					paymentId: payment._id.toString(),
+					appointmentId: appointment._id.toString(),
+					status: payment.status,
+					amount: payment.amount,
+					method: payment.method,
+				};
+			});
+
+			if (!result || !confirmedAppointment) {
+				throw new BadRequestException('Deposit payment commit failed');
+			}
+			const committedResult = result as { paymentId: string; appointmentId: string; status: PaymentFlowStatusEnum; amount: number; method: PaymentFlowMethodEnum };
+
+			if (shouldEmitBookingSuccess) {
+				const payload = await this.buildAppointmentBookingPayload(confirmedAppointment);
+				this.eventEmitter.emit('appointment.booking.success', payload);
+			}
+			this.eventEmitter.emit('payment.update', {
+				orderId: committedResult.appointmentId,
+				status: 'COMPLETED' as const,
+			});
+
+			this.logger.log(`Deposit payment committed by ${performedBy ?? 'system'} for appointment ${committedResult.appointmentId}`);
+			return {
+				code: 'SUCCESS',
+				message: 'Appointment deposit payment successful',
+				data: committedResult,
+			};
+		} finally {
+			await session.endSession();
+		}
+	}
+
+	private async markDepositPaymentFailed(
+		paymentId: string,
+		metadata?: { transactionId?: string; paidAt?: Date | null; responseCode?: string; transactionStatus?: string },
+	) {
+		const session = await this.paymentModel.db.startSession();
+		try {
+			let result: { paymentId: string; appointmentId: string; status: PaymentFlowStatusEnum } | null = null;
+
+			await session.withTransaction(async () => {
+				const payment = await this.paymentModel.findById(paymentId).session(session).exec();
+				if (!payment) {
+					throw new NotFoundException('Payment not found');
+				}
+				if (payment.purpose !== PaymentPurposeEnum.APPOINTMENT_DEPOSIT || !payment.appointmentId) {
+					return;
+				}
+
+				const appointment = await this.appointmentModel.findById(payment.appointmentId).session(session).exec();
+				if (!appointment) {
+					throw new NotFoundException('Appointment not found');
+				}
+
+				if (payment.status !== PaymentFlowStatusEnum.SUCCESS) {
+					payment.status = PaymentFlowStatusEnum.FAILED;
+					payment.expireAt = null;
+					payment.transactionId = metadata?.transactionId ?? payment.transactionId;
+					payment.paidAt = metadata?.paidAt ?? payment.paidAt;
+					await payment.save({ session });
+
+					appointment.depositStatus = DepositStatus.FAILED;
+					if (appointment.appointmentStatus === AppointmentStatus.PENDING) {
+						appointment.appointmentStatus = AppointmentStatus.FAILED;
+					}
+					await appointment.save({ session });
+
+					if (appointment.timeSlot) {
+						await this.timeSlotLogModel.updateOne(
+							{ _id: appointment.timeSlot },
+							{ $set: { status: 'available' } },
+							{ session },
+						);
+					}
+				}
+
+				result = {
+					paymentId: payment._id.toString(),
+					appointmentId: appointment._id.toString(),
+					status: payment.status,
+				};
+			});
+
+			return result
+				? { code: 'FAILED', message: 'Appointment deposit payment failed', data: result }
+				: null;
+		} finally {
+			await session.endSession();
+		}
+	}
+
+	private async buildAppointmentBookingPayload(appointment: AppointmentDocument) {
+		const doctor = appointment.doctorId
+			? await this.doctorModel.findById(appointment.doctorId).populate('profileId', 'name email').lean()
+			: null;
+		const patient = appointment.patientId
+			? await this.patientModel.findById(appointment.patientId).populate('profileId', 'name email phone avatarUrl').lean()
+			: null;
+
+		const doctorProfile = (doctor as any)?.profileId ? (doctor as any).profileId : null;
+		const patientProfile = (patient as any)?.profileId ? (patient as any).profileId : null;
+
+		const payload = buildEnrichedAppointmentPayload(
+			appointment,
+			doctorProfile,
+			patientProfile,
+			appointment.consultationFee ?? 0,
+			patientProfile?.name ?? appointment.patientEmail,
+			appointment.patientEmail,
+		);
+
+		return {
+			...payload,
+			paymentStatus: PaymentFlowStatusEnum.SUCCESS,
+		};
 	}
 
 	private calculateRewardAmount(finalPayable: number): number {

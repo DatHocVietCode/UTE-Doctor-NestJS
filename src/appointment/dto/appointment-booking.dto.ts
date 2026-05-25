@@ -75,7 +75,7 @@ export class AppointmentBookingRequestDto {
 
   @IsOptional()
   @IsNumber()
-  amount?: number;
+  amount?: number; // Deprecated: ignored by the current deposit/billing-based booking flow.
 
   @IsString()
   @IsOptional()

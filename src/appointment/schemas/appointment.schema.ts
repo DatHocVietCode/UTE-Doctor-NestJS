@@ -2,6 +2,7 @@ import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import mongoose, { HydratedDocument } from "mongoose";
 import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 import { AppointmentStatus } from "../enums/Appointment-status.enum";
+import { DepositStatus } from "../enums/deposit-status.enum";
 import { PaymentCategory } from "../enums/payment-category.enum";
 import { ServiceType } from "../enums/service-type.enum";
 
@@ -44,9 +45,22 @@ export class Appointment {
     @Prop({ type: String, enum: PaymentCategory, default: PaymentCategory.DICH_VU })
     paymentCategory!: PaymentCategory;
 
-    // Amount already collected before final billing; BHYT bookings normalize this to zero.
+    // Required deposit amount. This is not payment proof until depositStatus is PAID.
     @Prop({ type: Number, default: 0 })
     depositAmount!: number;
+
+    // Deposit lifecycle is the proof boundary for applying booking deposits to billing.
+    @Prop({ type: String, enum: DepositStatus, default: DepositStatus.NOT_REQUIRED })
+    depositStatus!: DepositStatus;
+
+    @Prop({ type: Number, default: 0 })
+    depositPaidAmount!: number;
+
+    @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Payment' })
+    depositPaymentId?: mongoose.Types.ObjectId;
+
+    @Prop()
+    depositPaidAt?: number;
 
     // Snapshot discount from coin usage at booking time.
     @Prop({ default: 0 })

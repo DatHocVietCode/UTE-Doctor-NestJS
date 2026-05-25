@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Logger, Param, Query, Req } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Logger, Param, Query } from '@nestjs/common';
 import { PaymentService } from 'src/payment/payment.service';
 import { VnPayPaymentService } from './vnpay-payment.service';
 
@@ -21,15 +21,14 @@ export class VnPayPaymentController {
     const result = this.vnPayPaymentService.handleVnpayReturn(query);
 
     if (!result.valid) {
-      this.logger.warn(`VNPay callback rejected | billingId=${result.billingId} | reason=${result.reason ?? 'unknown'}`);
+      this.logger.warn(`VNPay callback rejected | txnRef=${result.txnRef} | reason=${result.reason ?? 'unknown'}`);
       throw new BadRequestException(result.reason ?? 'Invalid VNPay callback');
     }
 
     if (result.status === 'COMPLETED') {
-      const callbackResult = await this.paymentService.markPaymentSuccessByBillingId(
-        result.billingId,
+      const callbackResult = await this.paymentService.handleVnpayPaymentResultByTxnRef(
+        result.txnRef,
         'system',
-        'QR',
         {
           transactionId: String(query['vnp_TransactionNo'] || ''),
           paidAt: result.paidAt,
@@ -38,6 +37,8 @@ export class VnPayPaymentController {
         },
       ) as {
         data: {
+          billingId?: string;
+          appointmentId?: string;
           paymentId: string;
           status: string;
           amount: number;
@@ -45,12 +46,13 @@ export class VnPayPaymentController {
         };
       };
 
-      this.logger.log(`VNPay callback completed | billingId=${result.billingId} | paymentId=${callbackResult.data.paymentId}`);
+      this.logger.log(`VNPay callback completed | txnRef=${result.txnRef} | paymentId=${callbackResult.data.paymentId}`);
       return {
         code: 'SUCCESS',
         message: 'Payment successful',
         data: {
-          billingId: result.billingId,
+          billingId: callbackResult.data.billingId,
+          appointmentId: callbackResult.data.appointmentId,
           paymentId: callbackResult.data.paymentId,
           status: callbackResult.data.status,
           amount: callbackResult.data.amount,
@@ -60,7 +62,17 @@ export class VnPayPaymentController {
     }
 
     this.logger.warn(
-      `VNPay callback failed | billingId=${result.billingId} | responseCode=${result.responseCode} | transactionStatus=${result.transactionStatus}`,
+      `VNPay callback failed | txnRef=${result.txnRef} | responseCode=${result.responseCode} | transactionStatus=${result.transactionStatus}`,
+    );
+
+    await this.paymentService.handleVnpayPaymentFailureByTxnRef(
+      result.txnRef,
+      {
+        transactionId: String(query['vnp_TransactionNo'] || ''),
+        paidAt: result.paidAt,
+        responseCode: result.responseCode,
+        transactionStatus: result.transactionStatus,
+      },
     );
 
     return {

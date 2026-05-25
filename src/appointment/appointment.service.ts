@@ -2,14 +2,19 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { InjectModel } from "@nestjs/mongoose";
 import mongoose, { Model, Types } from "mongoose";
+import { Billing, BillingDocument } from "src/billing/billing.schema";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
 import { AuthUser } from "src/common/interfaces/auth-user";
 import { Doctor, DoctorDocument } from "src/doctor/schema/doctor.schema";
+import { MedicalEncounter, MedicalEncounterDocument } from "src/patient/schema/medical-record.schema";
 import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
+import { Payment, PaymentDocument } from "src/payment/schemas/payment.schema";
 import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
 import { TimeHelper } from "src/utils/helpers/time.helper";
+import { VisitStatus } from "src/visit/enums/visit-status.enum";
+import { Visit, VisitDocument } from "src/visit/schemas/visit.schema";
 import { VisitService } from 'src/visit/visit.service';
 import { CoinService } from 'src/wallet/coin/coin.service';
 import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
@@ -22,11 +27,15 @@ import { AppointmentTimeHelper } from "./utils/appointment-time.helper";
 export class AppointmentService {
 
     constructor(private readonly eventEmitter: EventEmitter2,
-        @InjectModel(Appointment.name) private readonly appointmentModel: Model<Appointment>,
+        @InjectModel(Appointment.name) private readonly appointmentModel: Model<AppointmentDocument>,
         @InjectModel(TimeSlotLog.name) private readonly timeSlotLogModel: Model<TimeSlotLogDocument>,
         @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
         @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
         @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
+        @InjectModel(Visit.name) private readonly visitModel: Model<VisitDocument>,
+        @InjectModel(MedicalEncounter.name) private readonly medicalEncounterModel: Model<MedicalEncounterDocument>,
+        @InjectModel(Billing.name) private readonly billingModel: Model<BillingDocument>,
+        @InjectModel(Payment.name) private readonly paymentModel: Model<PaymentDocument>,
         private readonly coinService: CoinService,
         private readonly visitService: VisitService,
     ) {}
@@ -383,20 +392,18 @@ export class AppointmentService {
         }
 
         const previousStatus = appointment.appointmentStatus;
-
-        // Only allow cancelling for PENDING or CONFIRMED appointments
         if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(previousStatus)) {
-            throw new Error(`Cannot cancel appointment with status ${previousStatus}`);
+            this.throwCancelBlocked(
+                'APPOINTMENT_NOT_CANCELABLE',
+                `Cannot cancel appointment with status ${previousStatus}`,
+            );
         }
 
-        // ⏰ Time-based cancellation restriction: Cannot cancel if <= 24 hours before appointment
-        // Cancellation now evaluates against the stored scheduledAt snapshot.
         const appointmentScheduledAt = AppointmentTimeHelper.resolveStoredScheduledAt(appointment);
         if (!appointmentScheduledAt) {
-            throw new Error('Invalid appointment date');
+            this.throwCancelBlocked('APPOINTMENT_NOT_CANCELABLE', 'Invalid appointment date');
         }
         const appointmentDate = TimeHelper.fromEpoch(appointmentScheduledAt);
-
 
         console.log(`[AppointmentService] Cancelling appointment ${appointmentId} scheduled at ${appointmentDate}, reason: ${reason}`);
         const appointmentTime = appointmentScheduledAt;
@@ -404,42 +411,16 @@ export class AppointmentService {
         const hoursUntilAppointment = (appointmentTime - currentTime) / (1000 * 60 * 60);
 
         if (hoursUntilAppointment <= 24) {
-            throw new Error(`Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${hoursUntilAppointment.toFixed(1)}`);
+            this.throwCancelBlocked(
+                'APPOINTMENT_NOT_CANCELABLE',
+                `Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${hoursUntilAppointment.toFixed(1)}`,
+            );
         }
 
-        // 💰 Tiered refund logic based on cancellation timing
         const timeSlotId = appointment.timeSlot;
-        // Refund should be based on actual charged amount and must never exceed original consultation fee.
-        const originalConsultationFee = Math.max(0, Math.floor(appointment.consultationFee ?? 0));
-        const chargedAmount = typeof appointment.paymentAmount === 'number'
-            ? Math.max(0, Math.min(Math.floor(appointment.paymentAmount), originalConsultationFee))
-            : originalConsultationFee;
-        const consultationFee = chargedAmount;
-        let refundAmount = 0;
-        let refundReason = '';
-
-        if (previousStatus === AppointmentStatus.PENDING) {
-            // PENDING appointments get 100% refund if cancelled > 48h before
-            if (hoursUntilAppointment > 48) {
-                refundAmount = consultationFee;
-                refundReason = '100% refund (cancelled > 48 hours before)';
-            } else if (hoursUntilAppointment > 24) {
-                refundAmount = Math.ceil(consultationFee * 0.5); // 50% refund
-                refundReason = '50% refund (cancelled 24-48 hours before)';
-            }
-        } else if (previousStatus === AppointmentStatus.CONFIRMED) {
-            // CONFIRMED appointments follow same tier logic
-            if (hoursUntilAppointment > 48) {
-                refundAmount = consultationFee;
-                refundReason = '100% refund (cancelled > 48 hours before)';
-            } else if (hoursUntilAppointment > 24) {
-                refundAmount = Math.ceil(consultationFee * 0.5); // 50% refund
-                refundReason = '50% refund (cancelled 24-48 hours before)';
-            }
-            // < 24h returns 0 (already blocked above, but for clarity)
-        }
-
-        const shouldRefund = refundAmount > 0;
+        const refundAmount = 0;
+        const refundReason = 'No automatic refund for appointment cancellation in visit/billing flow';
+        const shouldRefund = false;
 
         const doctorProfile = appointment.doctorId
             ? await this.doctorModel.findById(appointment.doctorId).populate('profileId', 'name email').lean()
@@ -468,50 +449,114 @@ export class AppointmentService {
             status: AppointmentStatus.CANCELLED,
         };
 
-        // Update appointment
-        appointment.appointmentStatus = AppointmentStatus.CANCELLED;
-        await appointment.save();
+        const session = await this.appointmentModel.db.startSession();
+        try {
+            await session.withTransaction(async () => {
+                const freshAppointment = await this.appointmentModel.findById(appointmentId).session(session);
+                if (!freshAppointment) {
+                    throw new NotFoundException('Appointment not found');
+                }
 
-        // Release time slot
-        const timeSlot = await this.timeSlotLogModel.findById(timeSlotId);
-        if (timeSlot) {
-            timeSlot.status = 'available';
-            await timeSlot.save();
-        }
+                if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(freshAppointment.appointmentStatus)) {
+                    this.throwCancelBlocked(
+                        'APPOINTMENT_NOT_CANCELABLE',
+                        `Cannot cancel appointment with status ${freshAppointment.appointmentStatus}`,
+                    );
+                }
 
-        if (shouldRefund && refundAmount > 0) {
-            // Emit cancel event for refund processing in the credit wallet.
-            this.eventEmitter.emit('appointment.cancelled', {
-                appointmentId,
-                patientId: appointment.patientId.toString(),
-                consultationFee,
-                refundAmount,
-                refundReason,
-                reason: reason || 'Appointment cancelled',
-                timeSlotId: timeSlotId.toString(),
+                const visit = await this.visitModel
+                    .findOne({ appointmentId: freshAppointment._id })
+                    .session(session)
+                    .exec();
+                if (!visit) {
+                    this.throwCancelBlocked(
+                        'APPOINTMENT_NOT_CANCELABLE',
+                        'Cannot cancel appointment because visit record is missing',
+                    );
+                }
+
+                if (visit.status === VisitStatus.COMPLETED) {
+                    this.throwCancelBlocked('VISIT_COMPLETED', 'Cannot cancel appointment because visit is completed');
+                }
+
+                if (visit.status !== VisitStatus.CREATED) {
+                    this.throwCancelBlocked(
+                        'VISIT_ALREADY_STARTED',
+                        `Cannot cancel appointment because visit status is ${visit.status}`,
+                    );
+                }
+
+                const encounterExists = await this.medicalEncounterModel.exists({
+                    $or: [
+                        { visitId: visit._id },
+                        { appointmentId: freshAppointment._id },
+                    ],
+                }).session(session);
+                if (encounterExists) {
+                    this.throwCancelBlocked('MEDICAL_ENCOUNTER_EXISTS', 'Cannot cancel appointment because medical encounter exists');
+                }
+
+                const billing = await this.billingModel
+                    .findOne({ visitId: visit._id })
+                    .session(session)
+                    .select('_id')
+                    .lean()
+                    .exec();
+                const paymentExists = billing
+                    ? await this.paymentModel.exists({ billingId: billing._id }).session(session)
+                    : null;
+                if (paymentExists) {
+                    this.throwCancelBlocked('PAYMENT_EXISTS', 'Cannot cancel appointment because payment exists');
+                }
+
+                if (billing) {
+                    this.throwCancelBlocked('BILLING_EXISTS', 'Cannot cancel appointment because billing exists');
+                }
+
+                // Keep appointment, visit, and slot state aligned so cancellation cannot leave an active visit.
+                freshAppointment.appointmentStatus = AppointmentStatus.CANCELLED;
+                await freshAppointment.save({ session });
+
+                visit.status = VisitStatus.CANCELLED;
+                await visit.save({ session });
+
+                if (freshAppointment.timeSlot) {
+                    await this.timeSlotLogModel.updateOne(
+                        { _id: freshAppointment.timeSlot },
+                        { $set: { status: 'available' } },
+                        { session },
+                    );
+                }
             });
-            console.log(`[AppointmentService] Cancelled appointment ${appointmentId}, refund: ${refundAmount} credit (${refundReason})`);
-        } else {
-            console.log(`[AppointmentService] Cancelled appointment ${appointmentId} with no refund (${refundReason})`);
+        } finally {
+            await session.endSession();
         }
 
-        // Notify patient via notification, mail, and socket
+        // Appointment cancellation no longer credits wallets; money is handled by billing/payment flows.
+        console.log(`[AppointmentService] Cancelled appointment ${appointmentId} with no wallet refund (${refundReason})`);
+
         this.eventEmitter.emit('notify.patient.appointment.cancelled', cancellationPayload);
         this.eventEmitter.emit('mail.patient.appointment.cancelled', cancellationPayload);
         this.eventEmitter.emit('socket.appointment.cancelled', cancellationPayload);
 
         return {
             code: 'SUCCESS',
-            message: shouldRefund
-                ? `Appointment cancelled and refunded: ${refundReason}`
-                : 'Appointment cancelled (no refund for cancellations within 24 hours)',
+            message: 'Appointment cancelled',
             data: {
                 appointmentId,
                 refundAmount,
                 refundReason,
-                hoursUntilAppointment: (appointmentTime - currentTime) / (1000 * 60 * 60),
+                hoursUntilAppointment,
             },
         };
+    }
+
+    private throwCancelBlocked(blockedReason: string, message: string): never {
+        throw new BadRequestException({
+            code: ResponseCode.ERROR,
+            message,
+            data: { blockedReason },
+        });
     }
 
     async confirmAppointment(id: string) {
