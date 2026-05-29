@@ -84,8 +84,25 @@ export class DoctorService {
     return this.doctorModel.find().populate('accountId').populate('chuyenKhoaId').exec();
   }
 
-  async findById(id: string): Promise<Doctor | null> {
-    return this.doctorModel.findById(id).populate('profileId').populate('chuyenKhoaId').exec();
+  async findDoctorById(id: string): Promise<DoctorDocument | null> {
+    if (!Types.ObjectId.isValid(id)) return null;
+    return this.doctorModel
+      .findById(id)
+      .populate('profileId')
+      .populate('chuyenKhoaId')
+      .exec();
+  }
+
+  async findById(id: string): Promise<DataResponse<any>> {
+    const doctor = await this.findDoctorById(id);
+    if (!doctor) {
+      throw new NotFoundException('Doctor not found');
+    }
+    return {
+      code: rc.SUCCESS,
+      message: 'Fetched doctor successfully',
+      data: doctor,
+    };
   }
 
   async createWithAccount(createDoctorDto: CreateDoctorDto, avatar?: Express.Multer.File) {

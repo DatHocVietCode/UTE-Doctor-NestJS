@@ -74,9 +74,11 @@ export class DoctorController {
     @Query('status') status?: string // optional từ client
   ) {
   const slotStatus: TimeSlotStatusEnum =
-      !status || status.toLowerCase() === 'all'
-        ? TimeSlotStatusEnum.ALL
-        : (status as TimeSlotStatusEnum);
+      !status
+        ? TimeSlotStatusEnum.AVAILABLE       // default: only bookable slots
+        : status.toLowerCase() === 'all'
+          ? TimeSlotStatusEnum.ALL
+          : (status as TimeSlotStatusEnum);
 
     return this.doctorService.getTimeSlotsByDoctorAndDate(doctorId, date, slotStatus);
   }
@@ -92,7 +94,7 @@ export class DoctorController {
   }
 
   @Get(':id')
-  async findById(@Param('id') id: string): Promise<Doctor | null> {
+  async findById(@Param('id') id: string) {
     return this.doctorService.findById(id);
   }
 
