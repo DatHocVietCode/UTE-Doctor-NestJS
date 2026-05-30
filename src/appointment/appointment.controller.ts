@@ -7,6 +7,7 @@ import { AppointmentBookingService } from "./appointment-booking.service";
 import { AppointmentRescheduleService } from "./appointment-reschedule.service";
 import { AppointmentService } from "./appointment.service";
 import { AppointmentBookingDto, AppointmentBookingRequestDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
+import { AppointmentCancelDto } from './dto/appointment-cancel.dto';
 import { AppointmentRescheduleDto } from './dto/appointment-reschedule.dto';
 
 @Controller('appointment')
@@ -146,11 +147,12 @@ export class AppointmentController {
 
     @Patch('/cancel')
     @UseGuards(JwtAuthGuard)
-    async cancelAppointment(@Body() dto: { appointmentId: string; reason?: string }, @Req() req: any) {
+    async cancelAppointment(@Body() dto: AppointmentCancelDto, @Req() req: any) {
         // Cancellation timing and visit lifecycle checks are centralized in the service.
         return this.appointmentService.cancelAppointment(
             dto.appointmentId,
-            dto.reason
+            dto.reason,
+            req.user as AuthUser,
         );
     }
 
