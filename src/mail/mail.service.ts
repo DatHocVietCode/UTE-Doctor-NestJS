@@ -181,6 +181,84 @@ export class MailService {
     await this.sendMail(payload.patientEmail, "Thông báo hủy lịch khám - UTE Doctor", html);
   }
 
+  /** === RESCHEDULE: PATIENT === */
+  async sendPatientRescheduleMail(payload: {
+    patientEmail: string;
+    doctorName?: string;
+    hospitalName?: string;
+    oldScheduledAt: number;
+    newScheduledAt: number;
+    newTimeSlotId: string;
+    reason?: string;
+  }) {
+    const timeSlotName = await emitTyped<string, string>(
+      this.eventEmitter,
+      'timeslot.get.name.by.id',
+      payload.newTimeSlotId,
+    );
+    const oldDateStr = new Date(payload.oldScheduledAt).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+    const newDateStr = new Date(payload.newScheduledAt).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+
+    const html = `
+      <h2>Xin chào ${payload.patientEmail},</h2>
+      <p>Lịch hẹn của bạn đã được dời lịch thành công.</p>
+      ${payload.doctorName ? `<p><b>Bác sĩ:</b> ${payload.doctorName}</p>` : ''}
+      <p><b>Lịch cũ:</b> ${oldDateStr}</p>
+      <p><b>Lịch mới:</b> ${newDateStr}${timeSlotName ? ` - ${timeSlotName}` : ''}</p>
+      ${payload.hospitalName ? `<p><b>Địa điểm:</b> ${payload.hospitalName}</p>` : ''}
+      ${payload.reason ? `<p><b>Lý do dời lịch:</b> ${payload.reason}</p>` : ''}
+      <p>Vui lòng đến đúng giờ theo lịch mới. Cảm ơn bạn đã sử dụng UTE Doctor!</p>
+    `;
+
+    await this.sendMail(payload.patientEmail, 'Thông báo dời lịch hẹn - UTE Doctor', html);
+  }
+
+  /** === RESCHEDULE: DOCTOR === */
+  async sendDoctorRescheduleMail(payload: {
+    doctorEmail: string;
+    doctorName?: string;
+    patientEmail: string;
+    oldScheduledAt: number;
+    newScheduledAt: number;
+    newTimeSlotId: string;
+    reason?: string;
+  }) {
+    const timeSlotName = await emitTyped<string, string>(
+      this.eventEmitter,
+      'timeslot.get.name.by.id',
+      payload.newTimeSlotId,
+    );
+    const oldDateStr = new Date(payload.oldScheduledAt).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+    const newDateStr = new Date(payload.newScheduledAt).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+
+    const html = `
+      <h2>Xin chào bác sĩ ${payload.doctorName || ''},</h2>
+      <p>Bệnh nhân đã dời lịch hẹn.</p>
+      <p><b>Bệnh nhân:</b> ${payload.patientEmail}</p>
+      <p><b>Lịch cũ:</b> ${oldDateStr}</p>
+      <p><b>Lịch mới:</b> ${newDateStr}${timeSlotName ? ` - ${timeSlotName}` : ''}</p>
+      ${payload.reason ? `<p><b>Lý do:</b> ${payload.reason}</p>` : ''}
+    `;
+
+    await this.sendMail(payload.doctorEmail, 'Thông báo dời lịch hẹn - UTE Doctor', html);
+  }
+
   async sendCoinExpiryReminderMail(payload: CoinExpiryReminderEventPayload) {
     const expiresAtIso = new Date(payload.expiresAt).toISOString();
     const remainingDaysText = payload.reminderDays > 1 ? `${payload.reminderDays} ngày` : '1 ngày';

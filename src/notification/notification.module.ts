@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
 import { RedisService } from "src/common/redis/redis.service";
 import { AppointmentCancelledNotificationHandler } from "./handlers/appointment-cancelled-notification.handler";
+import { AppointmentRescheduledNotificationHandler } from "./handlers/appointment-rescheduled-notification.handler";
 import { AppointmentSuccessNotificationHandler } from "./handlers/appointment-success-notification.handler";
 import { CoinExpiryNotificationHandler } from "./handlers/coin-expiry-notification.handler";
 import { PaymentSuccessNotificationHandler } from "./handlers/payment-success-notification.handler";
@@ -30,6 +31,7 @@ import { Notification, NotificationSchema } from "./schemas/notification.schema"
         CoinExpiryNotificationHandler,
         AppointmentSuccessNotificationHandler,
         AppointmentCancelledNotificationHandler,
+        AppointmentRescheduledNotificationHandler,
         PaymentSuccessNotificationHandler,
         RedisService,
     ],

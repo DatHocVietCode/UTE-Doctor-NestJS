@@ -19,10 +19,23 @@ export type PaymentSuccessDto = {
   status: 'COMPLETED';
 };
 
+export type AppointmentRescheduledNotificationDto = {
+  appointmentId: string;
+  patientEmail: string;
+  doctorEmail?: string;
+  doctorName?: string;
+  hospitalName?: string;
+  oldScheduledAt: number;
+  newScheduledAt: number;
+  newTimeSlotId: string;
+  reason?: string;
+};
+
 export type NotificationMap = {
   COIN_EXPIRY_REMINDER: CoinExpiryReminderEventPayload;
   APPOINTMENT_SUCCESS: AppointmentEnriched;
   APPOINTMENT_CANCELLED: AppointmentCancelledDto;
+  APPOINTMENT_RESCHEDULED: AppointmentRescheduledNotificationDto;
   PAYMENT_SUCCESS: PaymentSuccessDto;
 };
 

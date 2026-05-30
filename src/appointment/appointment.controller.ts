@@ -135,17 +135,13 @@ export class AppointmentController {
         @Body() dto: AppointmentRescheduleDto,
         @Req() req: any,
     ) {
-        try {
-            const result = await this.appointmentRescheduleService.rescheduleAppointment(
-                {
-                    ...dto,
-                    appointmentId,
-                },
-            );
-            return result;
-        } catch (error: any) {
-            throw new Error(`Failed to reschedule appointment: ${error.message}`);
-        }
+        const user = req.user as AuthUser;
+        // Pass JWT identity for audit logging; do not allow the caller to supply rescheduledBy.
+        return this.appointmentRescheduleService.rescheduleAppointment({
+            ...dto,
+            appointmentId,
+            rescheduledBy: user?.email ?? user?.accountId ?? undefined,
+        });
     }
 
     @Patch('/cancel')

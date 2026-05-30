@@ -106,6 +106,23 @@ CONSULTATION_FEE / INSURANCE_COVERAGE_RATE
 COIN_EXPIRY_DAYS / COIN_REWARD_RATE
 ```
 
+## api-contract Submodule
+
+`api-contract/` is a Git submodule that the frontend depends on directly. **Any time you modify a file inside `api-contract/`, you must commit and push the submodule immediately after**, before committing the parent repo. The frontend reads the submodule at its latest pushed commit, so a change that has not been pushed is invisible to the FE.
+
+```bash
+# After editing any file under api-contract/
+cd api-contract
+git add <changed files>
+git commit -m "docs: <describe change>"
+git push
+cd ..
+# Then stage the updated submodule pointer in the parent repo
+git add api-contract
+```
+
+Do not batch api-contract changes with parent-repo changes in a single step — push the submodule first, every time.
+
 ## Documentation Files
 
 - [AGENTS.md](AGENTS.md) — AI-oriented repository summary

@@ -3,6 +3,7 @@ import { MongooseModule } from "@nestjs/mongoose";
 import { Billing, BillingSchema } from "src/billing/billing.schema";
 import { RedisService } from "src/common/redis/redis.service";
 import { Doctor, DoctorSchema } from "src/doctor/schema/doctor.schema";
+import { Shift, ShiftSchema } from "src/shift/schema/shift.schema";
 import { MedicineModule } from "src/medicine/medicine.module";
 import { MedicalEncounter, MedicalEncounterSchema } from "src/patient/schema/medical-record.schema";
 import { Patient, PatientSchema } from "src/patient/schema/patient.schema";
@@ -19,6 +20,7 @@ import { AppointmentController } from "./appointment.controller";
 import { AppointmentService } from "./appointment.service";
 import { BookingListener } from "./listenners/booking.listenner";
 import { CancelListener } from "./listenners/cancel.listener";
+import { RescheduleListener } from "./listenners/reschedule.listener";
 import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
 
 
@@ -26,7 +28,8 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
     imports: [
         MongooseModule.forFeature([
           { name: Appointment.name, schema: AppointmentSchema },
-          { name: TimeSlotLog.name, schema: TimeSlotLogSchema }, // thêm model để inject vào AppointmentService
+          { name: TimeSlotLog.name, schema: TimeSlotLogSchema },
+          { name: Shift.name, schema: ShiftSchema },
           { name: Patient.name, schema: PatientSchema },
           { name: Doctor.name, schema: DoctorSchema },
           { name: Profile.name, schema: ProfileSchema },
@@ -41,7 +44,7 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
         forwardRef(() => PaymentModule),
     ],
     controllers: [AppointmentController],
-      providers: [AppointmentService, AppointmentBookingService, AppointmentRescheduleService, RedisService, BookingListener, CancelListener],
+      providers: [AppointmentService, AppointmentBookingService, AppointmentRescheduleService, RedisService, BookingListener, CancelListener, RescheduleListener],
       exports: [AppointmentService, AppointmentBookingService]
 })
 export class AppointmentModule {}
