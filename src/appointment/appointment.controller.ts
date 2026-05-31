@@ -114,6 +114,13 @@ export class AppointmentController {
         return await this.appointmentService.completeAppointment(dto);
   }
 
+    @Get(':appointmentId/deposit-status')
+    @UseGuards(JwtAuthGuard)
+    async getDepositStatus(@Param('appointmentId') appointmentId: string, @Req() req: any) {
+        // Polling is read-only; authorization is enforced against the linked appointment owner.
+        return this.appointmentService.getDepositStatus(appointmentId, req.user as AuthUser);
+    }
+
   @Get(':id')
     async getAppointmentById(@Param('id') id: string) {
         // Validate ObjectId

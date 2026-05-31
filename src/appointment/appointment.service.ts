@@ -644,6 +644,66 @@ export class AppointmentService {
         };
     }
 
+    async getDepositStatus(appointmentId: string, user?: AuthUser) {
+        if (!Types.ObjectId.isValid(appointmentId)) {
+            throw new NotFoundException('Appointment not found');
+        }
+
+        const appointment = await this.appointmentModel.findById(appointmentId).lean().exec();
+        if (!appointment) {
+            throw new NotFoundException('Appointment not found');
+        }
+        this.assertCanViewDepositStatus(appointment, user);
+
+        let payment: { _id: Types.ObjectId; status: PaymentFlowStatusEnum } | null = null;
+        if (appointment.paymentCategory === PaymentCategory.DICH_VU) {
+            const paymentReferences: Record<string, unknown>[] = [{ appointmentId: appointment._id }];
+            if (appointment.depositPaymentId) {
+                paymentReferences.unshift({ _id: appointment.depositPaymentId });
+            }
+
+            // Read the linked deposit record only; polling must never create or refresh a payment.
+            payment = await this.paymentModel
+                .findOne({
+                    purpose: PaymentPurposeEnum.APPOINTMENT_DEPOSIT,
+                    $or: paymentReferences,
+                })
+                .select('_id status')
+                .lean()
+                .exec();
+        }
+
+        const isConfirmed =
+            appointment.appointmentStatus === AppointmentStatus.CONFIRMED ||
+            appointment.appointmentStatus === AppointmentStatus.COMPLETED;
+        const terminalDepositStatuses = [
+            DepositStatus.NOT_REQUIRED,
+            DepositStatus.PAID,
+            DepositStatus.FAILED,
+            DepositStatus.REFUNDED,
+            DepositStatus.FORFEITED,
+        ];
+        const isTerminal =
+            terminalDepositStatuses.includes(appointment.depositStatus) ||
+            appointment.appointmentStatus === AppointmentStatus.FAILED ||
+            appointment.appointmentStatus === AppointmentStatus.CANCELLED;
+
+        return {
+            appointmentId: appointment._id.toString(),
+            appointmentStatus: appointment.appointmentStatus,
+            paymentCategory: appointment.paymentCategory,
+            depositStatus: appointment.depositStatus,
+            depositAmount: appointment.depositAmount ?? 0,
+            depositPaidAmount: appointment.depositPaidAmount ?? 0,
+            depositPaidAt: appointment.depositPaidAt ?? null,
+            depositPaymentId: appointment.depositPaymentId?.toString() ?? payment?._id?.toString() ?? null,
+            paymentStatus: payment?.status ?? null,
+            paymentUrl: null,
+            isConfirmed,
+            isTerminal,
+        };
+    }
+
     private throwCancelBlocked(blockedReason: string, message: string): never {
         throw new BadRequestException({
             code: ResponseCode.ERROR,
@@ -660,6 +720,17 @@ export class AppointmentService {
             appointment.patientId?.toString?.() === user.patientId;
         if (!isStaff && !isOwner) {
             throw new ForbiddenException('You do not have permission to cancel this appointment');
+        }
+    }
+
+    private assertCanViewDepositStatus(appointment: Pick<Appointment, 'patientId'>, user?: AuthUser): void {
+        const isStaff = user?.role === RoleEnum.ADMIN || user?.role === RoleEnum.RECEPTIONIST;
+        const isOwner =
+            user?.role === RoleEnum.PATIENT &&
+            Boolean(user.patientId) &&
+            appointment.patientId?.toString?.() === user.patientId;
+        if (!isStaff && !isOwner) {
+            throw new ForbiddenException('You do not have permission to view this appointment deposit status');
         }
     }
 
