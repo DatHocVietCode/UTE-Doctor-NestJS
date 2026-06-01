@@ -31,6 +31,7 @@ import { SocketModule } from './socket/socket.module';
 import { TimeSlotModule } from './timeslot/timeslot.module';
 import { UserContextModule } from './user-context/user-context.module';
 import { OtpModule } from './utils/otp/otp.module';
+import { VisitModule } from './visit/visit.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -74,6 +75,7 @@ import { OtpModule } from './utils/otp/otp.module';
     NewsModule,
 	DoctorPostModule,
     ChatModule,
+    VisitModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
   controllers: [AppController],
