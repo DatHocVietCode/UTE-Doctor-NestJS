@@ -204,65 +204,15 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         );
       }
 
-      if (
-        bookingAppointment.paymentMethod === PaymentMethodEnum.ONLINE ||
-        bookingAppointment.paymentMethod === PaymentMethodEnum.VNPAY
-      ) {
-        return await this.handleOnlinePayment(
-          appointmentDoc,
-          bookingAppointment,
-          clientIp,
-          lockValue,
-          slotKey,
-          bookingAmounts,
-        );
-      }
-
-      // Old flow support for CREDIT payment method until frontend migrates to new flow with useCoin + ONLINE/VNPAY.
-      // if (bookingAppointment.paymentMethod === PaymentMethodEnum.CREDIT) {
-      //   return await this.handleCreditPayment(appointmentDoc, bookingAppointment, lockValue, slotKey, bookingAmounts);
-      // }
-
-      // return await this.failBooking(
-      //   appointmentDoc._id.toString(),
-      //   'Offline payment is not supported',
-      //   lockValue,
-      //   slotKey,
-      //   undefined,
-      //   bookingAmounts,
-      // );
-
-      const isNewFlow = !!bookingAppointment.paymentCategory;
-
-      if (!isNewFlow) {
-        // OLD FLOW giữ nguyên
-        if (bookingAppointment.paymentMethod === PaymentMethodEnum.CREDIT) {
-          return await this.handleCreditPayment(
-            appointmentDoc,
-            bookingAppointment,
-            lockValue,
-            slotKey,
-            bookingAmounts,
-          );
-        }
-
-        return await this.failBooking(
-          appointmentDoc._id.toString(),
-          'Offline payment is not supported',
-          lockValue,
-          slotKey,
-          undefined,
-          bookingAmounts,
-        );
-      }
-
-      // ✅ NEW FLOW (Phase 1)
+      // DEPRECATION CHANGE: Do NOT create payment during booking anymore.
+      // Always confirm the booking and defer payment to the billing flow.
+      this.logger.warn(`[Deprecated] Inline payment during booking suppressed for appointment ${appointmentDoc._id.toString()}`);
       return await this.confirmBooking(
         appointmentDoc._id.toString(),
         lockValue,
         slotKey,
-        'Booking confirmed (payment deferred)',
-        undefined, // ❗ KHÔNG có paymentMeta
+        'Booking confirmed (payment deferred — use billing flow)',
+        undefined, // no payment meta persisted here
         bookingAmounts,
       );
     } catch (error: any) {
@@ -360,6 +310,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
             appointmentStatus: AppointmentStatus.PENDING,
             serviceType: input.bookingAppointment.serviceType,
                         consultationFee: input.originalAmount,
+                        paymentCategory: input.bookingAppointment.paymentCategory,
+                        depositAmount: input.bookingAppointment.depositAmount ?? 0,
                         coinDiscountAmount: input.discountAmount,
                         paymentAmount: input.finalAmount,
             timeSlot: new Types.ObjectId(input.bookingAppointment.timeSlotId),
@@ -406,67 +358,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     amounts: BookingAmountBreakdown,
   ): Promise<DataResponse> {
     const appointmentId = appointmentDoc._id.toString();
-    const amount = amounts.finalAmount;
-
-    try {
-      const existingPayment = await this.paymentModel.findOne({
-        appointmentId: appointmentDoc._id,
-      }).select('_id').lean();
-
-      if (existingPayment) {
-        return {
-          code: ResponseCode.ERROR,
-          message: 'Payment already initiated for this appointment',
-          data: {
-            appointmentId,
-            ...amounts,
-          },
-        };
-      }
-
-      await this.paymentModel.create({
-        amount,
-        method: PaymentMethodEnum.ONLINE,
-        appointmentId: appointmentDoc._id,
-        status: PaymentStatusEnum.PENDING,
-      });
-
-      const paymentUrl = this.paymentService.createPaymentUrl(appointmentId, amount, clientIp);
-
-      const pendingPayload = await this.buildBookingPayload(appointmentDoc);
-      pendingPayload.paymentStatus = PaymentStatusEnum.PENDING;
-      this.eventEmitter.emit('appointment.booking.pending', pendingPayload);
-
-      return {
-        code: ResponseCode.PENDING,
-        message: 'Appointment created. Complete payment to confirm booking.',
-        data: {
-          appointmentId,
-          paymentUrl,
-          ...amounts,
-        },
-      };
-    } catch (error: any) {
-      if (error?.code === 11000) {
-        return {
-          code: ResponseCode.ERROR,
-          message: 'Payment already initiated for this appointment',
-          data: {
-            appointmentId,
-            ...amounts,
-          },
-        };
-      }
-
-      return await this.failBooking(
-        appointmentId,
-        error?.message || 'Booking failed',
-        lockValue,
-        slotKey,
-        undefined,
-        amounts,
-      );
-    }
+    this.logger.warn('[Deprecated] handleOnlinePayment called for appointment ' + appointmentId);
+    throw new BadRequestException('Payment after booking is deprecated. Use billing flow.');
   }
 
   private async handleCreditPayment(
@@ -476,36 +369,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     slotKey: string,
     amounts: BookingAmountBreakdown,
   ): Promise<DataResponse> {
-    const paymentResult = await this.creditService.deductCredit(
-      bookingAppointment.patientId,
-      amounts.finalAmount,
-      'appointment_booking',
-      appointmentDoc._id.toString(),
-      `Thanh toan lich kham bang credit: ${amounts.finalAmount}`,
-    );
-
-    if (paymentResult.code !== ResponseCode.SUCCESS) {
-      return await this.failBooking(
-        appointmentDoc._id.toString(),
-        paymentResult.message || 'Credit payment failed',
-        lockValue,
-        slotKey,
-        undefined,
-        amounts,
-      );
-    }
-
-    return await this.confirmBooking(
-      appointmentDoc._id.toString(),
-      lockValue,
-      slotKey,
-      paymentResult.message,
-      {
-        amount: amounts.finalAmount,
-        paidAt: new Date(),
-      },
-      amounts,
-    );
+    const appointmentId = appointmentDoc._id.toString();
+    this.logger.warn('[Deprecated] handleCreditPayment called for appointment ' + appointmentId);
+    throw new BadRequestException('Payment after booking is deprecated. Use billing flow.');
   }
 
   private buildSlotBookedError() {
@@ -910,12 +776,14 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     const visitType = dto.visitType ?? VisitType.OFFLINE;
     let depositAmount = this.toSafeMoneyValue(dto.depositAmount);
 
-    if (dto.paymentCategory === PaymentCategory.BHYT) {
+    const paymentCategory = dto.paymentCategory ?? PaymentCategory.DICH_VU;
+
+    if (paymentCategory === PaymentCategory.BHYT) {
       // BHYT visits never require deposit in the new workflow.
       depositAmount = 0;
     }
 
-    if (dto.paymentCategory === PaymentCategory.DICH_VU) {
+    if (paymentCategory === PaymentCategory.DICH_VU) {
       // DICH_VU allows deposit; preserve the provided value after sanitization.
       depositAmount = this.toSafeMoneyValue(dto.depositAmount);
     }
@@ -923,6 +791,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     return {
       ...dto,
       visitType,
+      paymentCategory,
       depositAmount,
     };
   }

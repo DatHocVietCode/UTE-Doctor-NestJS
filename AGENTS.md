@@ -264,6 +264,69 @@ Socket connection flow guidance (FE + BE):
 - Avoid switch-case in notification processing and FE rendering; use handler registry pattern keyed by `type`.
 - Keep backward compatibility for old domain-specific socket events temporarily, but treat them as deprecated.
 
+## Billing and Medication Dispensing Rules
+
+### Data Model Separation
+- **Encounter Prescriptions** (clinical intent): Doctor issues prescriptions during visit completion. Each prescription item includes:
+  - `medicineId`, `name`, `quantity` (original doctor input)
+  - `prescribedQty` (normalized prescription quantity)
+  - `unitPriceSnapshot` (medicine price at time of prescription, for billing reference only)
+  - `estimatedLineTotal` (prescribedQty * unitPriceSnapshot, for clinical reference)
+- **Billing Medications** (financial fulfillment): Snapshot of medicines and actual dispensing at billing finalization. Each medication includes:
+  - `medicineId`, `medicineName`
+  - `prescribedQty` (from doctor order)
+  - `dispensedQty` (receptionist-confirmed quantity actually dispensed, initially defaults to prescribedQty)
+  - `unitPrice` (snapshot from billing creation, never changes after FINALIZED)
+  - `source` (CLINIC or OUTSIDE_PURCHASE)
+  - `lineTotal` (dispensedQty * unitPrice if source=CLINIC, else 0)
+- **Immutability Rule**: After billing status becomes FINALIZED, medications[] snapshot is immutable. Doctor edits to encounter prescriptions must NOT affect finalized billing.
+
+### Draft Billing Creation (after visit completion)
+- Billing draft is created automatically when doctor completes visit (via `domain.visit.completed` event).
+- Medications[] populated from encounter prescriptions with defaults:
+  - dispensedQty = prescribedQty
+  - source = CLINIC
+  - lineTotal = prescribedQty * unitPrice (from snapshot)
+- This is NOT yet authoritative billing; it is a draft for receptionist refinement.
+
+### Receptionist Fulfillment Workflow
+- Receptionist accesses draft billing and can adjust medication fulfillment before finalization:
+  - Change `dispensedQty` per medicine (e.g., ran out, patient declined, etc.)
+  - Change `source` to OUTSIDE_PURCHASE if patient bought medicine outside clinic
+  - Adjust consultation fee if required (optional, not automated)
+- During finalization, receptionist provides fulfillment input:
+  ```
+  {
+    medications: [
+      { medicineId, dispensedQty, source },
+      ...
+    ]
+  }
+  ```
+
+### Billing Finalization
+- Receptionist initiates finalization with fulfillment input.
+- System applies fulfillment to medications[], recalculating lineTotal:
+  - If source = OUTSIDE_PURCHASE: lineTotal = 0 (patient paid outside, no clinic revenue)
+  - If dispensedQty = 0: lineTotal = 0 (not dispensed)
+  - Otherwise: lineTotal = dispensedQty * unitPrice
+- Medication fee recomputed as sum of medications[].lineTotal
+- Total amount, insurance, deposit, credit, coin, and final payable recalculated
+- Billing status transitions to FINALIZED (immutable snapshot created)
+- Payment created and can proceed
+
+### Scope Limitations (Intentional Non-Implementation)
+- **No inventory management**: Do not track clinic stock levels or implement reservation logic.
+- **No pharmacy transaction ledger**: Do not create transaction history for partial dispense tracking.
+- **No stock allocation algorithms**: Dispense decision is receptionist manual choice only, not system-driven.
+- Billing workflow scope is limited to receptionist-controlled fulfillment for financial accuracy, not inventory.
+
+### Price Snapshot Immutability
+- `unitPriceSnapshot` in encounter prescriptions created at visit completion time.
+- `unitPrice` in billing.medications[] frozen at draft creation time.
+- Future changes to Medicine.unitPrice do NOT affect historical encounters or finalized billings.
+- This prevents pricing drift and audit disputes.
+
 Notes:
 - Some folders and filenames are in kebab-case, including Vietnamese names (e.g., `chuyen-khoa`, `tiep-tan`).
 - There is mixed usage of single and double quotes in the codebase; lint/format settings indicate the preferred style is single quotes.

@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
+import { BillingModule } from 'src/billing/billing.module';
 import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
 import { DoctorModule } from 'src/doctor/doctor.module';
 import { MedicineModule } from 'src/medicine/medicine.module';
@@ -43,6 +44,7 @@ import { VisitModule } from './visit/visit.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         uri: config.get<string>('MONGO_DB_URI'),
+         autoIndex: true, // Enable autoIndex in development for easier debugging; consider disabling in production for performance
       }),
     }),
     EventEmitterModule.forRoot(),
@@ -76,6 +78,8 @@ import { VisitModule } from './visit/visit.module';
 	DoctorPostModule,
     ChatModule,
     VisitModule,
+    // Billing module: creates draft billing after visit completion
+    BillingModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
   controllers: [AppController],

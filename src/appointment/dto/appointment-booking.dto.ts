@@ -1,6 +1,5 @@
 import { Type } from "class-transformer";
 import {
-  IsArray,
   IsBoolean,
   IsEmail,
   IsEnum,
@@ -16,8 +15,8 @@ import { PaymentCategory } from "src/appointment/enums/payment-category.enum";
 import { ServiceType } from "src/appointment/enums/service-type.enum";
 import { VisitType } from "src/appointment/enums/visit-type.enum";
 import { IsIsoWithTimezone } from "src/common/validators/is-iso-with-timezone.validator";
-import { CompleteVisitDto } from "src/visit/dto/complete-visit.dto";
 import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
+import { CompleteVisitDto } from "src/visit/dto/complete-visit.dto";
 
 
 export class AppointmentBookingRequestDto {

@@ -183,7 +183,14 @@ export class MedicalEncounter {
       {
         medicineId: { type: mongoose.Schema.Types.ObjectId, ref: 'Medicine', required: false },
         name: { type: String, required: true },
+        // Clinical prescription quantity (from doctor).
         quantity: { type: Number, required: true },
+        // Prescribed quantity snapshot for billing reference.
+        prescribedQty: { type: Number, required: true },
+        // Unit price snapshot at time of prescription (for billing immutability).
+        unitPriceSnapshot: { type: Number, default: 0 },
+        // Estimated line total for clinical reference (prescribedQty * unitPriceSnapshot).
+        estimatedLineTotal: { type: Number, default: 0 },
         note: { type: String, required: false },
         _id: false,
       }
@@ -194,6 +201,9 @@ export class MedicalEncounter {
     medicineId?: Types.ObjectId;
     name: string;
     quantity: number;
+    prescribedQty: number;
+    unitPriceSnapshot: number;
+    estimatedLineTotal: number;
     note?: string;
   }>;
 
