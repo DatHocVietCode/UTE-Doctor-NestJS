@@ -18,6 +18,8 @@ import { CoinService } from 'src/wallet/coin/coin.service';
 import { CreditService } from 'src/wallet/credit/credit.service';
 import { AppointmentBookingDto } from './dto/appointment-booking.dto';
 import { AppointmentStatus } from './enums/Appointment-status.enum';
+import { PaymentCategory } from './enums/payment-category.enum';
+import { VisitType } from './enums/visit-type.enum';
 import { buildEnrichedAppointmentPayload } from './schemas/appointment-enriched';
 import { Appointment, AppointmentDocument } from './schemas/appointment.schema';
 import { AppointmentTimeHelper } from './utils/appointment-time.helper';
@@ -61,6 +63,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
   }
 
   async bookAppointment(bookingAppointment: AppointmentBookingDto, clientIp = '127.0.0.1'): Promise<DataResponse> {
+    // Normalize new visit-based fields before legacy validations/payment flow.
+    bookingAppointment = this.normalizeVisitWorkflowDefaults(bookingAppointment);
     this.validateBookingRequest(bookingAppointment);
 
     const bookingId = new Types.ObjectId();
@@ -214,16 +218,51 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         );
       }
 
-      if (bookingAppointment.paymentMethod === PaymentMethodEnum.CREDIT) {
-        return await this.handleCreditPayment(appointmentDoc, bookingAppointment, lockValue, slotKey, bookingAmounts);
+      // Old flow support for CREDIT payment method until frontend migrates to new flow with useCoin + ONLINE/VNPAY.
+      // if (bookingAppointment.paymentMethod === PaymentMethodEnum.CREDIT) {
+      //   return await this.handleCreditPayment(appointmentDoc, bookingAppointment, lockValue, slotKey, bookingAmounts);
+      // }
+
+      // return await this.failBooking(
+      //   appointmentDoc._id.toString(),
+      //   'Offline payment is not supported',
+      //   lockValue,
+      //   slotKey,
+      //   undefined,
+      //   bookingAmounts,
+      // );
+
+      const isNewFlow = !!bookingAppointment.paymentCategory;
+
+      if (!isNewFlow) {
+        // OLD FLOW giữ nguyên
+        if (bookingAppointment.paymentMethod === PaymentMethodEnum.CREDIT) {
+          return await this.handleCreditPayment(
+            appointmentDoc,
+            bookingAppointment,
+            lockValue,
+            slotKey,
+            bookingAmounts,
+          );
+        }
+
+        return await this.failBooking(
+          appointmentDoc._id.toString(),
+          'Offline payment is not supported',
+          lockValue,
+          slotKey,
+          undefined,
+          bookingAmounts,
+        );
       }
 
-      return await this.failBooking(
+      // ✅ NEW FLOW (Phase 1)
+      return await this.confirmBooking(
         appointmentDoc._id.toString(),
-        'Offline payment is not supported',
         lockValue,
         slotKey,
-        undefined,
+        'Booking confirmed (payment deferred)',
+        undefined, // ❗ KHÔNG có paymentMeta
         bookingAmounts,
       );
     } catch (error: any) {
@@ -864,6 +903,36 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     if (!dto.patientEmail || !dto.patientId) {
       throw new BadRequestException('Patient context is required');
     }
+  }
+
+  private normalizeVisitWorkflowDefaults(dto: AppointmentBookingDto): AppointmentBookingDto {
+    // Keep OFFLINE as safe default for the current visit-based rollout.
+    const visitType = dto.visitType ?? VisitType.OFFLINE;
+    let depositAmount = this.toSafeMoneyValue(dto.depositAmount);
+
+    if (dto.paymentCategory === PaymentCategory.BHYT) {
+      // BHYT visits never require deposit in the new workflow.
+      depositAmount = 0;
+    }
+
+    if (dto.paymentCategory === PaymentCategory.DICH_VU) {
+      // DICH_VU allows deposit; preserve the provided value after sanitization.
+      depositAmount = this.toSafeMoneyValue(dto.depositAmount);
+    }
+
+    return {
+      ...dto,
+      visitType,
+      depositAmount,
+    };
+  }
+
+  private toSafeMoneyValue(value?: number): number | undefined {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return undefined;
+    }
+
+    return Math.max(0, Math.floor(value));
   }
 
   private mapAppointmentStatusToPaymentStatus(status: AppointmentStatus): PaymentStatusEnum {
