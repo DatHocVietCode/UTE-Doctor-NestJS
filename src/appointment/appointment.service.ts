@@ -4,15 +4,11 @@ import { InjectModel } from "@nestjs/mongoose";
 import mongoose, { Model, Types } from "mongoose";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
-import { RoleEnum } from "src/common/enum/role.enum";
 import { AuthUser } from "src/common/interfaces/auth-user";
 import { Doctor, DoctorDocument } from "src/doctor/schema/doctor.schema";
-import { Medicine, MedicineDocument } from "src/medicine/schema/medicine.schema";
-import { MedicalEncounter, MedicalEncounterDocument } from "src/patient/schema/medical-record.schema";
 import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
 import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
-import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
 import { TimeHelper } from "src/utils/helpers/time.helper";
 import { CoinService } from 'src/wallet/coin/coin.service';
 import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
@@ -20,6 +16,7 @@ import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
 import { AppointmentTimeHelper } from "./utils/appointment-time.helper";
+import { VisitService } from 'src/visit/visit.service';
 
 @Injectable()
 export class AppointmentService {
@@ -28,11 +25,10 @@ export class AppointmentService {
         @InjectModel(Appointment.name) private readonly appointmentModel: Model<Appointment>,
         @InjectModel(TimeSlotLog.name) private readonly timeSlotLogModel: Model<TimeSlotLogDocument>,
         @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
-        @InjectModel(MedicalEncounter.name) private readonly medicalEncounterModel: Model<MedicalEncounterDocument>,
-        @InjectModel(Medicine.name) private readonly medicineModel: Model<MedicineDocument>,
         @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
         @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
         private readonly coinService: CoinService,
+        private readonly visitService: VisitService,
     ) {}
 
     async bookAppointment(bookingAppointment: AppointmentBookingDto) {
@@ -156,16 +152,11 @@ export class AppointmentService {
     const appointment = await this.appointmentModel.findById(dto.appointmentId);
     if (!appointment) throw new NotFoundException('Appointment not found');
 
-    const timeSlot = await this.timeSlotLogModel.findById(appointment.timeSlot);
-    if (!timeSlot) throw new NotFoundException('TimeSlot not found');
+    const visitResult = dto.visitId
+        ? await this.visitService.completeVisit(dto.visitId, dto)
+        : await this.visitService.completeVisitByAppointmentId(dto.appointmentId, dto);
 
-    timeSlot.status = 'completed';
-    await timeSlot.save();
-
-    appointment.appointmentStatus = AppointmentStatus.COMPLETED;
-    await appointment.save();
-
-    // Reward coin after appointment is completed. The reward method is idempotent per appointment.
+    // Reward coin after the visit is committed so the compatibility wrapper stays side-effect safe.
     const rewardResult = await this.coinService.rewardCoinForCompletedAppointment(
         appointment.patientId.toString(),
         appointment._id.toString(),
@@ -184,76 +175,14 @@ export class AppointmentService {
     const patient = await this.patientModel.findById(appointment.patientId);
     if (!patient) throw new NotFoundException('Patient not found');
 
-    // Build prescriptions
-    const mappedPrescriptions = await Promise.all((dto.prescriptions || []).map(async (p) => {
-        let medicineIdObj: Types.ObjectId | null = null;
-        
-        console.log('[CompleteAppointment] Processing prescription item:', p);
-
-        // Only convert medicineId if it exists
-        if (p.medicineId) {
-            try {
-                medicineIdObj = (typeof p.medicineId === 'string') 
-                    ? new Types.ObjectId(p.medicineId) 
-                    : p.medicineId;
-            } catch (err) {
-                console.warn('[CompleteAppointment] Invalid medicineId:', p.medicineId);
-                medicineIdObj = null;
-            }
-        }
-        
-        let name = p.name;
-        // If no name provided but have medicineId, fetch from database
-        if (!name && medicineIdObj) {
-            try {
-                const med = await this.medicineModel.findById(medicineIdObj).select('name').lean();
-                name = med?.name ?? p.name ?? 'Unknown medicine';
-            } catch (err) {
-                name = p.name ?? 'Unknown medicine';
-            }
-        }
-        
-        const prescription: any = {
-            name,
-            quantity: (typeof p.quantity === 'number' && p.quantity > 0) ? p.quantity : 1,
-            note: p.note,
-        };
-        
-        // Only add medicineId if it exists
-        if (medicineIdObj) {
-            prescription.medicineId = medicineIdObj;
-        }
-        
-        return prescription;
-    }));
-
-    console.log('[AppointmentService] Mapped prescriptions:', mappedPrescriptions);
-
-    if (!appointment.doctorId) {
-        throw new NotFoundException('Doctor not assigned to appointment');
-    }
-
-    const encounter = await this.medicalEncounterModel.create({
-        appointmentId: appointment._id,
-        patientId: appointment.patientId,
-        createdByDoctorId: appointment.doctorId,
-        createdByRole: RoleEnum.DOCTOR,
-        diagnosis: dto.diagnosis,
-        note: dto.note ?? '',
-        prescriptions: mappedPrescriptions,
-        vitalSigns: [],
-        dateRecord: DateTimeHelper.nowUtc(),
-    });
-
-    console.log('[AppointmentService] Medical encounter saved:', JSON.stringify(encounter.toObject(), null, 2));
-
     return {
         code: 'SUCCESS',
         message: 'Appointment completed and encounter stored',
         data: {
             appointmentId: appointment._id,
             patientId: patient._id,
-            encounterId: encounter._id,
+            encounterId: visitResult.encounterId,
+            visitId: visitResult.visit._id,
         },
     };
 

@@ -3,6 +3,8 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { Doctor, DoctorSchema } from './schema/doctor.schema';
 import { DoctorService } from './doctor.service';
 import { DoctorController } from './doctor.controller';
+import { DoctorVisitsController } from './doctor-visits.controller';
+import { VisitModule } from 'src/visit/visit.module';
 import { Profile, ProfileSchema } from 'src/profile/schema/profile.schema';
 import { DoctorSeeder } from './doctor.seeder';
 import { DoctorListener } from './listenners/doctor.listernner';
@@ -19,9 +21,10 @@ import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
     ]),
     MailModule,
     CloudinaryModule,
+    VisitModule,
   ],
   providers: [DoctorService, DoctorSeeder, DoctorListener],
-  controllers: [DoctorController],
+  controllers: [DoctorController, DoctorVisitsController],
   exports: [DoctorService],
 })
 export class DoctorModule {}

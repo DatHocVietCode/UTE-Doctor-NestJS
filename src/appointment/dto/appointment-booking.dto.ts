@@ -16,6 +16,7 @@ import { PaymentCategory } from "src/appointment/enums/payment-category.enum";
 import { ServiceType } from "src/appointment/enums/service-type.enum";
 import { VisitType } from "src/appointment/enums/visit-type.enum";
 import { IsIsoWithTimezone } from "src/common/validators/is-iso-with-timezone.validator";
+import { CompleteVisitDto } from "src/visit/dto/complete-visit.dto";
 import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 
 
@@ -109,39 +110,8 @@ export class DoctorDto {
   email: string;
 }
 
-export class PrescriptionItemDto {
-  @IsOptional()
-  @IsMongoId()
-  medicineId?: string;
-
-  @IsNotEmpty()
-  @IsString()
-  name: string;
-
-  @IsNotEmpty()
-  @IsNumber()
-  quantity: number;
-
-  @IsNotEmpty()
-  @IsString()
-  note: string;
-}
-
-export class CompleteAppointmentDto {
+export class CompleteAppointmentDto extends CompleteVisitDto {
   @IsNotEmpty()
   @IsMongoId()
   appointmentId: string;
-
-  @IsNotEmpty()
-  @IsString()
-  diagnosis: string;
-
-  @IsString()
-  @IsOptional()
-  note?: string;
-
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => PrescriptionItemDto)
-  prescriptions: PrescriptionItemDto[];
 }
