@@ -14,6 +14,7 @@ import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-lo
 import { Visit, VisitSchema } from "src/visit/schemas/visit.schema";
 import { VisitModule } from "src/visit/visit.module";
 import { WalletModule } from "src/wallet/wallet.module";
+import { AssignmentSlaScheduler } from "./appointment-assignment-sla.scheduler";
 import { AppointmentAssignmentTaskController } from "./appointment-assignment-task.controller";
 import { AppointmentAssignmentTaskService } from "./appointment-assignment-task.service";
 import { AppointmentBookingService } from "./appointment-booking.service";
@@ -50,7 +51,7 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
     // AppointmentAssignmentTaskController must precede AppointmentController so its
     // static `assignment-tasks` routes are matched before AppointmentController's `:id`.
     controllers: [AppointmentAssignmentTaskController, AppointmentController],
-      providers: [AppointmentService, AppointmentBookingService, AppointmentRescheduleService, AppointmentAssignmentTaskService, RedisService, BookingListener, CancelListener, RescheduleListener],
+      providers: [AppointmentService, AppointmentBookingService, AppointmentRescheduleService, AppointmentAssignmentTaskService, AssignmentSlaScheduler, RedisService, BookingListener, CancelListener, RescheduleListener],
       exports: [AppointmentService, AppointmentBookingService]
 })
 export class AppointmentModule {}
