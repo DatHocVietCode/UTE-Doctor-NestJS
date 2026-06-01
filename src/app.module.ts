@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
+import { BillingModule } from 'src/billing/billing.module';
 import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
 import { DoctorModule } from 'src/doctor/doctor.module';
 import { MedicineModule } from 'src/medicine/medicine.module';
@@ -11,6 +12,7 @@ import { PatientModule } from 'src/patient/patient.module';
 import { DoctorPostModule } from 'src/post/post.module';
 import { PrescriptionModule } from 'src/prescription/prescription.module';
 import { ProfileModule } from 'src/profile/profile.module';
+import { ReceptionistModule } from 'src/receptionist/receptionist.module';
 import { ReviewModule } from 'src/review/review.module';
 import { ShiftModule } from 'src/shift/shift.module';
 import { AccountModule } from './account/account.module';
@@ -30,6 +32,7 @@ import { SocketModule } from './socket/socket.module';
 import { TimeSlotModule } from './timeslot/timeslot.module';
 import { UserContextModule } from './user-context/user-context.module';
 import { OtpModule } from './utils/otp/otp.module';
+import { VisitModule } from './visit/visit.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -41,6 +44,7 @@ import { OtpModule } from './utils/otp/otp.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         uri: config.get<string>('MONGO_DB_URI'),
+         autoIndex: true, // Enable autoIndex in development for easier debugging; consider disabling in production for performance
       }),
     }),
     EventEmitterModule.forRoot(),
@@ -66,12 +70,16 @@ import { OtpModule } from './utils/otp/otp.module';
     TimeSlotModule,
     MedicineModule,
     PrescriptionModule,
+    ReceptionistModule,
     ReviewModule,
     UserContextModule,
     CloudinaryModule,
     NewsModule,
 	DoctorPostModule,
     ChatModule,
+    VisitModule,
+    // Billing module: creates draft billing after visit completion
+    BillingModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
   controllers: [AppController],

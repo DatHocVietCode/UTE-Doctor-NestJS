@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import type { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
+import type { AppointmentRescheduledEnriched } from "src/appointment/listenners/reschedule.listener";
 import type { CoinExpiryReminderEventPayload } from 'src/wallet/coin/coin-expiry-reminder/dto/coin-expiry-reminder.dto';
 import { MailService } from "./mail.service";
 
@@ -79,6 +80,33 @@ export class MailListener {
             await this.mailService.sendPatientAppointmentCancellationMail(payload);
         } catch (error) {
             this.logMailError('mail.patient.appointment.cancelled', error);
+        }
+    }
+
+    @OnEvent('mail.patient.appointment.rescheduled')
+    async handlePatientRescheduleMail(payload: AppointmentRescheduledEnriched) {
+        try {
+            await this.mailService.sendPatientRescheduleMail(payload);
+        } catch (error) {
+            this.logMailError('mail.patient.appointment.rescheduled', error);
+        }
+    }
+
+    @OnEvent('mail.doctor.appointment.rescheduled')
+    async handleDoctorRescheduleMail(payload: AppointmentRescheduledEnriched) {
+        if (!payload.doctorEmail) return;
+        try {
+            await this.mailService.sendDoctorRescheduleMail({
+                doctorEmail: payload.doctorEmail,
+                doctorName: payload.doctorName,
+                patientEmail: payload.patientEmail,
+                oldScheduledAt: payload.oldScheduledAt,
+                newScheduledAt: payload.newScheduledAt,
+                newTimeSlotId: payload.newTimeSlotId,
+                reason: payload.reason,
+            });
+        } catch (error) {
+            this.logMailError('mail.doctor.appointment.rescheduled', error);
         }
     }
 

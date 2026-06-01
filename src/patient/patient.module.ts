@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Account, AccountSchema } from 'src/account/schemas/account.schema';
+import { Medicine, MedicineSchema } from 'src/medicine/schema/medicine.schema';
 import { Profile, ProfileSchema } from 'src/profile/schema/profile.schema';
 import { PatientListener } from './listenners/patient.listenner';
+import { MedicalEncounterService } from './medical-encounter.service';
 import { PatientController } from './patient.controller';
 import { PatientService } from './patient.service';
 import {
@@ -23,14 +25,15 @@ import { Patient, PatientSchema } from './schema/patient.schema';
       { name: Patient.name, schema: PatientSchema },
       { name: Profile.name, schema: ProfileSchema },
       { name: Account.name, schema: AccountSchema },
+      { name: Medicine.name, schema: MedicineSchema },
       { name: MedicalProfile.name, schema: MedicalProfileSchema },
       { name: AllergyRecord.name, schema: AllergyRecordSchema },
       { name: MedicalHistoryRecord.name, schema: MedicalHistoryRecordSchema },
       { name: MedicalEncounter.name, schema: MedicalEncounterSchema },
     ]),
   ],
-  providers: [PatientService, PatientListener],
+  providers: [PatientService, PatientListener, MedicalEncounterService],
   controllers: [PatientController],
-  exports: [PatientService],
+  exports: [PatientService, MedicalEncounterService],
 })
 export class PatientModule {}

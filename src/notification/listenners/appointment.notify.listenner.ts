@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { OnEvent } from "@nestjs/event-emitter";
 import * as appointmentEnriched from "src/appointment/schemas/appointment-enriched";
+import type { AppointmentRescheduledEnriched } from "src/appointment/listenners/reschedule.listener";
 import type { NotificationPayload } from "../dto/notification-payload.dto";
 import { NotificationJobPublisher } from "../notification-job.publisher";
 
@@ -40,6 +41,51 @@ export class AppointmentNotificationListener
             createdAt: Date.now(),
             recipientEmail,
             idempotencyKey: `APPOINTMENT_SUCCESS:${payload._id?.toString?.() || payload._id}:${recipientEmail}`,
+        });
+    }
+
+    @OnEvent('notify.patient.appointment.rescheduled')
+    async handlePatientRescheduledNotification(payload: AppointmentRescheduledEnriched) {
+        const recipientEmail = payload.patientEmail.trim().toLowerCase();
+        await this.publish({
+            type: 'APPOINTMENT_RESCHEDULED',
+            data: {
+                appointmentId: payload.appointmentId,
+                patientEmail: payload.patientEmail,
+                doctorEmail: payload.doctorEmail,
+                doctorName: payload.doctorName,
+                hospitalName: payload.hospitalName,
+                oldScheduledAt: payload.oldScheduledAt,
+                newScheduledAt: payload.newScheduledAt,
+                newTimeSlotId: payload.newTimeSlotId,
+                reason: payload.reason,
+            },
+            createdAt: Date.now(),
+            recipientEmail,
+            idempotencyKey: `APPOINTMENT_RESCHEDULED:${payload.appointmentId}:${recipientEmail}`,
+        });
+    }
+
+    @OnEvent('notify.doctor.appointment.rescheduled')
+    async handleDoctorRescheduledNotification(payload: AppointmentRescheduledEnriched) {
+        if (!payload.doctorEmail) return;
+        const recipientEmail = payload.doctorEmail.trim().toLowerCase();
+        await this.publish({
+            type: 'APPOINTMENT_RESCHEDULED',
+            data: {
+                appointmentId: payload.appointmentId,
+                patientEmail: payload.patientEmail,
+                doctorEmail: payload.doctorEmail,
+                doctorName: payload.doctorName,
+                hospitalName: payload.hospitalName,
+                oldScheduledAt: payload.oldScheduledAt,
+                newScheduledAt: payload.newScheduledAt,
+                newTimeSlotId: payload.newTimeSlotId,
+                reason: payload.reason,
+            },
+            createdAt: Date.now(),
+            recipientEmail,
+            idempotencyKey: `APPOINTMENT_RESCHEDULED:${payload.appointmentId}:${recipientEmail}`,
         });
     }
 

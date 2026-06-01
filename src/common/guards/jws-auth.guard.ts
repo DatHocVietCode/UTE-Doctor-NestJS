@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { AuthUser } from '../interfaces/auth-user';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -26,7 +27,8 @@ export class JwtAuthGuard implements CanActivate {
         secret: process.env.JWT_SECRET,
       });
       console.log('Token verified successfully:', payload);
-      request.user = payload;
+      // Keep payload on request so downstream role guard can authorize by `request.user.role`.
+      request.user = payload as AuthUser;
       return true;
     } catch (error) {
       console.log('Invalid or expired token', error);

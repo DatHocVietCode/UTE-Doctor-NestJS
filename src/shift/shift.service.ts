@@ -615,7 +615,8 @@ export class ShiftService {
         .find(query)
         .populate({
           path: 'timeSlots',
-          match: status ? { status } : {}, // filter chỉ những timeSlot có status
+          // 'all' means no filter; only apply match when a specific status is requested.
+          match: status && status !== TimeSlotStatusEnum.ALL ? { status } : {},
         })
         .exec();
 

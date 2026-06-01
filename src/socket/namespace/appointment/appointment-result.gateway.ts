@@ -1,6 +1,7 @@
 import { OnEvent } from '@nestjs/event-emitter';
 import { WebSocketGateway } from '@nestjs/websockets';
 import type { AppointmentEnriched } from 'src/appointment/schemas/appointment-enriched';
+import type { AppointmentRescheduledEnriched } from 'src/appointment/listenners/reschedule.listener';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode } from 'src/common/enum/reponse-code.enum';
 import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
@@ -72,6 +73,19 @@ export class AppointmentGateway extends BaseGateway {
     if (payload.doctorEmail) {
       console.log('[Socket][Appointment] Push SHIFT_CANCELLED to doctor');
       this.emitToRoom(payload.doctorEmail, SocketEventsEnum.SHIFT_CANCELLED, res);
+    }
+  }
+
+  @OnEvent('socket.appointment.rescheduled')
+  handleRescheduled(payload: AppointmentRescheduledEnriched) {
+    const res: DataResponse = {
+      code: ResponseCode.SUCCESS,
+      message: 'Appointment rescheduled',
+      data: payload,
+    };
+    this.emitToRoom(payload.patientEmail, SocketEventsEnum.APPOINTMENT_RESCHEDULED, res);
+    if (payload.doctorEmail) {
+      this.emitToRoom(payload.doctorEmail, SocketEventsEnum.APPOINTMENT_RESCHEDULED, res);
     }
   }
 

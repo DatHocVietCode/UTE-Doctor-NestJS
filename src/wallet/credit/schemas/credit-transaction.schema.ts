@@ -22,6 +22,9 @@ export class CreditTransaction {
 	@Prop({ required: true })
 	reason: string;
 
+	@Prop({ unique: true, sparse: true })
+	idempotencyKey?: string;
+
 	@Prop()
 	description?: string;
 

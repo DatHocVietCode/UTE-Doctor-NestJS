@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import mongoose, { Model } from 'mongoose';
+import mongoose, { ClientSession, Model } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { CreditTransaction, CreditTransactionDocument } from './schemas/credit-transaction.schema';
@@ -170,6 +170,58 @@ export class CreditService {
 			this.logger.error(`Error checking existing credit transaction for appointment ${appointmentId}`, error);
 			return false;
 		}
+	}
+
+	async refundAppointmentCancellation(
+		patientId: string,
+		amount: number,
+		appointmentId: string,
+		description: string,
+		session: ClientSession,
+	): Promise<{ credited: boolean; amount: number; reason: string }> {
+		const normalizedAmount = Math.max(0, Math.floor(amount || 0));
+		const reason = `refund-appointment-cancel-${appointmentId}`;
+		if (normalizedAmount <= 0) {
+			return { credited: false, amount: 0, reason };
+		}
+
+		const existing = await this.creditTransactionModel
+			.findOne({
+				idempotencyKey: reason,
+				status: 'completed',
+			})
+			.session(session)
+			.select('_id')
+			.lean()
+			.exec();
+		if (existing) {
+			return { credited: false, amount: normalizedAmount, reason };
+		}
+
+		// Create the ledger entry before incrementing the wallet. The unique index makes retries race-safe.
+		await this.creditTransactionModel.create(
+			[{
+				patientId: new mongoose.Types.ObjectId(patientId),
+				appointmentId: new mongoose.Types.ObjectId(appointmentId),
+				type: 'credit',
+				amount: normalizedAmount,
+				reason,
+				idempotencyKey: reason,
+				description,
+				status: 'completed',
+			}],
+			{ session },
+		);
+		await this.creditWalletModel.updateOne(
+			{ patientId: new mongoose.Types.ObjectId(patientId) },
+			{
+				$setOnInsert: { patientId: new mongoose.Types.ObjectId(patientId) },
+				$inc: { creditBalance: normalizedAmount, totalCredited: normalizedAmount },
+			},
+			{ session, upsert: true },
+		);
+
+		return { credited: true, amount: normalizedAmount, reason };
 	}
 
 	private async recordTransaction(
