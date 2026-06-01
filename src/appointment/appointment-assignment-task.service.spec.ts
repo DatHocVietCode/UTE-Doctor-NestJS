@@ -1,8 +1,16 @@
-// The schema file cannot be imported under ts-jest (isolatedModules strips the
-// decorator metadata @Prop needs), so mock it before importing the service.
+// Schema files cannot be imported under ts-jest (isolatedModules strips the
+// decorator metadata @Prop needs), so mock every schema the service pulls in.
 jest.mock('./schemas/appointment-assignment-task.schema', () => ({
   AppointmentAssignmentTask: class AppointmentAssignmentTask {},
 }));
+jest.mock('./schemas/appointment.schema', () => ({ Appointment: class Appointment {} }));
+jest.mock('./schemas/appointment-enriched', () => ({
+  buildEnrichedAppointmentPayload: jest.fn(() => ({})),
+}));
+jest.mock('src/timeslot/schemas/timeslot-log.schema', () => ({ TimeSlotLog: class TimeSlotLog {} }));
+jest.mock('src/shift/schema/shift.schema', () => ({ Shift: class Shift {} }));
+jest.mock('src/doctor/schema/doctor.schema', () => ({ Doctor: class Doctor {} }));
+jest.mock('src/patient/schema/patient.schema', () => ({ Patient: class Patient {} }));
 
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';

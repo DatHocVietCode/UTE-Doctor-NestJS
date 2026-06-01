@@ -15,6 +15,7 @@ import { RoleGuard } from 'src/common/guards/role.guard';
 import { Roles } from 'src/common/guards/roles.decorator';
 import { AuthUser } from 'src/common/interfaces/auth-user';
 import { AppointmentAssignmentTaskService } from './appointment-assignment-task.service';
+import { AssignmentTaskAssignDto } from './dto/assignment-task-assign.dto';
 import { AssignmentTaskReleaseDto } from './dto/assignment-task-release.dto';
 
 // NOTE: this controller is registered BEFORE AppointmentController so its static
@@ -62,6 +63,17 @@ export class AppointmentAssignmentTaskController {
   ) {
     const receptionistId = this.resolveReceptionistId(req.user as AuthUser);
     return this.assignmentTaskService.releaseTask(id, receptionistId, dto.reason);
+  }
+
+  @Post(':id/assign')
+  @Roles(RoleEnum.RECEPTIONIST)
+  async assignDoctorAndSlot(
+    @Param('id') id: string,
+    @Body() dto: AssignmentTaskAssignDto,
+    @Req() req: any,
+  ) {
+    const receptionistId = this.resolveReceptionistId(req.user as AuthUser);
+    return this.assignmentTaskService.assignDoctorAndSlot(id, receptionistId, dto);
   }
 
   private resolveReceptionistId(user: AuthUser | undefined): string {
