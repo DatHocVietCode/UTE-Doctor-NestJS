@@ -448,7 +448,7 @@ export class AppointmentService {
             // Downstream listeners still expect a readable date value alongside the snapshot.
             date: appointmentDate,
             scheduledAt: appointmentScheduledAt,
-            timeSlot: timeSlotId.toString(),
+            timeSlot: timeSlotId?.toString() ?? '',
             timeSlotLabel,
             hospitalName: appointment.hospitalName,
             reason: reason || 'Appointment cancelled',

@@ -66,7 +66,7 @@ export class MailService {
     timeSlotName = await emitTyped<string, string>(
         this.eventEmitter,
         'timeslot.get.name.by.id',
-        payload.timeSlot._id.toString()
+        payload.timeSlot!._id.toString()
     );
     const html = `
       <h2>Xin chào ${payload.patientEmail},</h2>
@@ -85,7 +85,7 @@ export class MailService {
     timeSlotName = await emitTyped<string, string>(
         this.eventEmitter,
         'timeslot.get.name.by.id',
-        payload.timeSlot._id.toString() 
+        payload.timeSlot!._id.toString() 
     );
     const html = `
       <h2>Xin chào bác sĩ ${payload.doctorName},</h2>
