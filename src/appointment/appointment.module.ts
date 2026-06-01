@@ -21,6 +21,7 @@ import { AppointmentService } from "./appointment.service";
 import { BookingListener } from "./listenners/booking.listenner";
 import { CancelListener } from "./listenners/cancel.listener";
 import { RescheduleListener } from "./listenners/reschedule.listener";
+import { AppointmentAssignmentTask, AppointmentAssignmentTaskSchema } from "./schemas/appointment-assignment-task.schema";
 import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
 
 
@@ -28,6 +29,7 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
     imports: [
         MongooseModule.forFeature([
           { name: Appointment.name, schema: AppointmentSchema },
+          { name: AppointmentAssignmentTask.name, schema: AppointmentAssignmentTaskSchema },
           { name: TimeSlotLog.name, schema: TimeSlotLogSchema },
           { name: Shift.name, schema: ShiftSchema },
           { name: Patient.name, schema: PatientSchema },
