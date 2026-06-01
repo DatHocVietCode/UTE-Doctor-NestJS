@@ -404,6 +404,7 @@ export class AppointmentAssignmentTaskService {
       doctorId: input.doctorId,
       timeSlotId: input.timeSlotId,
       scheduledAt: window.scheduledAt,
+      patientEmail: finalAppt.patientEmail,
     });
 
     this.logger.log(`[Assignment] task=${taskId} assigned doctor=${input.doctorId} slot=${input.timeSlotId}`);

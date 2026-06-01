@@ -5,8 +5,10 @@ import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto';
 import { PaginationResult } from 'src/common/dto/pagination-result.dto';
 import type { NotificationPayload, NotificationType } from './dto/notification-payload.dto';
 import { AppointmentCancelledNotificationHandler } from './handlers/appointment-cancelled-notification.handler';
+import { AppointmentDoctorAssignedNotificationHandler } from './handlers/appointment-doctor-assigned-notification.handler';
 import { AppointmentRescheduledNotificationHandler } from './handlers/appointment-rescheduled-notification.handler';
 import { AppointmentSuccessNotificationHandler } from './handlers/appointment-success-notification.handler';
+import { AssignmentTaskCreatedNotificationHandler } from './handlers/assignment-task-created-notification.handler';
 import { CoinExpiryNotificationHandler } from './handlers/coin-expiry-notification.handler';
 import { NotificationHandlerMeta } from './handlers/notification-handler.interface';
 import type { HandlerRegistry } from './handlers/notification-handler.types';
@@ -26,6 +28,8 @@ export class NotificationService {
         private readonly appointmentCancelledHandler: AppointmentCancelledNotificationHandler,
         private readonly appointmentRescheduledHandler: AppointmentRescheduledNotificationHandler,
         private readonly paymentSuccessHandler: PaymentSuccessNotificationHandler,
+        private readonly assignmentTaskCreatedHandler: AssignmentTaskCreatedNotificationHandler,
+        private readonly appointmentDoctorAssignedHandler: AppointmentDoctorAssignedNotificationHandler,
     ) {
         // Registry avoids switch-case branching and keeps each type handler isolated.
         this.handlers = {
@@ -34,6 +38,8 @@ export class NotificationService {
             APPOINTMENT_CANCELLED: this.appointmentCancelledHandler,
             APPOINTMENT_RESCHEDULED: this.appointmentRescheduledHandler,
             PAYMENT_SUCCESS: this.paymentSuccessHandler,
+            ASSIGNMENT_TASK_CREATED: this.assignmentTaskCreatedHandler,
+            APPOINTMENT_DOCTOR_ASSIGNED: this.appointmentDoctorAssignedHandler,
         };
     }
 

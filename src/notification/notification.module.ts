@@ -1,12 +1,16 @@
 import { Module } from "@nestjs/common";
 import { MongooseModule } from "@nestjs/mongoose";
+import { Account, AccountSchema } from "src/account/schemas/account.schema";
 import { RedisService } from "src/common/redis/redis.service";
 import { AppointmentCancelledNotificationHandler } from "./handlers/appointment-cancelled-notification.handler";
+import { AppointmentDoctorAssignedNotificationHandler } from "./handlers/appointment-doctor-assigned-notification.handler";
 import { AppointmentRescheduledNotificationHandler } from "./handlers/appointment-rescheduled-notification.handler";
 import { AppointmentSuccessNotificationHandler } from "./handlers/appointment-success-notification.handler";
+import { AssignmentTaskCreatedNotificationHandler } from "./handlers/assignment-task-created-notification.handler";
 import { CoinExpiryNotificationHandler } from "./handlers/coin-expiry-notification.handler";
 import { PaymentSuccessNotificationHandler } from "./handlers/payment-success-notification.handler";
 import { AppointmentNotificationListener } from "./listenners/appointment.notify.listenner";
+import { AssignmentNotificationListener } from "./listenners/assignment.notify.listenner";
 import { CoinExpiryReminderNotificationListener } from "./listenners/coin-expiry-reminder.notify.listenner";
 import { PaymentNotificationListener } from "./listenners/payment.notify.listenner";
 import { NotificationJobPublisher } from "./notification-job.publisher";
@@ -18,7 +22,10 @@ import { Notification, NotificationSchema } from "./schemas/notification.schema"
 
 @Module({
     imports: [
-        MongooseModule.forFeature([{ name: Notification.name, schema: NotificationSchema }]),
+        MongooseModule.forFeature([
+            { name: Notification.name, schema: NotificationSchema },
+            { name: Account.name, schema: AccountSchema },
+        ]),
     ],
     providers: [
         NotificationService,
@@ -26,6 +33,7 @@ import { Notification, NotificationSchema } from "./schemas/notification.schema"
         NotificationJobPublisher,
         NotificationQueueConsumer,
         AppointmentNotificationListener,
+        AssignmentNotificationListener,
         CoinExpiryReminderNotificationListener,
         PaymentNotificationListener,
         CoinExpiryNotificationHandler,
@@ -33,6 +41,8 @@ import { Notification, NotificationSchema } from "./schemas/notification.schema"
         AppointmentCancelledNotificationHandler,
         AppointmentRescheduledNotificationHandler,
         PaymentSuccessNotificationHandler,
+        AssignmentTaskCreatedNotificationHandler,
+        AppointmentDoctorAssignedNotificationHandler,
         RedisService,
     ],
     exports: [NotificationService],
