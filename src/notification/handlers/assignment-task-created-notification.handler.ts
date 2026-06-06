@@ -3,7 +3,10 @@ import { RedisService } from 'src/common/redis/redis.service';
 import type { AssignmentTaskCreatedDto } from '../dto/notification-payload.dto';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
-import type { NotificationHandler, NotificationHandlerMeta } from './notification-handler.interface';
+import type {
+  NotificationHandler,
+  NotificationHandlerMeta,
+} from './notification-handler.interface';
 
 @Injectable()
 export class AssignmentTaskCreatedNotificationHandler
@@ -14,7 +17,10 @@ export class AssignmentTaskCreatedNotificationHandler
     private readonly redisService: RedisService,
   ) {}
 
-  async handle(payload: AssignmentTaskCreatedDto, meta: NotificationHandlerMeta): Promise<void> {
+  async handle(
+    payload: AssignmentTaskCreatedDto,
+    meta: NotificationHandlerMeta,
+  ): Promise<void> {
     const title = 'Yeu cau dat kham can phan cong bac si';
     const message = payload.specialty
       ? `Co yeu cau dat kham moi (${payload.specialty}) dang cho phan cong bac si.`
@@ -33,6 +39,7 @@ export class AssignmentTaskCreatedNotificationHandler
         reasonForAppointment: payload.reasonForAppointment,
         deadlineAt: payload.deadlineAt,
         priority: payload.priority,
+        online: payload.online,
       },
       createdAt: new Date(meta.createdAt),
       updatedAt: new Date(meta.createdAt),

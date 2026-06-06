@@ -4,6 +4,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Account, AccountDocument } from 'src/account/schemas/account.schema';
 import { RoleEnum } from 'src/common/enum/role.enum';
+import { PresenceService } from 'src/socket/presence.service';
 import { NotificationJobPublisher } from '../notification-job.publisher';
 
 // Payloads emitted by the broad-booking / assignment flow (Batches 4-5).
@@ -27,9 +28,13 @@ export type AssignmentCompletedEvent = {
 };
 
 /**
- * MVP fan-out for assignment events. Reuses the existing notification job pipeline
- * (publish -> queue -> handler -> DB write + Redis socket bridge). No new gateway and
- * no role-aware presence: receptionists are resolved from Account by role.
+ * Fan-out for assignment events. Reuses the existing notification job pipeline
+ * (publish -> queue -> handler -> DB write + Redis socket bridge).
+ *
+ * Realtime targeting is driven by Redis role-aware presence
+ * ({@link PresenceService.getOnlineReceptionists}); the DB notification + idempotency
+ * fan-out is kept for ALL receptionists so offline staff still see the task on next load,
+ * and the AppointmentAssignmentTask queue (DB) remains the source of truth + polling fallback.
  */
 @Injectable()
 export class AssignmentNotificationListener {
@@ -37,19 +42,42 @@ export class AssignmentNotificationListener {
 
   constructor(
     private readonly notificationPublisher: NotificationJobPublisher,
-    @InjectModel(Account.name) private readonly accountModel: Model<AccountDocument>,
+    @InjectModel(Account.name)
+    private readonly accountModel: Model<AccountDocument>,
+    private readonly presenceService: PresenceService,
   ) {}
 
   @OnEvent('appointment.assignment.created')
-  async handleAssignmentCreated(payload: AssignmentCreatedEvent): Promise<void> {
+  async handleAssignmentCreated(
+    payload: AssignmentCreatedEvent,
+  ): Promise<void> {
+    // Redis role-aware presence decides who is targeted for realtime. A presence/Redis
+    // hiccup must never fail the already-committed booking, so this degrades to "none online".
+    const onlineEmails = await this.resolveOnlineReceptionistEmails(
+      payload.taskId,
+    );
+
     const receptionists = await this.accountModel
       .find({ role: RoleEnum.RECEPTIONIST })
       .select('email')
       .lean();
 
     if (!receptionists.length) {
-      this.logger.warn(`No receptionist accounts to notify for task ${payload.taskId}`);
+      this.logger.warn(
+        `No receptionist accounts to notify for task ${payload.taskId}`,
+      );
       return;
+    }
+
+    if (onlineEmails.size === 0) {
+      // Not an error: the task is PENDING in the DB queue and will be picked up via polling.
+      this.logger.warn(
+        `[Assignment] No online receptionist for task ${payload.taskId}; relying on the assignment-task polling queue (task stays PENDING).`,
+      );
+    } else {
+      this.logger.log(
+        `[Assignment] Task ${payload.taskId}: targeting ${onlineEmails.size} online receptionist(s) for realtime: ${[...onlineEmails].join(', ')}`,
+      );
     }
 
     for (const receptionist of receptionists) {
@@ -64,6 +92,8 @@ export class AssignmentNotificationListener {
           reasonForAppointment: payload.reasonForAppointment,
           deadlineAt: payload.deadlineAt,
           priority: payload.priority,
+          // Whether Redis presence saw this receptionist online at emit time.
+          online: onlineEmails.has(recipientEmail),
         },
         createdAt: Date.now(),
         recipientEmail,
@@ -73,10 +103,34 @@ export class AssignmentNotificationListener {
     }
   }
 
+  // Resolve the set of currently-online receptionist emails (normalized) from Redis presence.
+  // Failures are swallowed and treated as "nobody online" so booking never breaks on Redis.
+  private async resolveOnlineReceptionistEmails(
+    taskId: string,
+  ): Promise<Set<string>> {
+    try {
+      const online = await this.presenceService.getOnlineReceptionists();
+      return new Set(
+        online
+          .map((r) => r.email?.trim().toLowerCase())
+          .filter((email): email is string => Boolean(email)),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[Assignment] Failed to resolve online receptionists for task ${taskId} from Redis: ${(error as Error).message}. Falling back to polling queue.`,
+      );
+      return new Set<string>();
+    }
+  }
+
   @OnEvent('appointment.assignment.completed')
-  async handleAssignmentCompleted(payload: AssignmentCompletedEvent): Promise<void> {
+  async handleAssignmentCompleted(
+    payload: AssignmentCompletedEvent,
+  ): Promise<void> {
     if (!payload.patientEmail) {
-      this.logger.warn(`No patientEmail on assignment.completed for appointment ${payload.appointmentId}`);
+      this.logger.warn(
+        `No patientEmail on assignment.completed for appointment ${payload.appointmentId}`,
+      );
       return;
     }
 

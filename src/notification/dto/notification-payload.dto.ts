@@ -27,6 +27,8 @@ export type AssignmentTaskCreatedDto = {
   reasonForAppointment?: string;
   deadlineAt: number;
   priority?: string;
+  // True when this recipient was resolved as online via Redis role-aware presence at emit time.
+  online?: boolean;
 };
 
 // Patient-facing: a receptionist assigned a doctor/slot to a broad appointment.
@@ -70,5 +72,5 @@ export type NotificationPayload = {
     recipientEmail: string;
     idempotencyKey: string;
     retryCount?: number;
-  }
+  };
 }[keyof NotificationMap];
