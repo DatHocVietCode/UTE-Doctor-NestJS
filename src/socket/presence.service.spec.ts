@@ -190,4 +190,111 @@ describe('PresenceService', () => {
     await service.removeConnection('u1', 's1');
     expect(await service.isUserOnline('u1')).toBe(false);
   });
+
+  describe('role-aware presence', () => {
+    const RECEPTIONIST = 'RECEPTIONIST';
+
+    it('returns a receptionist with normalized email/role after connect', async () => {
+      await service.addConnection('r1', 's1', {
+        email: 'Recep@Mail.COM',
+        role: 'receptionist',
+      });
+
+      const online = await service.getOnlineReceptionists();
+
+      expect(online).toEqual([
+        { userId: 'r1', email: 'recep@mail.com', role: RECEPTIONIST },
+      ]);
+      expect(await redis.sismember('online_role:RECEPTIONIST', 'r1')).toBe(1);
+    });
+
+    it('does not return non-receptionist roles from getOnlineReceptionists', async () => {
+      await service.addConnection('p1', 's1', {
+        email: 'patient@mail.com',
+        role: 'PATIENT',
+      });
+
+      expect(await service.getOnlineReceptionists()).toEqual([]);
+      // getOnlineUsersByRole is generic and still resolves the patient by its own role.
+      expect(await service.getOnlineUsersByRole('PATIENT')).toEqual([
+        { userId: 'p1', email: 'patient@mail.com', role: 'PATIENT' },
+      ]);
+    });
+
+    it('returns a multi-device receptionist exactly once', async () => {
+      await service.addConnection('r1', 's1', {
+        email: 'recep@mail.com',
+        role: RECEPTIONIST,
+      });
+      await service.addConnection('r1', 's2', {
+        email: 'recep@mail.com',
+        role: RECEPTIONIST,
+      });
+
+      const online = await service.getOnlineReceptionists();
+
+      expect(online).toHaveLength(1);
+      expect(online[0].userId).toBe('r1');
+    });
+
+    it('keeps the receptionist online when one of multiple devices disconnects', async () => {
+      await service.addConnection('r1', 's1', {
+        email: 'recep@mail.com',
+        role: RECEPTIONIST,
+      });
+      await service.addConnection('r1', 's2', {
+        email: 'recep@mail.com',
+        role: RECEPTIONIST,
+      });
+
+      await service.removeConnection('r1', 's1');
+
+      expect(await service.getOnlineReceptionists()).toHaveLength(1);
+    });
+
+    it('removes the receptionist from the role index when the last device disconnects', async () => {
+      await service.addConnection('r1', 's1', {
+        email: 'recep@mail.com',
+        role: RECEPTIONIST,
+      });
+
+      await service.removeConnection('r1', 's1');
+
+      expect(await service.getOnlineReceptionists()).toEqual([]);
+      expect(await redis.sismember('online_role:RECEPTIONIST', 'r1')).toBe(0);
+    });
+
+    it('recovers the role index on heartbeat after expiry', async () => {
+      await service.addConnection('r1', 's1', {
+        email: 'recep@mail.com',
+        role: RECEPTIONIST,
+      });
+      redis.simulateExpiry(deviceKey('r1'));
+      redis.simulateExpiry('presence:user:r1');
+      redis.simulateExpiry('online_role:RECEPTIONIST');
+      expect(await service.getOnlineReceptionists()).toEqual([]);
+
+      await service.refreshTTL('r1', 's1', '/notification', {
+        email: 'recep@mail.com',
+        role: RECEPTIONIST,
+      });
+
+      expect(await service.getOnlineReceptionists()).toEqual([
+        { userId: 'r1', email: 'recep@mail.com', role: RECEPTIONIST },
+      ]);
+    });
+
+    it('lazily prunes a role member whose device set is gone (stale crash leftover)', async () => {
+      await service.addConnection('r1', 's1', {
+        email: 'recep@mail.com',
+        role: RECEPTIONIST,
+      });
+      // Simulate a crash: device set vanished but the role index/metadata were not cleaned.
+      redis.simulateExpiry(deviceKey('r1'));
+
+      expect(await service.getOnlineReceptionists()).toEqual([]);
+      // The stale membership is pruned on read.
+      expect(await redis.sismember('online_role:RECEPTIONIST', 'r1')).toBe(0);
+    });
+  });
 });

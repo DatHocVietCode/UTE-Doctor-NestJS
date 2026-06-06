@@ -51,12 +51,15 @@ export class BaseGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    void this.presenceService.addConnection(userId, client.id);
+    const authUser = (client.data as { authUser?: AuthUser })?.authUser;
+    void this.presenceService.addConnection(userId, client.id, {
+      email: authUser?.email,
+      role: authUser?.role,
+    });
 
     // Auto-join the authenticated user's own email room so realtime delivery does not
     // depend on the client emitting JOIN_ROOM. The room is derived from the JWT email
     // (never from a client-supplied payload), and re-joining a room is idempotent.
-    const authUser = (client.data as { authUser?: AuthUser })?.authUser;
     void this.autoJoinEmailRoom(client, authUser?.email);
   }
 
@@ -146,7 +149,11 @@ export class BaseGateway implements OnGatewayConnection, OnGatewayDisconnect {
       `[Socket][HEARTBEAT] Received namespace=${client.nsp.name} socketId=${client.id} userId=${userId}`,
     );
 
-    await this.presenceService.refreshTTL(userId, client.id, client.nsp.name);
+    const authUser = (client.data as { authUser?: AuthUser })?.authUser;
+    await this.presenceService.refreshTTL(userId, client.id, client.nsp.name, {
+      email: authUser?.email,
+      role: authUser?.role,
+    });
     client.data.lastHeartbeatAt = Date.now();
 
     this.logger.log(

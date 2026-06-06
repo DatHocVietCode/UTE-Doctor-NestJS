@@ -1,5 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { RoleEnum } from 'src/common/enum/role.enum';
 import { RedisService } from 'src/common/redis/redis.service';
+
+// Identity + role metadata captured from the authenticated socket (JWT) at connect/heartbeat.
+export interface PresenceUserMeta {
+  email?: string;
+  role?: RoleEnum | string;
+}
+
+// A user of a given role currently considered online, resolved from Redis presence.
+export interface OnlinePresenceUser {
+  userId: string;
+  email?: string;
+  role: string;
+}
 
 @Injectable()
 export class PresenceService {
@@ -11,7 +25,11 @@ export class PresenceService {
 
   constructor(private readonly redisService: RedisService) {}
 
-  async addConnection(userId: string, socketId: string): Promise<void> {
+  async addConnection(
+    userId: string,
+    socketId: string,
+    meta?: PresenceUserMeta,
+  ): Promise<void> {
     if (!userId || !socketId) {
       return;
     }
@@ -24,9 +42,13 @@ export class PresenceService {
     await redis.expire(deviceKey, this.presenceTtlSeconds);
     await redis.sadd(this.onlineUsersKey, userId);
 
+    // Role-aware index: a SET per role (deduped by userId) + a per-user metadata hash, so the
+    // notification router can resolve online receptionists from Redis without a DB lookup.
+    await this.indexRole(userId, meta);
+
     const connectionCount = await redis.scard(deviceKey);
     this.logger.log(
-      `[Presence][ADD] userId=${userId} socketId=${socketId} connections=${connectionCount}`,
+      `[Presence][ADD] userId=${userId} socketId=${socketId} role=${this.normalizeRole(meta?.role) || 'n/a'} connections=${connectionCount}`,
     );
   }
 
@@ -52,8 +74,17 @@ export class PresenceService {
     // The device set is the source of truth; the online_users index is only kept in sync while live sockets remain.
     await redis.del(deviceKey);
     await redis.srem(this.onlineUsersKey, userId);
+
+    // Drop the user from the role index using the role recorded in its metadata hash.
+    const metaKey = this.getUserMetaKey(userId);
+    const role = await redis.hget(metaKey, 'role');
+    if (role) {
+      await redis.srem(this.getRoleKey(role), userId);
+    }
+    await redis.del(metaKey);
+
     this.logger.log(
-      `[Presence][REMOVE] userId=${userId} socketId=${socketId} remaining=0 (offline, cleaned online index)`,
+      `[Presence][REMOVE] userId=${userId} socketId=${socketId} role=${role || 'n/a'} remaining=0 (offline, cleaned online + role index)`,
     );
   }
 
@@ -61,6 +92,7 @@ export class PresenceService {
     userId: string,
     socketId?: string,
     namespace?: string,
+    meta?: PresenceUserMeta,
   ): Promise<void> {
     if (!userId) {
       return;
@@ -86,6 +118,8 @@ export class PresenceService {
     const connectionCount = await redis.scard(deviceKey);
     if (connectionCount > 0) {
       await redis.sadd(this.onlineUsersKey, userId);
+      // Recover/maintain the role index too (it may have expired alongside the device key).
+      await this.indexRole(userId, meta);
     } else {
       await redis.srem(this.onlineUsersKey, userId);
     }
@@ -120,6 +154,88 @@ export class PresenceService {
 
     const redis = this.redisService.getClient();
     return (await redis.scard(this.getDeviceKey(userId))) > 0;
+  }
+
+  /**
+   * Resolve the users of a role currently considered online. The role SET is a secondary
+   * index; liveness is authoritatively the device set (TTL'd + heartbeat-recovered), so any
+   * member without a live device set is pruned lazily here (self-heals crash leftovers).
+   */
+  async getOnlineUsersByRole(
+    role: RoleEnum | string,
+  ): Promise<OnlinePresenceUser[]> {
+    const normalizedRole = this.normalizeRole(role);
+    if (!normalizedRole) {
+      return [];
+    }
+
+    const redis = this.redisService.getClient();
+    const roleKey = this.getRoleKey(normalizedRole);
+    const userIds = await redis.smembers(roleKey);
+
+    const online: OnlinePresenceUser[] = [];
+    for (const userId of userIds) {
+      if (!(await this.isUserOnline(userId))) {
+        // Stale role membership (e.g. crash with no clean disconnect) — prune lazily.
+        await redis.srem(roleKey, userId);
+        await redis.del(this.getUserMetaKey(userId));
+        continue;
+      }
+
+      const meta = await redis.hgetall(this.getUserMetaKey(userId));
+      online.push({
+        userId,
+        email: meta?.email,
+        role: meta?.role || normalizedRole,
+      });
+    }
+
+    return online;
+  }
+
+  /** Convenience accessor for the broad-booking assignment fan-out. */
+  async getOnlineReceptionists(): Promise<OnlinePresenceUser[]> {
+    return this.getOnlineUsersByRole(RoleEnum.RECEPTIONIST);
+  }
+
+  // Index a user into its role SET + write a per-user metadata hash (userId/email/role),
+  // refreshing the hash TTL. No-op when no role is known. Idempotent across devices.
+  private async indexRole(
+    userId: string,
+    meta?: PresenceUserMeta,
+  ): Promise<void> {
+    const role = this.normalizeRole(meta?.role);
+    if (!role) {
+      return;
+    }
+
+    const redis = this.redisService.getClient();
+    const metaKey = this.getUserMetaKey(userId);
+    const fields: Record<string, string> = { userId, role };
+    const email = this.normalizeEmail(meta?.email);
+    if (email) {
+      fields.email = email;
+    }
+
+    await redis.sadd(this.getRoleKey(role), userId);
+    await redis.hset(metaKey, fields);
+    await redis.expire(metaKey, this.presenceTtlSeconds);
+  }
+
+  private normalizeRole(role?: RoleEnum | string): string {
+    return role ? String(role).trim().toUpperCase() : '';
+  }
+
+  private normalizeEmail(email?: string): string {
+    return email ? email.trim().toLowerCase() : '';
+  }
+
+  private getRoleKey(role: string): string {
+    return `online_role:${this.normalizeRole(role)}`;
+  }
+
+  private getUserMetaKey(userId: string): string {
+    return `presence:user:${userId}`;
   }
 
   private getDeviceKey(userId: string): string {

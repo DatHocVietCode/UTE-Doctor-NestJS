@@ -57,9 +57,14 @@ describe('BaseGateway', () => {
       gateway.handleConnection(client as never);
       await flush();
 
+      // Raw (un-normalized) email/role metadata is forwarded; PresenceService normalizes it.
       expect(presenceService.addConnection).toHaveBeenCalledWith(
         'user-1',
         'socket-1',
+        {
+          email: 'Recep@Example.com',
+          role: 'RECEPTIONIST',
+        },
       );
       expect(client.join).toHaveBeenCalledWith('recep@example.com');
     });
@@ -87,6 +92,10 @@ describe('BaseGateway', () => {
       expect(presenceService.addConnection).toHaveBeenCalledWith(
         'user-3',
         'socket-1',
+        {
+          email: undefined,
+          role: undefined,
+        },
       );
       expect(client.join).not.toHaveBeenCalled();
     });
@@ -112,6 +121,24 @@ describe('BaseGateway', () => {
       expect(presenceService.removeConnection).toHaveBeenCalledWith(
         'user-1',
         'socket-1',
+      );
+    });
+  });
+
+  describe('handleHeartbeat', () => {
+    it('refreshes presence TTL and forwards role metadata', async () => {
+      const client = makeClient();
+
+      await gateway.handleHeartbeat(client as never);
+
+      expect(presenceService.refreshTTL).toHaveBeenCalledWith(
+        'user-1',
+        'socket-1',
+        '/notification',
+        {
+          email: 'Recep@Example.com',
+          role: 'RECEPTIONIST',
+        },
       );
     });
   });
