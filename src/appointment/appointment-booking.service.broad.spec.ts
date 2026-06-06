@@ -225,3 +225,37 @@ describe('AppointmentBookingService broad booking', () => {
     expect(eventEmitter.emit).not.toHaveBeenCalledWith('appointment.assignment.created', expect.anything());
   });
 });
+
+// Contrast: the NORMAL (non-broad) path must still hard-require doctor + timeSlot, so
+// broad booking's relaxed validation cannot leak into ordinary doctor-selected bookings.
+describe('AppointmentBookingService normal booking validation (regression guard)', () => {
+  function normalPayload(overrides: Record<string, any> = {}) {
+    return {
+      // broadBooking intentionally omitted -> normal path
+      doctor: { id: '64b000000000000000000299' },
+      timeSlotId: '64b000000000000000000298',
+      appointmentDate: '2026-06-01T08:00:00+07:00',
+      hospitalName: 'UTE Hospital',
+      serviceType: ServiceType.KHAM_BHYT,
+      paymentMethod: PaymentMethodEnum.VNPAY,
+      paymentCategory: PaymentCategory.BHYT,
+      patientEmail: 'patient@example.com',
+      patientId: patientId.toString(),
+      ...overrides,
+    };
+  }
+
+  it('still rejects a normal booking with no doctor', async () => {
+    const { service } = createService();
+    await expect(
+      service.bookAppointment(normalPayload({ doctor: undefined }) as any, '127.0.0.1'),
+    ).rejects.toThrow('Doctor is required');
+  });
+
+  it('still rejects a normal booking with no time slot', async () => {
+    const { service } = createService();
+    await expect(
+      service.bookAppointment(normalPayload({ timeSlotId: undefined }) as any, '127.0.0.1'),
+    ).rejects.toThrow('Time slot is required');
+  });
+});
