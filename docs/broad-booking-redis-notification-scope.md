@@ -179,3 +179,15 @@ Ran the safe, available checks (scripts from [../package.json](../package.json))
 - **Lint:** the project script is `eslint ... --fix` (mutating). To honor "no fixes in Phase 0", lint was run **without `--fix`**. It reports ~25,000 problems, but **~24,000 are auto-fixable `prettier/prettier` "Delete ␍" (Windows CRLF line-ending) issues** plus pre-existing `@typescript-eslint/no-unsafe-*` warnings in `test/app.e2e-spec.ts`. These are **pre-existing, environment-level (CRLF) noise unrelated to the broad-booking work**; the normal `npm run lint` (`--fix`) would normalize them. `--fix` was intentionally **not** run here because it would rewrite the entire repository (out of scope for Phase 0).
 
 **Conclusion:** test baseline is green; lint noise is pre-existing CRLF formatting and does not block this analysis.
+
+---
+
+## 8. Phase Progress Log
+
+### Phase 1 completed — Socket notification room reliability
+- **Backend now auto-joins the authenticated user's email room on connect.** `BaseGateway.handleConnection` reads `socket.data.authUser.email` (populated by `SocketAuthMiddleware` from the JWT) and joins `email.toLowerCase()` via `autoJoinEmailRoom` ([../src/socket/base/base.gateway.ts](../src/socket/base/base.gateway.ts)).
+- **Frontend `JOIN_ROOM` is no longer the only dependency for realtime notification.** Realtime `NOTIFICATION_RECEIVED` now reaches receptionists/patients even if the client never emits `JOIN_ROOM`. Existing `JOIN_ROOM` behavior is preserved for backward compatibility.
+- **Email normalization** is consistent (trim + lowercase) via the shared `normalizeRoom`, matching how rooms are keyed on emit.
+- **Security:** the room is derived from the **JWT email only**, never a client-supplied payload — `JOIN_ROOM` already used the authenticated email, so no arbitrary-room-join surface was added. (Note: the chat namespace's `CHAT_JOIN_CONVERSATION` joins a client-supplied `conv:{id}` room; that is a separate, pre-existing concern, out of scope here and left unchanged.)
+- **Logs added** for auto-join success (`[Socket][AutoJoin] Joined ...`) and skip/failure cases.
+- **Tests:** new `src/socket/base/base.gateway.spec.ts` (7 cases) covers auto-join, normalization, missing-email, unauthenticated disconnect, `JOIN_ROOM` backward compatibility, and `emitToRoom`. Full suite: **15 suites / 122 tests passing**. Lint was run scoped to the changed files (the repo-wide `eslint --fix` only normalizes pre-existing CRLF noise, so it was not run globally).
