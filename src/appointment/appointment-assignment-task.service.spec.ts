@@ -43,9 +43,30 @@ function makeModel(overrides: Record<string, jest.Mock> = {}) {
   } as any;
 }
 
-function makeService(model: any) {
-  return new AppointmentAssignmentTaskService(model);
+function makeRedis(overrides: Record<string, jest.Mock> = {}) {
+  return {
+    acquireLock: jest.fn().mockResolvedValue(true),
+    releaseLock: jest.fn().mockResolvedValue(undefined),
+    ...overrides,
+  } as any;
 }
+
+function makeService(model: any, redis: any = makeRedis()) {
+  // Only taskModel (1st) and redisService (7th) are exercised by these specs.
+  return new AppointmentAssignmentTaskService(
+    model,
+    undefined as any,
+    undefined as any,
+    undefined as any,
+    undefined as any,
+    undefined as any,
+    redis,
+    undefined as any,
+  );
+}
+
+const taskLockKey = `assignment-task:${taskId}:lock`;
+const taskLockValue = `receptionist:${receptionistId}`;
 
 describe('AppointmentAssignmentTaskService', () => {
   describe('listTasks', () => {
@@ -171,6 +192,53 @@ describe('AppointmentAssignmentTaskService', () => {
       await expect(service.acceptTask(taskId, receptionistId)).rejects.toMatchObject({
         response: { data: { blockedReason: 'TASK_NOT_FOUND' } },
       });
+    });
+
+    it('acquires and releases the task lock around a successful accept', async () => {
+      const updated = {
+        _id: { toString: () => taskId },
+        status: AssignmentTaskStatus.ASSIGNED,
+        acceptedByReceptionistId: { toString: () => receptionistId },
+        acceptedAt: 123,
+      };
+      const model = makeModel({ findOneAndUpdate: jest.fn().mockResolvedValue(updated) });
+      const redis = makeRedis();
+      const service = makeService(model, redis);
+
+      await service.acceptTask(taskId, receptionistId);
+
+      expect(redis.acquireLock).toHaveBeenCalledWith(taskLockKey, taskLockValue, expect.any(Number));
+      // Release uses the owner-scoped lock value, so it can never delete another owner's lock.
+      expect(redis.releaseLock).toHaveBeenCalledWith(taskLockKey, taskLockValue);
+    });
+
+    it('rejects with TASK_LOCK_HELD when another receptionist holds the task lock', async () => {
+      const model = makeModel();
+      const redis = makeRedis({ acquireLock: jest.fn().mockResolvedValue(false) });
+      const service = makeService(model, redis);
+
+      await expect(service.acceptTask(taskId, receptionistId)).rejects.toMatchObject({
+        response: { data: { blockedReason: 'TASK_LOCK_HELD' } },
+      });
+      // Never touched the DB and never released a lock it did not own.
+      expect(model.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(redis.releaseLock).not.toHaveBeenCalled();
+    });
+
+    it('releases the task lock even after a handled failure', async () => {
+      const model = makeModel({
+        findOneAndUpdate: jest.fn().mockResolvedValue(null),
+        findById: jest
+          .fn()
+          .mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue({ status: AssignmentTaskStatus.COMPLETED }) }) }),
+      });
+      const redis = makeRedis();
+      const service = makeService(model, redis);
+
+      await expect(service.acceptTask(taskId, receptionistId)).rejects.toMatchObject({
+        response: { data: { blockedReason: 'TASK_NOT_PENDING' } },
+      });
+      expect(redis.releaseLock).toHaveBeenCalledWith(taskLockKey, taskLockValue);
     });
   });
 

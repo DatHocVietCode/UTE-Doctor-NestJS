@@ -74,6 +74,7 @@ function createService(opts: {
   slot?: any;
   shiftOwner?: any;
   lockAcquired?: boolean;
+  taskLockAcquired?: boolean;
   conflict?: any;
 } = {}) {
   const taskLean = opts.taskLean === null ? null : opts.taskLean ?? makeTaskLean();
@@ -136,6 +137,8 @@ function createService(opts: {
   const redisService = {
     acquireSlotLock: jest.fn().mockResolvedValue(lockAcquired),
     releaseSlotLock: jest.fn().mockResolvedValue(true),
+    acquireLock: jest.fn().mockResolvedValue(opts.taskLockAcquired ?? true),
+    releaseLock: jest.fn().mockResolvedValue(undefined),
   };
   const eventEmitter = { emit: jest.fn() };
 
@@ -265,5 +268,27 @@ describe('AppointmentAssignmentTaskService.assignDoctorAndSlot', () => {
     await expect(service.assignDoctorAndSlot(taskId, receptionistId, assignInput)).rejects.toMatchObject({
       response: { data: { blockedReason: 'TASK_NOT_FOUND' } },
     });
+  });
+
+  it('blocks with TASK_LOCK_HELD when another receptionist holds the task lock', async () => {
+    const { service, redisService } = createService({ taskLockAcquired: false });
+
+    await expect(service.assignDoctorAndSlot(taskId, receptionistId, assignInput)).rejects.toMatchObject({
+      response: { data: { blockedReason: 'TASK_LOCK_HELD' } },
+    });
+    // Did not proceed to the slot lock, and never released a lock it did not own.
+    expect(redisService.acquireSlotLock).not.toHaveBeenCalled();
+    expect(redisService.releaseLock).not.toHaveBeenCalled();
+  });
+
+  it('acquires and releases the task lock around a successful assignment', async () => {
+    const { service, redisService } = createService();
+
+    await service.assignDoctorAndSlot(taskId, receptionistId, assignInput);
+
+    const taskLockKey = `assignment-task:${taskId}:lock`;
+    const taskLockValue = `receptionist:${receptionistId}`;
+    expect(redisService.acquireLock).toHaveBeenCalledWith(taskLockKey, taskLockValue, expect.any(Number));
+    expect(redisService.releaseLock).toHaveBeenCalledWith(taskLockKey, taskLockValue);
   });
 });

@@ -48,6 +48,8 @@ export interface AssignDoctorSlotInput {
 @Injectable()
 export class AppointmentAssignmentTaskService {
   private readonly logger = new Logger(AppointmentAssignmentTaskService.name);
+  // Short-lived task lock so two receptionists cannot process the same task concurrently.
+  private readonly TASK_LOCK_TTL_SECONDS = 30;
 
   constructor(
     @InjectModel(AppointmentAssignmentTask.name)
@@ -118,6 +120,17 @@ export class AppointmentAssignmentTaskService {
    */
   async acceptTask(taskId: string, receptionistId: string): Promise<DataResponse> {
     this.assertValidId(taskId);
+    // Redis task lock prevents two receptionists from racing on the same task; the atomic
+    // findOneAndUpdate below is the second-layer DB guard if the lock ever lapses.
+    return this.withTaskLock(taskId, receptionistId, () =>
+      this.acceptTaskInternal(taskId, receptionistId),
+    );
+  }
+
+  private async acceptTaskInternal(
+    taskId: string,
+    receptionistId: string,
+  ): Promise<DataResponse> {
     const acceptorId = this.toReceptionistId(receptionistId);
     const now = Date.now();
 
@@ -244,7 +257,18 @@ export class AppointmentAssignmentTaskService {
     input: AssignDoctorSlotInput,
   ): Promise<DataResponse> {
     this.assertValidId(taskId);
+    // Task-level lock: only one receptionist may process a given task at a time. The
+    // ownership check + slot lock + transactional re-checks inside remain the DB-level guards.
+    return this.withTaskLock(taskId, receptionistId, () =>
+      this.assignDoctorAndSlotInternal(taskId, receptionistId, input),
+    );
+  }
 
+  private async assignDoctorAndSlotInternal(
+    taskId: string,
+    receptionistId: string,
+    input: AssignDoctorSlotInput,
+  ): Promise<DataResponse> {
     // --- 1. Load + validate task (ownership/state) ---
     const task = await this.taskModel
       .findById(taskId)
@@ -472,6 +496,43 @@ export class AppointmentAssignmentTaskService {
 
   private getSlotLockKey(doctorId: string, timeSlotId: string): string {
     return `slot:${doctorId}:${timeSlotId}`;
+  }
+
+  private getTaskLockKey(taskId: string): string {
+    return `assignment-task:${taskId}:lock`;
+  }
+
+  /**
+   * Run `work` while holding a Redis lock on the task. Mirrors the booking flow's lock style
+   * (`SET NX EX` via RedisService + compare-and-delete release). The lock value identifies the
+   * owning receptionist so the release only deletes our own lock, never another request's.
+   * A held lock surfaces a clear TASK_LOCK_HELD conflict instead of crashing.
+   */
+  private async withTaskLock<T>(
+    taskId: string,
+    receptionistId: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const lockKey = this.getTaskLockKey(taskId);
+    const lockValue = `receptionist:${receptionistId}`;
+    const acquired = await this.redisService.acquireLock(
+      lockKey,
+      lockValue,
+      this.TASK_LOCK_TTL_SECONDS,
+    );
+    if (!acquired) {
+      this.throwBlocked(
+        'TASK_LOCK_HELD',
+        'This assignment task is currently being handled by another receptionist.',
+      );
+    }
+
+    try {
+      return await work();
+    } finally {
+      // Compare-and-delete: releases only if we still own the lock (safe on success/failure).
+      await this.redisService.releaseLock(lockKey, lockValue);
+    }
   }
 
 
