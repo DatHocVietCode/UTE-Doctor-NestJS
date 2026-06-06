@@ -164,6 +164,111 @@ describe('AssignmentNotificationListener', () => {
     });
   });
 
+  describe('appointment.assignment.reminder', () => {
+    const reminderEvent = {
+      taskId: 'task-1',
+      appointmentId: 'appt-1',
+      deadlineAt: Date.now() + 5 * 60_000,
+      reminderCount: 2,
+    };
+
+    it('publishes a reminder per receptionist and flags the online one', async () => {
+      const { listener, publisher } = createListener(
+        [{ email: 'recep1@x.com' }, { email: 'recep2@x.com' }],
+        [{ userId: 'r1', email: 'recep1@x.com', role: 'RECEPTIONIST' }],
+      );
+
+      await listener.handleAssignmentReminder(reminderEvent);
+
+      expect(publisher.publish).toHaveBeenCalledTimes(2);
+      const first = publisher.publish.mock.calls[0][0];
+      expect(first.type).toBe('ASSIGNMENT_TASK_REMINDER');
+      expect(first.idempotencyKey).toBe(
+        'ASSIGNMENT_TASK_REMINDER:task-1:2:recep1@x.com',
+      );
+      expect(first.data.online).toBe(true);
+      expect(publisher.publish.mock.calls[1][0].data.online).toBe(false);
+    });
+
+    it('keys reminders by reminderCount so repeats are distinct but retries dedupe', async () => {
+      const { listener, publisher } = createListener([
+        { email: 'recep1@x.com' },
+      ]);
+
+      await listener.handleAssignmentReminder(reminderEvent); // count 2
+      await listener.handleAssignmentReminder(reminderEvent); // count 2 (retry -> same key)
+      await listener.handleAssignmentReminder({
+        ...reminderEvent,
+        reminderCount: 3,
+      });
+
+      const keys = publisher.publish.mock.calls.map((c) => c[0].idempotencyKey);
+      expect(keys).toEqual([
+        'ASSIGNMENT_TASK_REMINDER:task-1:2:recep1@x.com',
+        'ASSIGNMENT_TASK_REMINDER:task-1:2:recep1@x.com',
+        'ASSIGNMENT_TASK_REMINDER:task-1:3:recep1@x.com',
+      ]);
+    });
+
+    it('does not throw when no receptionist is online', async () => {
+      const { listener, publisher } = createListener(
+        [{ email: 'recep1@x.com' }],
+        [],
+      );
+
+      await expect(
+        listener.handleAssignmentReminder(reminderEvent),
+      ).resolves.toBeUndefined();
+      expect(publisher.publish).toHaveBeenCalledTimes(1);
+      expect(publisher.publish.mock.calls[0][0].data.online).toBe(false);
+    });
+
+    it('does nothing (no throw) when there are no receptionists', async () => {
+      const { listener, publisher } = createListener([]);
+      await expect(
+        listener.handleAssignmentReminder(reminderEvent),
+      ).resolves.toBeUndefined();
+      expect(publisher.publish).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('appointment.assignment.expired', () => {
+    const expiredEvent = {
+      taskId: 'task-1',
+      appointmentId: 'appt-1',
+      deadlineAt: Date.now() - 60_000,
+    };
+
+    it('publishes an expiry notification per receptionist with a stable idempotency key', async () => {
+      const { listener, publisher } = createListener([
+        { email: 'recep1@x.com' },
+      ]);
+
+      await listener.handleAssignmentExpired(expiredEvent);
+      await listener.handleAssignmentExpired(expiredEvent);
+
+      const calls = publisher.publish.mock.calls;
+      expect(calls[0][0].type).toBe('ASSIGNMENT_TASK_EXPIRED');
+      expect(calls.map((c) => c[0].idempotencyKey)).toEqual([
+        'ASSIGNMENT_TASK_EXPIRED:task-1:recep1@x.com',
+        'ASSIGNMENT_TASK_EXPIRED:task-1:recep1@x.com',
+      ]);
+    });
+
+    it('does not throw when no receptionist is online', async () => {
+      const { listener, publisher } = createListener(
+        [{ email: 'recep1@x.com' }],
+        [],
+      );
+
+      await expect(
+        listener.handleAssignmentExpired(expiredEvent),
+      ).resolves.toBeUndefined();
+      expect(publisher.publish).toHaveBeenCalledTimes(1);
+      expect(publisher.publish.mock.calls[0][0].data.online).toBe(false);
+    });
+  });
+
   describe('appointment.assignment.completed', () => {
     it('publishes an APPOINTMENT_DOCTOR_ASSIGNED job to the patient', async () => {
       const { listener, publisher } = createListener([]);

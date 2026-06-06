@@ -27,6 +27,21 @@ export type AssignmentCompletedEvent = {
   patientEmail?: string;
 };
 
+// Emitted by AssignmentSlaScheduler when a PENDING task nears its deadline.
+export type AssignmentReminderEvent = {
+  taskId: string;
+  appointmentId?: string;
+  deadlineAt: number;
+  reminderCount?: number;
+};
+
+// Emitted by AssignmentSlaScheduler when a PENDING task passes deadline + grace.
+export type AssignmentExpiredEvent = {
+  taskId: string;
+  appointmentId?: string;
+  deadlineAt: number;
+};
+
 /**
  * Fan-out for assignment events. Reuses the existing notification job pipeline
  * (publish -> queue -> handler -> DB write + Redis socket bridge).
@@ -51,38 +66,15 @@ export class AssignmentNotificationListener {
   async handleAssignmentCreated(
     payload: AssignmentCreatedEvent,
   ): Promise<void> {
-    // Redis role-aware presence decides who is targeted for realtime. A presence/Redis
-    // hiccup must never fail the already-committed booking, so this degrades to "none online".
-    const onlineEmails = await this.resolveOnlineReceptionistEmails(
+    const targets = await this.resolveReceptionistTargets(
       payload.taskId,
+      'created',
     );
-
-    const receptionists = await this.accountModel
-      .find({ role: RoleEnum.RECEPTIONIST })
-      .select('email')
-      .lean();
-
-    if (!receptionists.length) {
-      this.logger.warn(
-        `No receptionist accounts to notify for task ${payload.taskId}`,
-      );
+    if (!targets) {
       return;
     }
 
-    if (onlineEmails.size === 0) {
-      // Not an error: the task is PENDING in the DB queue and will be picked up via polling.
-      this.logger.warn(
-        `[Assignment] No online receptionist for task ${payload.taskId}; relying on the assignment-task polling queue (task stays PENDING).`,
-      );
-    } else {
-      this.logger.log(
-        `[Assignment] Task ${payload.taskId}: targeting ${onlineEmails.size} online receptionist(s) for realtime: ${[...onlineEmails].join(', ')}`,
-      );
-    }
-
-    for (const receptionist of receptionists) {
-      if (!receptionist.email) continue;
-      const recipientEmail = receptionist.email.trim().toLowerCase();
+    for (const recipientEmail of targets.recipientEmails) {
       await this.notificationPublisher.publish({
         type: 'ASSIGNMENT_TASK_CREATED',
         data: {
@@ -93,7 +85,7 @@ export class AssignmentNotificationListener {
           deadlineAt: payload.deadlineAt,
           priority: payload.priority,
           // Whether Redis presence saw this receptionist online at emit time.
-          online: onlineEmails.has(recipientEmail),
+          online: targets.onlineEmails.has(recipientEmail),
         },
         createdAt: Date.now(),
         recipientEmail,
@@ -101,6 +93,119 @@ export class AssignmentNotificationListener {
         idempotencyKey: `ASSIGNMENT_TASK_CREATED:${payload.taskId}:${recipientEmail}`,
       });
     }
+  }
+
+  @OnEvent('appointment.assignment.reminder')
+  async handleAssignmentReminder(
+    payload: AssignmentReminderEvent,
+  ): Promise<void> {
+    try {
+      const targets = await this.resolveReceptionistTargets(
+        payload.taskId,
+        'reminder',
+      );
+      if (!targets) {
+        return;
+      }
+
+      for (const recipientEmail of targets.recipientEmails) {
+        await this.notificationPublisher.publish({
+          type: 'ASSIGNMENT_TASK_REMINDER',
+          data: {
+            taskId: payload.taskId,
+            appointmentId: payload.appointmentId,
+            deadlineAt: payload.deadlineAt,
+            reminderCount: payload.reminderCount,
+            online: targets.onlineEmails.has(recipientEmail),
+          },
+          createdAt: Date.now(),
+          recipientEmail,
+          // reminderCount keeps each reminder distinct, while retries of the same reminder dedupe.
+          idempotencyKey: `ASSIGNMENT_TASK_REMINDER:${payload.taskId}:${payload.reminderCount ?? 0}:${recipientEmail}`,
+        });
+      }
+    } catch (error) {
+      // Never let a notification failure bubble back into the SLA scheduler.
+      this.logger.error(
+        `[Assignment] reminder notification failed for task ${payload.taskId}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  @OnEvent('appointment.assignment.expired')
+  async handleAssignmentExpired(
+    payload: AssignmentExpiredEvent,
+  ): Promise<void> {
+    try {
+      // MVP: notify receptionists (admin escalation is documented as a future improvement).
+      const targets = await this.resolveReceptionistTargets(
+        payload.taskId,
+        'expired',
+      );
+      if (!targets) {
+        return;
+      }
+
+      for (const recipientEmail of targets.recipientEmails) {
+        await this.notificationPublisher.publish({
+          type: 'ASSIGNMENT_TASK_EXPIRED',
+          data: {
+            taskId: payload.taskId,
+            appointmentId: payload.appointmentId,
+            deadlineAt: payload.deadlineAt,
+            online: targets.onlineEmails.has(recipientEmail),
+          },
+          createdAt: Date.now(),
+          recipientEmail,
+          // Expiry is a one-time transition per task; one notification per recipient.
+          idempotencyKey: `ASSIGNMENT_TASK_EXPIRED:${payload.taskId}:${recipientEmail}`,
+        });
+      }
+    } catch (error) {
+      this.logger.error(
+        `[Assignment] expired notification failed for task ${payload.taskId}: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  // Resolve the receptionist DB fan-out list + the Redis online subset, with consistent logging.
+  // Returns null when there are no receptionist accounts at all.
+  private async resolveReceptionistTargets(
+    taskId: string,
+    context: 'created' | 'reminder' | 'expired',
+  ): Promise<{ recipientEmails: string[]; onlineEmails: Set<string> } | null> {
+    // Redis role-aware presence decides realtime targets. A presence/Redis hiccup must never
+    // fail the flow, so resolveOnlineReceptionistEmails degrades to "none online".
+    const onlineEmails = await this.resolveOnlineReceptionistEmails(taskId);
+
+    const receptionists = await this.accountModel
+      .find({ role: RoleEnum.RECEPTIONIST })
+      .select('email')
+      .lean();
+
+    if (!receptionists.length) {
+      this.logger.warn(
+        `No receptionist accounts to notify for ${context} task ${taskId}`,
+      );
+      return null;
+    }
+
+    if (onlineEmails.size === 0) {
+      // Not an error: the task stays in the DB queue and will be picked up via polling.
+      this.logger.warn(
+        `[Assignment] No online receptionist for ${context} task ${taskId}; relying on the assignment-task polling queue.`,
+      );
+    } else {
+      this.logger.log(
+        `[Assignment] ${context} task ${taskId}: targeting ${onlineEmails.size} online receptionist(s) for realtime: ${[...onlineEmails].join(', ')}`,
+      );
+    }
+
+    const recipientEmails = receptionists
+      .map((r) => r.email?.trim().toLowerCase())
+      .filter((email): email is string => Boolean(email));
+
+    return { recipientEmails, onlineEmails };
   }
 
   // Resolve the set of currently-online receptionist emails (normalized) from Redis presence.

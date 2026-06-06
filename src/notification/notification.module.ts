@@ -8,6 +8,8 @@ import { AppointmentDoctorAssignedNotificationHandler } from './handlers/appoint
 import { AppointmentRescheduledNotificationHandler } from './handlers/appointment-rescheduled-notification.handler';
 import { AppointmentSuccessNotificationHandler } from './handlers/appointment-success-notification.handler';
 import { AssignmentTaskCreatedNotificationHandler } from './handlers/assignment-task-created-notification.handler';
+import { AssignmentTaskExpiredNotificationHandler } from './handlers/assignment-task-expired-notification.handler';
+import { AssignmentTaskReminderNotificationHandler } from './handlers/assignment-task-reminder-notification.handler';
 import { CoinExpiryNotificationHandler } from './handlers/coin-expiry-notification.handler';
 import { PaymentSuccessNotificationHandler } from './handlers/payment-success-notification.handler';
 import { AppointmentNotificationListener } from './listenners/appointment.notify.listenner';
@@ -46,6 +48,8 @@ import {
     AppointmentRescheduledNotificationHandler,
     PaymentSuccessNotificationHandler,
     AssignmentTaskCreatedNotificationHandler,
+    AssignmentTaskReminderNotificationHandler,
+    AssignmentTaskExpiredNotificationHandler,
     AppointmentDoctorAssignedNotificationHandler,
     RedisService,
     // Role-aware presence (Redis) for targeting online receptionists; depends only on RedisService.
