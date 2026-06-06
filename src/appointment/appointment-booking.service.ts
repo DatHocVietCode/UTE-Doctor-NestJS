@@ -1022,6 +1022,12 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       throw new BadRequestException('Time slot is required');
     }
 
+    // appointmentDate is optional at the DTO level so broad bookings can omit it;
+    // the normal (doctor-assigned) path requires it here. Legacy `date` is still accepted.
+    if (!dto.appointmentDate && !dto.date) {
+      throw new BadRequestException('appointmentDate is required');
+    }
+
     if (!dto.hospitalName) {
       throw new BadRequestException('Hospital name is required');
     }
