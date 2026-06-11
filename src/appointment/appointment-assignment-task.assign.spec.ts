@@ -157,16 +157,18 @@ function createService(opts: {
 }
 
 describe('AppointmentAssignmentTaskService.assignDoctorAndSlot', () => {
-  it('assigns doctor/slot, books slot, completes task, emits booking.success + assignment.completed', async () => {
+  it('assigns doctor/slot, confirms appointment, books slot, completes task, emits booking.success + assignment.completed', async () => {
     const { service, eventEmitter, timeSlotLogModel, freshTask, freshAppt } = createService();
 
     const result = await service.assignDoctorAndSlot(taskId, receptionistId, assignInput);
 
     expect(result.code).toBe('SUCCESS');
-    // Appointment gained doctor/slot and ASSIGNED routing state.
+    // Appointment gained doctor/slot and becomes check-in eligible through CONFIRMED.
     expect(freshAppt.doctorId.toString()).toBe(doctorId);
     expect(freshAppt.timeSlot.toString()).toBe(timeSlotId);
     expect(freshAppt.assignmentStatus).toBe(AssignmentStatus.ASSIGNED);
+    expect(freshAppt.appointmentStatus).toBe(AppointmentStatus.CONFIRMED);
+    expect(result.data.status).toBe(AppointmentStatus.CONFIRMED);
     expect(freshAppt.save).toHaveBeenCalled();
     // Slot booked.
     expect(timeSlotLogModel.updateOne).toHaveBeenCalledWith(
@@ -261,6 +263,28 @@ describe('AppointmentAssignmentTaskService.assignDoctorAndSlot', () => {
     const { service } = createService({ appointment: paid, freshAppt: paid });
     const result = await service.assignDoctorAndSlot(taskId, receptionistId, assignInput);
     expect(result.code).toBe('SUCCESS');
+    expect(paid.appointmentStatus).toBe(AppointmentStatus.CONFIRMED);
+  });
+
+  it('allows an already CONFIRMED broad appointment from deposit success to complete assignment', async () => {
+    const alreadyConfirmed = makeAppointment({
+      appointmentStatus: AppointmentStatus.CONFIRMED,
+      paymentCategory: PaymentCategory.DICH_VU,
+      depositStatus: DepositStatus.PAID,
+    });
+    const { service, freshTask } = createService({
+      appointment: alreadyConfirmed,
+      freshAppt: alreadyConfirmed,
+    });
+
+    const result = await service.assignDoctorAndSlot(taskId, receptionistId, assignInput);
+
+    expect(result.code).toBe('SUCCESS');
+    expect(result.data.status).toBe(AppointmentStatus.CONFIRMED);
+    expect(alreadyConfirmed.doctorId.toString()).toBe(doctorId);
+    expect(alreadyConfirmed.timeSlot.toString()).toBe(timeSlotId);
+    expect(alreadyConfirmed.assignmentStatus).toBe(AssignmentStatus.ASSIGNED);
+    expect(freshTask.status).toBe(AssignmentTaskStatus.COMPLETED);
   });
 
   it('throws TASK_NOT_FOUND for a missing task', async () => {

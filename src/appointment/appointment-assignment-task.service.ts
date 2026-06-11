@@ -375,6 +375,9 @@ export class AppointmentAssignmentTaskService {
         freshAppt.startTime = window.startTime;
         freshAppt.endTime = window.endTime;
         freshAppt.assignmentStatus = AssignmentStatus.ASSIGNED;
+        // Completing a broad assignment is the confirmation boundary for no-deposit
+        // bookings; paid deposit bookings may already be CONFIRMED and stay there.
+        freshAppt.appointmentStatus = AppointmentStatus.CONFIRMED;
         await freshAppt.save({ session });
 
         await this.timeSlotLogModel.updateOne(
@@ -452,7 +455,7 @@ export class AppointmentAssignmentTaskService {
     return (
       !appointment.doctorId &&
       !appointment.timeSlot &&
-      appointment.appointmentStatus === AppointmentStatus.PENDING
+      [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(appointment.appointmentStatus)
     );
   }
 
@@ -460,7 +463,7 @@ export class AppointmentAssignmentTaskService {
     if (appointment.doctorId || appointment.timeSlot) {
       this.throwBlocked('APPOINTMENT_NOT_ASSIGNABLE', 'Appointment already has a doctor/slot assigned');
     }
-    if (appointment.appointmentStatus !== AppointmentStatus.PENDING) {
+    if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(appointment.appointmentStatus)) {
       this.throwBlocked(
         'APPOINTMENT_NOT_ASSIGNABLE',
         `Appointment is not assignable (status: ${appointment.appointmentStatus})`,
