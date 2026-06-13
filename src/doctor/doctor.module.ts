@@ -1,14 +1,16 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { Doctor, DoctorSchema } from './schema/doctor.schema';
-import { DoctorService } from './doctor.service';
-import { DoctorController } from './doctor.controller';
-import { Profile, ProfileSchema } from 'src/profile/schema/profile.schema';
-import { DoctorSeeder } from './doctor.seeder';
-import { DoctorListener } from './listenners/doctor.listernner';
 import { Account, AccountSchema } from 'src/account/schemas/account.schema';
-import { MailModule } from 'src/mail/mail.module';
 import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
+import { MailModule } from 'src/mail/mail.module';
+import { Profile, ProfileSchema } from 'src/profile/schema/profile.schema';
+import { VisitModule } from 'src/visit/visit.module';
+import { DoctorVisitsController } from './doctor-visits.controller';
+import { DoctorController } from './doctor.controller';
+import { DoctorSeeder } from './doctor.seeder';
+import { DoctorService } from './doctor.service';
+import { DoctorListener } from './listenners/doctor.listernner';
+import { Doctor, DoctorSchema } from './schema/doctor.schema';
 
 @Module({
   imports: [
@@ -19,9 +21,10 @@ import { CloudinaryModule } from 'src/cloudinary/cloudinary.module';
     ]),
     MailModule,
     CloudinaryModule,
+    VisitModule,
   ],
   providers: [DoctorService, DoctorSeeder, DoctorListener],
-  controllers: [DoctorController],
+  controllers: [DoctorController, DoctorVisitsController],
   exports: [DoctorService],
 })
 export class DoctorModule {}

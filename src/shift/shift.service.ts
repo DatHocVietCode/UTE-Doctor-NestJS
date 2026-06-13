@@ -615,7 +615,8 @@ export class ShiftService {
         .find(query)
         .populate({
           path: 'timeSlots',
-          match: status ? { status } : {}, // filter chỉ những timeSlot có status
+          // 'all' means no filter; only apply match when a specific status is requested.
+          match: status && status !== TimeSlotStatusEnum.ALL ? { status } : {},
         })
         .exec();
 
@@ -713,7 +714,7 @@ export class ShiftService {
   async handleDoctorUpdateSchedule(payload: AppointmentEnriched): Promise<boolean> {
     try {
       const doctorId = payload.doctorId;
-      const timeSlotId = payload.timeSlot._id.toString();
+      const timeSlotId = payload.timeSlot!._id.toString();
       console.log(
         '[ShiftService] Xử lý doctor.update-schedule:',
         { doctorId, timeSlotId, bookingDate: payload.date },
@@ -723,7 +724,7 @@ export class ShiftService {
       let targetShift = await this.shiftModel
         .findOne({
           doctorId,
-          timeSlots: payload.timeSlot._id,
+          timeSlots: payload.timeSlot!._id,
         })
         .populate('timeSlots')
         .exec();
@@ -747,7 +748,7 @@ export class ShiftService {
           targetShift = await this.shiftModel
             .findOne({
               doctorId,
-              timeSlots: payload.timeSlot._id,
+              timeSlots: payload.timeSlot!._id,
               $or: [
                 { startTimeEpoch: { $gte: startEpoch, $lt: endEpoch } },
                 { date: dateOnly },
@@ -770,7 +771,7 @@ export class ShiftService {
 
       // 1️⃣ Update status của timeslot
       const updatedSlot = await this.timeSlotLogModel.updateOne(
-        { _id: payload.timeSlot._id },
+        { _id: payload.timeSlot!._id },
         { $set: { status: TimeSlotStatusEnum.BOOKED } }
       );
 

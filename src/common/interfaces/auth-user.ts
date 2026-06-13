@@ -1,7 +1,9 @@
+import { RoleEnum } from 'src/common/enum/role.enum';
+
 export interface AuthUser {
   accountId?: string;
   email?: string;
-  role?: string;
+  role?: RoleEnum | string;
   patientId?: string | null;
   doctorId?: string | null;
   profileId?: string | null;

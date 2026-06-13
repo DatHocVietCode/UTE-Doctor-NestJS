@@ -1,0 +1,8 @@
+export enum DepositStatus {
+  NOT_REQUIRED = 'NOT_REQUIRED',
+  PENDING = 'PENDING',
+  PAID = 'PAID',
+  FAILED = 'FAILED',
+  REFUNDED = 'REFUNDED',
+  FORFEITED = 'FORFEITED',
+}

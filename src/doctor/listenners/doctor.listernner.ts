@@ -19,11 +19,7 @@ export class DoctorListener {
 
     @OnEvent('doctor.get.byId')
     async handleGetDoctorByIdEvent(doctorId: string) : Promise<Doctor| null> {
-        // Xử lý sự kiện lấy bác sĩ theo ID
         console.log(`[DoctorListener] Yêu cầu lấy bác sĩ theo ID: ${doctorId}`);
-       
-       const doctor = await this.doctorService.findById(doctorId);
-        
-        return doctor;
+        return this.doctorService.findDoctorById(doctorId);
     }
 }
