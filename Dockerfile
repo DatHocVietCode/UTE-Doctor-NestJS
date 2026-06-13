@@ -41,4 +41,4 @@ COPY --chown=node:node public ./public
 
 USER node
 EXPOSE 3000
-CMD ["dumb-init", "node", "dist/main"]
+CMD ["node", "dist/src/main.js"]
