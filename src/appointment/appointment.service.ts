@@ -24,9 +24,12 @@ import { CreditService } from 'src/wallet/credit/credit.service';
 import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
+import { AssignmentStatus } from './enums/assignment-status.enum';
+import { AssignmentTaskStatus } from './enums/assignment-task-status.enum';
 import { DepositStatus } from './enums/deposit-status.enum';
 import { PaymentCategory } from './enums/payment-category.enum';
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
+import { AppointmentAssignmentTask, AppointmentAssignmentTaskDocument } from "./schemas/appointment-assignment-task.schema";
 import { AppointmentTimeHelper } from "./utils/appointment-time.helper";
 
 @Injectable()
@@ -42,6 +45,7 @@ export class AppointmentService {
         @InjectModel(MedicalEncounter.name) private readonly medicalEncounterModel: Model<MedicalEncounterDocument>,
         @InjectModel(Billing.name) private readonly billingModel: Model<BillingDocument>,
         @InjectModel(Payment.name) private readonly paymentModel: Model<PaymentDocument>,
+        @InjectModel(AppointmentAssignmentTask.name) private readonly assignmentTaskModel: Model<AppointmentAssignmentTaskDocument>,
         private readonly coinService: CoinService,
         private readonly visitService: VisitService,
         private readonly creditService: CreditService,
@@ -408,6 +412,12 @@ export class AppointmentService {
             );
         }
 
+        // A broad/unassigned appointment has no real doctor/slot yet; its scheduledAt is a
+        // placeholder (≈ booking time), and no Visit exists until a receptionist assigns it.
+        // The 24h window and the missing-Visit guard are therefore meaningless for it and must
+        // be bypassed so the patient can still cancel (and be refunded) while awaiting assignment.
+        const isAwaitingAssignment = appointment.assignmentStatus === AssignmentStatus.AWAITING_ASSIGNMENT;
+
         const appointmentScheduledAt = AppointmentTimeHelper.resolveStoredScheduledAt(appointment);
         if (!appointmentScheduledAt) {
             this.throwCancelBlocked('APPOINTMENT_NOT_CANCELABLE', 'Invalid appointment date');
@@ -419,7 +429,7 @@ export class AppointmentService {
         const currentTime = Date.now();
         const hoursUntilAppointment = (appointmentTime - currentTime) / (1000 * 60 * 60);
 
-        if (hoursUntilAppointment <= 24) {
+        if (!isAwaitingAssignment && hoursUntilAppointment <= 24) {
             this.throwCancelBlocked(
                 'APPOINTMENT_NOT_CANCELABLE',
                 `Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${hoursUntilAppointment.toFixed(1)}`,
@@ -480,7 +490,7 @@ export class AppointmentService {
                     this.throwCancelBlocked('APPOINTMENT_NOT_CANCELABLE', 'Invalid appointment date');
                 }
                 const freshHoursUntilAppointment = (freshScheduledAt - Date.now()) / (1000 * 60 * 60);
-                if (freshHoursUntilAppointment <= 24) {
+                if (!isAwaitingAssignment && freshHoursUntilAppointment <= 24) {
                     this.throwCancelBlocked(
                         'APPOINTMENT_NOT_CANCELABLE',
                         `Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${freshHoursUntilAppointment.toFixed(1)}`,
@@ -513,49 +523,55 @@ export class AppointmentService {
                     .findOne({ appointmentId: freshAppointment._id })
                     .session(session)
                     .exec();
-                if (!visit) {
+                // A broad appointment awaiting assignment legitimately has no Visit yet; only treat a
+                // missing Visit as a blocker for normal/assigned appointments.
+                if (!visit && !isAwaitingAssignment) {
                     this.throwCancelBlocked(
                         'APPOINTMENT_NOT_CANCELABLE',
                         'Cannot cancel appointment because visit record is missing',
                     );
                 }
 
-                if (visit.status === VisitStatus.COMPLETED) {
-                    this.throwCancelBlocked('VISIT_COMPLETED', 'Cannot cancel appointment because visit is completed');
-                }
+                // Visit/encounter/billing guards only apply when a Visit exists (i.e. the appointment
+                // has been assigned and progressed past booking).
+                if (visit) {
+                    if (visit.status === VisitStatus.COMPLETED) {
+                        this.throwCancelBlocked('VISIT_COMPLETED', 'Cannot cancel appointment because visit is completed');
+                    }
 
-                if (visit.status !== VisitStatus.CREATED) {
-                    this.throwCancelBlocked(
-                        'VISIT_ALREADY_STARTED',
-                        `Cannot cancel appointment because visit status is ${visit.status}`,
-                    );
-                }
+                    if (visit.status !== VisitStatus.CREATED) {
+                        this.throwCancelBlocked(
+                            'VISIT_ALREADY_STARTED',
+                            `Cannot cancel appointment because visit status is ${visit.status}`,
+                        );
+                    }
 
-                const encounterExists = await this.medicalEncounterModel.exists({
-                    $or: [
-                        { visitId: visit._id },
-                        { appointmentId: freshAppointment._id },
-                    ],
-                }).session(session);
-                if (encounterExists) {
-                    this.throwCancelBlocked('MEDICAL_ENCOUNTER_EXISTS', 'Cannot cancel appointment because medical encounter exists');
-                }
+                    const encounterExists = await this.medicalEncounterModel.exists({
+                        $or: [
+                            { visitId: visit._id },
+                            { appointmentId: freshAppointment._id },
+                        ],
+                    }).session(session);
+                    if (encounterExists) {
+                        this.throwCancelBlocked('MEDICAL_ENCOUNTER_EXISTS', 'Cannot cancel appointment because medical encounter exists');
+                    }
 
-                const billing = await this.billingModel
-                    .findOne({ visitId: visit._id })
-                    .session(session)
-                    .select('_id')
-                    .lean()
-                    .exec();
-                const paymentExists = billing
-                    ? await this.paymentModel.exists({ billingId: billing._id }).session(session)
-                    : null;
-                if (paymentExists) {
-                    this.throwCancelBlocked('PAYMENT_EXISTS', 'Cannot cancel appointment because payment exists');
-                }
+                    const billing = await this.billingModel
+                        .findOne({ visitId: visit._id })
+                        .session(session)
+                        .select('_id')
+                        .lean()
+                        .exec();
+                    const paymentExists = billing
+                        ? await this.paymentModel.exists({ billingId: billing._id }).session(session)
+                        : null;
+                    if (paymentExists) {
+                        this.throwCancelBlocked('PAYMENT_EXISTS', 'Cannot cancel appointment because payment exists');
+                    }
 
-                if (billing) {
-                    this.throwCancelBlocked('BILLING_EXISTS', 'Cannot cancel appointment because billing exists');
+                    if (billing) {
+                        this.throwCancelBlocked('BILLING_EXISTS', 'Cannot cancel appointment because billing exists');
+                    }
                 }
 
                 const hasVerifiedPaidDeposit =
@@ -602,8 +618,10 @@ export class AppointmentService {
                 freshAppointment.appointmentStatus = AppointmentStatus.CANCELLED;
                 await freshAppointment.save({ session });
 
-                visit.status = VisitStatus.CANCELLED;
-                await visit.save({ session });
+                if (visit) {
+                    visit.status = VisitStatus.CANCELLED;
+                    await visit.save({ session });
+                }
 
                 if (freshAppointment.timeSlot) {
                     const slotRelease = await this.timeSlotLogModel.updateOne(
@@ -617,6 +635,38 @@ export class AppointmentService {
                             'Cannot cancel appointment because booked time slot could not be released',
                         );
                     }
+                }
+
+                // Close any still-open assignment task so a cancelled broad appointment leaves no
+                // orphaned work item in the receptionist queue. No-ops for normal appointments (which
+                // never have a task) and for terminal tasks (e.g. COMPLETED after assignment).
+                const activeTask = await this.assignmentTaskModel
+                    .findOne({
+                        appointmentId: freshAppointment._id,
+                        status: { $in: [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED] },
+                    })
+                    .session(session)
+                    .exec();
+                if (activeTask) {
+                    const taskActor = user?.role
+                        ? `${user.role}:${user.accountId ?? user.email ?? ''}`
+                        : 'system';
+                    await this.assignmentTaskModel.updateOne(
+                        { _id: activeTask._id },
+                        {
+                            $set: { status: AssignmentTaskStatus.CANCELLED },
+                            $push: {
+                                history: {
+                                    at: Date.now(),
+                                    from: activeTask.status,
+                                    to: AssignmentTaskStatus.CANCELLED,
+                                    by: taskActor,
+                                    note: 'appointment cancelled',
+                                },
+                            },
+                        },
+                        { session },
+                    );
                 }
             });
         } finally {

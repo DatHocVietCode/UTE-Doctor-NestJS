@@ -12,12 +12,15 @@ jest.mock('src/payment/schemas/payment.schema', () => ({ Payment: class Payment 
 jest.mock('src/profile/schema/profile.schema', () => ({ Profile: class Profile {} }));
 jest.mock('src/timeslot/schemas/timeslot-log.schema', () => ({ TimeSlotLog: class TimeSlotLog {} }));
 jest.mock('src/visit/schemas/visit.schema', () => ({ Visit: class Visit {} }));
+jest.mock('./schemas/appointment-assignment-task.schema', () => ({ AppointmentAssignmentTask: class AppointmentAssignmentTask {} }));
 
 import { RoleEnum } from 'src/common/enum/role.enum';
 import { PaymentFlowStatusEnum } from 'src/payment/enums/payment-flow.enum';
 import { VisitStatus } from 'src/visit/enums/visit-status.enum';
 import { AppointmentService } from './appointment.service';
 import { AppointmentStatus } from './enums/Appointment-status.enum';
+import { AssignmentStatus } from './enums/assignment-status.enum';
+import { AssignmentTaskStatus } from './enums/assignment-task-status.enum';
 import { DepositStatus } from './enums/deposit-status.enum';
 import { PaymentCategory } from './enums/payment-category.enum';
 
@@ -41,6 +44,7 @@ function createAppointment(overrides: Record<string, any> = {}) {
   return {
     _id: appointmentId,
     appointmentStatus: AppointmentStatus.CONFIRMED,
+    assignmentStatus: AssignmentStatus.NONE,
     scheduledAt: Date.now() + 72 * 60 * 60 * 1000,
     timeSlot: { toString: () => timeSlotId },
     patientId: { toString: () => patientId },
@@ -65,6 +69,19 @@ function createDepositPayment(overrides: Record<string, any> = {}) {
   };
 }
 
+// A broad/unassigned appointment: still PENDING, awaiting receptionist assignment, with no
+// doctor/slot and a placeholder scheduledAt (≈ now, i.e. inside the 24h window).
+function createBroadAppointment(overrides: Record<string, any> = {}) {
+  return createAppointment({
+    appointmentStatus: AppointmentStatus.PENDING,
+    assignmentStatus: AssignmentStatus.AWAITING_ASSIGNMENT,
+    scheduledAt: Date.now(),
+    timeSlot: undefined,
+    doctorId: undefined,
+    ...overrides,
+  });
+}
+
 function createService(input: {
   appointment?: any;
   freshAppointment?: any;
@@ -75,6 +92,7 @@ function createService(input: {
   depositPayments?: any[];
   slotReleaseResult?: any;
   refundRate?: string;
+  activeTask?: any;
 } = {}) {
   const session = {
     withTransaction: jest.fn(async (callback: () => Promise<void>) => callback()),
@@ -113,6 +131,10 @@ function createService(input: {
   const config = {
     get: jest.fn().mockReturnValue(input.refundRate),
   };
+  const assignmentTaskModel = {
+    findOne: jest.fn().mockReturnValue(queryResult(input.activeTask ?? null)),
+    updateOne: jest.fn().mockResolvedValue({ modifiedCount: input.activeTask ? 1 : 0 }),
+  };
 
   const service = new AppointmentService(
     eventEmitter as any,
@@ -128,7 +150,7 @@ function createService(input: {
     } as any,
     {} as any,
     {
-      findOne: jest.fn().mockReturnValue(queryResult(input.visit ?? {
+      findOne: jest.fn().mockReturnValue(queryResult('visit' in input ? input.visit : {
         _id: visitId,
         status: VisitStatus.CREATED,
         save: jest.fn().mockResolvedValue(undefined),
@@ -143,13 +165,14 @@ function createService(input: {
       findOne: jest.fn().mockReturnValue(queryResult(input.billing ?? null)),
     } as any,
     paymentModel as any,
+    assignmentTaskModel as any,
     {} as any,
     {} as any,
     creditService as any,
     config as any,
   );
 
-  return { service, eventEmitter, timeSlotLogModel, appointment, session, creditService, paymentModel };
+  return { service, eventEmitter, timeSlotLogModel, appointment, session, creditService, paymentModel, assignmentTaskModel };
 }
 
 async function expectBlocked(service: AppointmentService, blockedReason: string) {
@@ -302,5 +325,77 @@ describe('AppointmentService.cancelAppointment', () => {
     const { service, creditService } = createService({ appointment });
     await expectBlocked(service, 'APPOINTMENT_NOT_CANCELABLE');
     expect(creditService.refundAppointmentCancellation).not.toHaveBeenCalled();
+  });
+
+  describe('broad / unassigned appointments', () => {
+    it('cancels a broad appointment (bypasses 24h window, no visit, no slot release, no crash)', async () => {
+      const appointment = createBroadAppointment();
+      const { service, timeSlotLogModel } = createService({ appointment, visit: null });
+
+      const result = await service.cancelAppointment(appointmentId, undefined, patientUser);
+
+      expect(result.code).toBe('SUCCESS');
+      expect(appointment.appointmentStatus).toBe(AppointmentStatus.CANCELLED);
+      // No slot is held for a broad appointment, so the slot must not be released.
+      expect(timeSlotLogModel.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('refunds a paid DICH_VU deposit when cancelling a broad appointment', async () => {
+      const appointment = createBroadAppointment({
+        paymentCategory: PaymentCategory.DICH_VU,
+        depositPaidAmount: 100000,
+        depositStatus: DepositStatus.PAID,
+      });
+      const { service, creditService } = createService({
+        appointment,
+        visit: null,
+        depositPayments: [createDepositPayment()],
+      });
+
+      const result = await service.cancelAppointment(appointmentId, 'changed mind', patientUser);
+
+      expect(result.data.refundAmount).toBe(100000);
+      expect(creditService.refundAppointmentCancellation).toHaveBeenCalledWith(
+        patientId,
+        100000,
+        appointmentId,
+        'changed mind',
+        expect.any(Object),
+      );
+      expect(appointment.depositStatus).toBe(DepositStatus.REFUNDED);
+    });
+
+    it('closes an open assignment task (PENDING -> CANCELLED) on cancellation', async () => {
+      const appointment = createBroadAppointment();
+      const activeTask = { _id: 'task-1', status: AssignmentTaskStatus.PENDING };
+      const { service, assignmentTaskModel } = createService({ appointment, visit: null, activeTask });
+
+      await service.cancelAppointment(appointmentId, undefined, patientUser);
+
+      expect(assignmentTaskModel.updateOne).toHaveBeenCalledWith(
+        { _id: 'task-1' },
+        expect.objectContaining({ $set: { status: AssignmentTaskStatus.CANCELLED } }),
+        expect.any(Object),
+      );
+    });
+
+    it('does not touch assignment tasks when none are open', async () => {
+      const { service, assignmentTaskModel } = createService();
+      await service.cancelAppointment(appointmentId, undefined, patientUser);
+      expect(assignmentTaskModel.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('still blocks a broad cancellation while a deposit callback is pending', async () => {
+      const appointment = createBroadAppointment({
+        paymentCategory: PaymentCategory.DICH_VU,
+        depositStatus: DepositStatus.PENDING,
+      });
+      const { service } = createService({
+        appointment,
+        visit: null,
+        depositPayments: [createDepositPayment({ status: PaymentFlowStatusEnum.PENDING })],
+      });
+      await expectBlocked(service, 'APPOINTMENT_DEPOSIT_PAYMENT_PENDING');
+    });
   });
 });
