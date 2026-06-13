@@ -3,182 +3,203 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto';
 import { PaginationResult } from 'src/common/dto/pagination-result.dto';
-import type { NotificationPayload, NotificationType } from './dto/notification-payload.dto';
+import type {
+  NotificationPayload,
+  NotificationType,
+} from './dto/notification-payload.dto';
 import { AppointmentCancelledNotificationHandler } from './handlers/appointment-cancelled-notification.handler';
+import { AppointmentDoctorAssignedNotificationHandler } from './handlers/appointment-doctor-assigned-notification.handler';
 import { AppointmentRescheduledNotificationHandler } from './handlers/appointment-rescheduled-notification.handler';
 import { AppointmentSuccessNotificationHandler } from './handlers/appointment-success-notification.handler';
+import { AssignmentTaskCreatedNotificationHandler } from './handlers/assignment-task-created-notification.handler';
+import { AssignmentTaskExpiredNotificationHandler } from './handlers/assignment-task-expired-notification.handler';
+import { AssignmentTaskReminderNotificationHandler } from './handlers/assignment-task-reminder-notification.handler';
 import { CoinExpiryNotificationHandler } from './handlers/coin-expiry-notification.handler';
 import { NotificationHandlerMeta } from './handlers/notification-handler.interface';
 import type { HandlerRegistry } from './handlers/notification-handler.types';
 import { PaymentSuccessNotificationHandler } from './handlers/payment-success-notification.handler';
-import { Notification, NotificationDocument } from './schemas/notification.schema';
+import {
+  Notification,
+  NotificationDocument,
+} from './schemas/notification.schema';
 
 @Injectable()
 export class NotificationService {
-    private readonly logger = new Logger(NotificationService.name);
-    private readonly handlers: HandlerRegistry;
+  private readonly logger = new Logger(NotificationService.name);
+  private readonly handlers: HandlerRegistry;
 
-    constructor(
-        @InjectModel(Notification.name)
-        private readonly notificationModel: Model<NotificationDocument>,
-        private readonly coinExpiryHandler: CoinExpiryNotificationHandler,
-        private readonly appointmentSuccessHandler: AppointmentSuccessNotificationHandler,
-        private readonly appointmentCancelledHandler: AppointmentCancelledNotificationHandler,
-        private readonly appointmentRescheduledHandler: AppointmentRescheduledNotificationHandler,
-        private readonly paymentSuccessHandler: PaymentSuccessNotificationHandler,
-    ) {
-        // Registry avoids switch-case branching and keeps each type handler isolated.
-        this.handlers = {
-            COIN_EXPIRY_REMINDER: this.coinExpiryHandler,
-            APPOINTMENT_SUCCESS: this.appointmentSuccessHandler,
-            APPOINTMENT_CANCELLED: this.appointmentCancelledHandler,
-            APPOINTMENT_RESCHEDULED: this.appointmentRescheduledHandler,
-            PAYMENT_SUCCESS: this.paymentSuccessHandler,
-        };
+  constructor(
+    @InjectModel(Notification.name)
+    private readonly notificationModel: Model<NotificationDocument>,
+    private readonly coinExpiryHandler: CoinExpiryNotificationHandler,
+    private readonly appointmentSuccessHandler: AppointmentSuccessNotificationHandler,
+    private readonly appointmentCancelledHandler: AppointmentCancelledNotificationHandler,
+    private readonly appointmentRescheduledHandler: AppointmentRescheduledNotificationHandler,
+    private readonly paymentSuccessHandler: PaymentSuccessNotificationHandler,
+    private readonly assignmentTaskCreatedHandler: AssignmentTaskCreatedNotificationHandler,
+    private readonly assignmentTaskReminderHandler: AssignmentTaskReminderNotificationHandler,
+    private readonly assignmentTaskExpiredHandler: AssignmentTaskExpiredNotificationHandler,
+    private readonly appointmentDoctorAssignedHandler: AppointmentDoctorAssignedNotificationHandler,
+  ) {
+    // Registry avoids switch-case branching and keeps each type handler isolated.
+    this.handlers = {
+      COIN_EXPIRY_REMINDER: this.coinExpiryHandler,
+      APPOINTMENT_SUCCESS: this.appointmentSuccessHandler,
+      APPOINTMENT_CANCELLED: this.appointmentCancelledHandler,
+      APPOINTMENT_RESCHEDULED: this.appointmentRescheduledHandler,
+      PAYMENT_SUCCESS: this.paymentSuccessHandler,
+      ASSIGNMENT_TASK_CREATED: this.assignmentTaskCreatedHandler,
+      ASSIGNMENT_TASK_REMINDER: this.assignmentTaskReminderHandler,
+      ASSIGNMENT_TASK_EXPIRED: this.assignmentTaskExpiredHandler,
+      APPOINTMENT_DOCTOR_ASSIGNED: this.appointmentDoctorAssignedHandler,
+    };
+  }
+
+  private toEpoch(value: unknown): number | null {
+    if (value instanceof Date) {
+      return value.getTime();
     }
 
-    private toEpoch(value: unknown): number | null {
-        if (value instanceof Date) {
-            return value.getTime();
-        }
-
-        if (typeof value === 'number' && Number.isFinite(value)) {
-            return Math.floor(value);
-        }
-
-        if (typeof value === 'string') {
-            const parsed = new Date(value).getTime();
-            return Number.isNaN(parsed) ? null : parsed;
-        }
-
-        return null;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.floor(value);
     }
 
-    private normalizeNotificationTimestamps(notification: any): any {
-        if (!notification) {
-            return notification;
-        }
-
-        const normalized = { ...notification };
-        normalized.createdAt = this.toEpoch(normalized.createdAt);
-        normalized.updatedAt = this.toEpoch(normalized.updatedAt);
-
-        if (normalized.details && typeof normalized.details === 'object') {
-            normalized.details = {
-                ...normalized.details,
-                expiresAt: this.toEpoch(normalized.details.expiresAt),
-                runAt: this.toEpoch(normalized.details.runAt),
-            };
-        }
-
-        return normalized;
+    if (typeof value === 'string') {
+      const parsed = new Date(value).getTime();
+      return Number.isNaN(parsed) ? null : parsed;
     }
 
-    async storeNewNotification(notification: Partial<NotificationDocument>) {
-        const newNoti = new this.notificationModel(notification);
-        return await newNoti.save();
+    return null;
+  }
+
+  private normalizeNotificationTimestamps(notification: any): any {
+    if (!notification) {
+      return notification;
     }
 
-    async process(payload: NotificationPayload): Promise<void> {
-        const handler = this.handlers[payload.type as NotificationType];
-        if (!handler) {
-            this.logger.warn(`No notification handler registered for type ${payload.type}`);
-            return;
-        }
+    const normalized = { ...notification };
+    normalized.createdAt = this.toEpoch(normalized.createdAt);
+    normalized.updatedAt = this.toEpoch(normalized.updatedAt);
 
-        const meta: NotificationHandlerMeta = {
-            recipientEmail: payload.recipientEmail,
-            createdAt: payload.createdAt,
-            idempotencyKey: payload.idempotencyKey,
-        };
-
-        await handler.handle(payload.data as never, meta);
+    if (normalized.details && typeof normalized.details === 'object') {
+      normalized.details = {
+        ...normalized.details,
+        expiresAt: this.toEpoch(normalized.details.expiresAt),
+        runAt: this.toEpoch(normalized.details.runAt),
+      };
     }
 
-    async storeIfNotExists(notification: Partial<NotificationDocument>): Promise<boolean> {
-        try {
-            await this.storeNewNotification(notification);
-            return true;
-        } catch (error) {
-            // Duplicate key means this notification has already been processed.
-            if ((error as { code?: number }).code === 11000) {
-                return false;
-            }
+    return normalized;
+  }
 
-            throw error;
-        }
+  async storeNewNotification(notification: Partial<NotificationDocument>) {
+    const newNoti = new this.notificationModel(notification);
+    return await newNoti.save();
+  }
+
+  async process(payload: NotificationPayload): Promise<void> {
+    const handler = this.handlers[payload.type as NotificationType];
+    if (!handler) {
+      this.logger.warn(
+        `No notification handler registered for type ${payload.type}`,
+      );
+      return;
     }
 
-    async getNotifications(
-        pagination: PaginationQueryDto
-        ): Promise<PaginationResult<Notification>> {
-        const { page, limit } = pagination;
+    const meta: NotificationHandlerMeta = {
+      recipientEmail: payload.recipientEmail,
+      createdAt: payload.createdAt,
+      idempotencyKey: payload.idempotencyKey,
+    };
 
-        const skip = (page - 1) * limit;
+    await handler.handle(payload.data as never, meta);
+  }
 
-        const [data, total] = await Promise.all([
-            this.notificationModel
-            .find()
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
-            .lean(),
+  async storeIfNotExists(
+    notification: Partial<NotificationDocument>,
+  ): Promise<boolean> {
+    try {
+      await this.storeNewNotification(notification);
+      return true;
+    } catch (error) {
+      // Duplicate key means this notification has already been processed.
+      if ((error as { code?: number }).code === 11000) {
+        return false;
+      }
 
-            this.notificationModel.countDocuments(),
-        ]);
-
-        const normalizedData = data.map((item) => this.normalizeNotificationTimestamps(item));
-        return new PaginationResult(normalizedData, total, page, limit);
+      throw error;
     }
-    async getNotificationsByEmail(
-        email: string,
-        pagination: PaginationQueryDto
-        ): Promise<PaginationResult<Notification>> {
+  }
 
-        const { page, limit } = pagination;
-        const skip = (page - 1) * limit;
+  async getNotifications(
+    pagination: PaginationQueryDto,
+  ): Promise<PaginationResult<Notification>> {
+    const { page, limit } = pagination;
 
-        const filter = {
-            $or: [
-            { isBroadcast: true },
-            { receiverEmail: email },
-            ],
-        };
+    const skip = (page - 1) * limit;
 
-        const [data, total] = await Promise.all([
-            this.notificationModel
-            .find(filter)
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
-            .lean(),
+    const [data, total] = await Promise.all([
+      this.notificationModel
+        .find()
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
 
-            this.notificationModel.countDocuments(filter),
-        ]);
+      this.notificationModel.countDocuments(),
+    ]);
 
-        const normalizedData = data.map((item) => this.normalizeNotificationTimestamps(item));
-        return new PaginationResult(normalizedData, total, page, limit);
-    }
+    const normalizedData = data.map((item) =>
+      this.normalizeNotificationTimestamps(item),
+    );
+    return new PaginationResult(normalizedData, total, page, limit);
+  }
+  async getNotificationsByEmail(
+    email: string,
+    pagination: PaginationQueryDto,
+  ): Promise<PaginationResult<Notification>> {
+    const { page, limit } = pagination;
+    const skip = (page - 1) * limit;
 
-    async countUnreadByEmail(email: string): Promise<number> {
-        if (!email) throw new Error('[NotificationService] Email is required');
+    const filter = {
+      $or: [{ isBroadcast: true }, { receiverEmail: email }],
+    };
 
-        return this.notificationModel.countDocuments({
-        receiverEmail: email,
-        isRead: false,
-        });
-    }
+    const [data, total] = await Promise.all([
+      this.notificationModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
 
-    async markAsRead(id: string): Promise<Notification> {
-        const notif = await this.notificationModel.findByIdAndUpdate(
-            id,
-            { isRead: true },
-            { new: true }
-        ).lean();
+      this.notificationModel.countDocuments(filter),
+    ]);
 
-        if (!notif) throw new NotFoundException('[NotificationService] Notification not found');
-        return this.normalizeNotificationTimestamps(notif);
-    }
+    const normalizedData = data.map((item) =>
+      this.normalizeNotificationTimestamps(item),
+    );
+    return new PaginationResult(normalizedData, total, page, limit);
+  }
 
+  async countUnreadByEmail(email: string): Promise<number> {
+    if (!email) throw new Error('[NotificationService] Email is required');
+
+    return this.notificationModel.countDocuments({
+      receiverEmail: email,
+      isRead: false,
+    });
+  }
+
+  async markAsRead(id: string): Promise<Notification> {
+    const notif = await this.notificationModel
+      .findByIdAndUpdate(id, { isRead: true }, { new: true })
+      .lean();
+
+    if (!notif)
+      throw new NotFoundException(
+        '[NotificationService] Notification not found',
+      );
+    return this.normalizeNotificationTimestamps(notif);
+  }
 }
-

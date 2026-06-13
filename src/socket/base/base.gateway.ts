@@ -1,7 +1,14 @@
 import { Logger } from '@nestjs/common';
-import { OnGatewayConnection, OnGatewayDisconnect, SubscribeMessage, WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
+import {
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
+} from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
+import { AuthUser } from 'src/common/interfaces/auth-user';
 import { PresenceService } from '../presence.service';
 import { SocketRoomService } from '../socket.service';
 
@@ -44,7 +51,45 @@ export class BaseGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
-    void this.presenceService.addConnection(userId, client.id);
+    const authUser = (client.data as { authUser?: AuthUser })?.authUser;
+    void this.presenceService.addConnection(userId, client.id, {
+      email: authUser?.email,
+      role: authUser?.role,
+    });
+
+    // Auto-join the authenticated user's own email room so realtime delivery does not
+    // depend on the client emitting JOIN_ROOM. The room is derived from the JWT email
+    // (never from a client-supplied payload), and re-joining a room is idempotent.
+    void this.autoJoinEmailRoom(client, authUser?.email);
+  }
+
+  /**
+   * Join the socket to its own email room using the authenticated identity only.
+   * Mirrors the room used by JOIN_ROOM so notification fan-out (emitToRoom(email, ...))
+   * reaches the socket even if the client never sends JOIN_ROOM.
+   */
+  private async autoJoinEmailRoom(
+    client: Socket,
+    rawEmail?: string,
+  ): Promise<void> {
+    const email = this.normalizeRoom(rawEmail || '');
+    if (!email) {
+      this.logger.warn(
+        `[Socket][AutoJoin] Skipped: no email in auth payload namespace=${client.nsp.name} socketId=${client.id}`,
+      );
+      return;
+    }
+
+    try {
+      await client.join(email);
+      this.logger.log(
+        `[Socket][AutoJoin] Joined namespace=${client.nsp.name} socketId=${client.id} room=${email}`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[Socket][AutoJoin] Failed namespace=${client.nsp.name} socketId=${client.id} room=${email} reason=${(error as Error).message}`,
+      );
+    }
   }
 
   handleDisconnect(client: Socket) {
@@ -66,7 +111,7 @@ export class BaseGateway implements OnGatewayConnection, OnGatewayDisconnect {
    */
   @SubscribeMessage(SocketEventsEnum.JOIN_ROOM)
   async handleJoinRoom(client: Socket) {
-    const user = (client.data as any)?.authUser;
+    const user = client.data?.authUser;
     this.logger.log(
       `[Socket][JOIN_ROOM] Received namespace=${client.nsp.name} socketId=${client.id} hasAuthUser=${Boolean(user)}`,
     );
@@ -104,7 +149,11 @@ export class BaseGateway implements OnGatewayConnection, OnGatewayDisconnect {
       `[Socket][HEARTBEAT] Received namespace=${client.nsp.name} socketId=${client.id} userId=${userId}`,
     );
 
-    await this.presenceService.refreshTTL(userId, client.id, client.nsp.name);
+    const authUser = (client.data as { authUser?: AuthUser })?.authUser;
+    await this.presenceService.refreshTTL(userId, client.id, client.nsp.name, {
+      email: authUser?.email,
+      role: authUser?.role,
+    });
     client.data.lastHeartbeatAt = Date.now();
 
     this.logger.log(

@@ -106,6 +106,16 @@ CONSULTATION_FEE / INSURANCE_COVERAGE_RATE
 COIN_EXPIRY_DAYS / COIN_REWARD_RATE
 ```
 
+Broad-appointment assignment (Phase 7/8) — all optional with safe defaults:
+
+```
+ASSIGNMENT_DEADLINE_MINUTES=30          # SLA window to pick up a broad-booking task
+ASSIGNMENT_REMINDER_WINDOW_MINUTES=10   # start reminding within this window of the deadline
+ASSIGNMENT_REMINDER_INTERVAL_MINUTES=5  # minimum gap between reminders for one task
+ASSIGNMENT_GRACE_MINUTES=5              # grace after deadline before a PENDING task is EXPIRED
+ASSIGNMENT_ACCEPT_TTL_MINUTES=10        # an ASSIGNED task idle this long is reclaimed to PENDING
+```
+
 ## api-contract Submodule
 
 `api-contract/` is a Git submodule that the frontend depends on directly. **Any time you modify a file inside `api-contract/`, you must commit and push the submodule immediately after**, before committing the parent repo. The frontend reads the submodule at its latest pushed commit, so a change that has not been pushed is invisible to the FE.

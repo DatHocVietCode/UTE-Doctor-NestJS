@@ -19,12 +19,21 @@ import { CoinService } from 'src/wallet/coin/coin.service';
 import { CreditService } from 'src/wallet/credit/credit.service';
 import { AppointmentBookingDto } from './dto/appointment-booking.dto';
 import { AppointmentStatus } from './enums/Appointment-status.enum';
+import { AssignmentStatus } from './enums/assignment-status.enum';
+import { AssignmentTaskStatus } from './enums/assignment-task-status.enum';
 import { DepositStatus } from './enums/deposit-status.enum';
 import { PaymentCategory } from './enums/payment-category.enum';
 import { VisitType } from './enums/visit-type.enum';
+import {
+  AppointmentAssignmentTask,
+  AppointmentAssignmentTaskDocument,
+} from './schemas/appointment-assignment-task.schema';
 import { buildEnrichedAppointmentPayload } from './schemas/appointment-enriched';
 import { Appointment, AppointmentDocument } from './schemas/appointment.schema';
 import { AppointmentTimeHelper } from './utils/appointment-time.helper';
+
+// Default SLA window for a receptionist to pick up a broad-booking task.
+const DEFAULT_ASSIGNMENT_DEADLINE_MINUTES = 30;
 
 type BookingAmountBreakdown = {
   originalAmount: number;
@@ -51,6 +60,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
     @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
     @InjectModel(Payment.name) private readonly paymentModel: Model<Payment>,
+    @InjectModel(AppointmentAssignmentTask.name)
+    private readonly assignmentTaskModel: Model<AppointmentAssignmentTaskDocument>,
   ) {}
 
   onModuleInit() {
@@ -68,6 +79,13 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
   async bookAppointment(bookingAppointment: AppointmentBookingDto, clientIp = '127.0.0.1'): Promise<DataResponse> {
     // Normalize new visit-based fields before legacy validations/payment flow.
     bookingAppointment = this.normalizeVisitWorkflowDefaults(bookingAppointment);
+
+    // Broad booking has no doctor/slot — branch out before the normal validation,
+    // which hard-requires both. This keeps the normal booking path untouched.
+    if (bookingAppointment.broadBooking) {
+      return this.bookBroadAppointment(bookingAppointment, clientIp);
+    }
+
     this.validateBookingRequest(bookingAppointment);
 
     const bookingId = new Types.ObjectId();
@@ -258,6 +276,224 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
           ...bookingAmounts,
         },
       };
+    }
+  }
+
+  /**
+   * Broad booking: create a PENDING appointment with no doctor/slot plus a PENDING
+   * assignment task for receptionists. Does NOT emit appointment.booking.success and
+   * does NOT create a Visit — those happen only once a doctor/slot is assigned.
+   */
+  private async bookBroadAppointment(
+    bookingAppointment: AppointmentBookingDto,
+    clientIp: string,
+  ): Promise<DataResponse> {
+    this.validateBroadBookingRequest(bookingAppointment);
+
+    const bookingDateEpoch = bookingAppointment.bookingDate
+      ? TimeHelper.toEpoch(TimeHelper.parseISOToUTC(bookingAppointment.bookingDate))
+      : Date.now();
+
+    const isDichVu = bookingAppointment.paymentCategory === PaymentCategory.DICH_VU;
+    const consultationFee = this.resolveConsultationFee();
+    const amounts = this.getDefaultAmountBreakdown(consultationFee);
+    const deadlineAt = Date.now() + this.resolveAssignmentDeadlineMs();
+
+    const bookingId = new Types.ObjectId();
+    const session = await this.appointmentModel.db.startSession();
+    let appointmentDoc: AppointmentDocument | null = null;
+    let taskId: string | null = null;
+    let committed = false;
+
+    try {
+      await session.withTransaction(async () => {
+        const apptDocs = await this.appointmentModel.create(
+          [
+            {
+              _id: bookingId,
+              // No real schedule yet; placeholders satisfy the required fields and are
+              // overwritten when a receptionist assigns a doctor/slot. The appointment is
+              // distinguished as broad via assignmentStatus = AWAITING_ASSIGNMENT.
+              date: bookingDateEpoch,
+              scheduledAt: bookingDateEpoch,
+              bookingDate: bookingDateEpoch,
+              appointmentStatus: AppointmentStatus.PENDING,
+              assignmentStatus: AssignmentStatus.AWAITING_ASSIGNMENT,
+              serviceType: bookingAppointment.serviceType,
+              consultationFee: amounts.originalAmount,
+              paymentCategory: bookingAppointment.paymentCategory,
+              depositAmount: isDichVu ? bookingAppointment.depositAmount ?? 0 : 0,
+              depositStatus: isDichVu ? DepositStatus.PENDING : DepositStatus.NOT_REQUIRED,
+              depositPaidAmount: 0,
+              coinDiscountAmount: amounts.discountAmount,
+              paymentAmount: amounts.finalAmount,
+              // doctorId and timeSlot intentionally omitted (null) until assignment.
+              patientId: new Types.ObjectId(bookingAppointment.patientId),
+              reasonForAppointment: bookingAppointment.reasonForAppointment,
+              specialtyId: bookingAppointment.specialty ?? null,
+              paymentMethod: bookingAppointment.paymentMethod,
+              hospitalName: bookingAppointment.hospitalName,
+              patientEmail: bookingAppointment.patientEmail,
+            },
+          ],
+          { session },
+        );
+        appointmentDoc = apptDocs[0] as AppointmentDocument;
+
+        const now = Date.now();
+        const taskDocs = await this.assignmentTaskModel.create(
+          [
+            {
+              appointmentId: appointmentDoc._id,
+              status: AssignmentTaskStatus.PENDING,
+              deadlineAt,
+              specialty: bookingAppointment.specialty,
+              reasonForAppointment: bookingAppointment.reasonForAppointment,
+              patientEmail: bookingAppointment.patientEmail,
+              priority: 'NORMAL',
+              history: [
+                {
+                  at: now,
+                  from: '',
+                  to: AssignmentTaskStatus.PENDING,
+                  by: 'system',
+                  note: 'broad booking created',
+                },
+              ],
+            },
+          ],
+          { session },
+        );
+        taskId = taskDocs[0]._id.toString();
+      });
+      committed = true;
+    } catch (error: any) {
+      this.logger.error(`bookBroadAppointment failed: ${error?.message || String(error)}`);
+    } finally {
+      await session.endSession();
+    }
+
+    // Both appointment and task are created atomically; treat as failure unless the
+    // transaction committed. (The unique partial index on appointmentId still guards
+    // against duplicate active tasks should the same appointment ever be retried.)
+    if (!committed || !appointmentDoc || !taskId) {
+      return {
+        code: ResponseCode.ERROR,
+        message: 'Broad booking failed',
+        data: { ...amounts },
+      };
+    }
+
+    const appointment = appointmentDoc as AppointmentDocument;
+    const appointmentId = appointment._id.toString();
+
+    // DICH_VU broad booking takes the deposit upfront (same as normal DICH_VU), so the
+    // queue only holds paying patients. Failure marks the appointment FAILED + task CANCELLED.
+    let depositInfo: { depositPaymentId?: string; paymentUrl?: string } = {};
+    if (isDichVu) {
+      try {
+        const depositPayment = await this.paymentService.createDepositPaymentForAppointment(
+          appointmentId,
+          bookingAppointment.depositAmount ?? 0,
+          clientIp,
+        );
+        depositInfo = {
+          depositPaymentId: depositPayment.paymentId,
+          paymentUrl: depositPayment.paymentUrl,
+        };
+      } catch (error: any) {
+        await this.cancelBroadBookingAfterDepositFailure(appointmentId, taskId!);
+        return {
+          code: ResponseCode.ERROR,
+          message: error?.message || 'Deposit payment creation failed',
+          data: { appointmentId, ...amounts },
+        };
+      }
+    }
+
+    // Notify the assignment pipeline. Visit creation is deliberately deferred.
+    this.eventEmitter.emit('appointment.assignment.created', {
+      taskId,
+      appointmentId,
+      patientEmail: bookingAppointment.patientEmail,
+      specialty: bookingAppointment.specialty,
+      priority: 'NORMAL',
+      deadlineAt,
+      reasonForAppointment: bookingAppointment.reasonForAppointment,
+    });
+
+    return {
+      code: ResponseCode.PENDING,
+      message: isDichVu
+        ? 'Broad appointment created. Complete deposit payment; a receptionist will assign a doctor.'
+        : 'Broad appointment created. A receptionist will assign a doctor.',
+      data: {
+        appointmentId,
+        assignmentTaskId: taskId,
+        assignmentStatus: AssignmentStatus.AWAITING_ASSIGNMENT,
+        depositStatus: isDichVu ? DepositStatus.PENDING : DepositStatus.NOT_REQUIRED,
+        depositAmount: isDichVu ? bookingAppointment.depositAmount ?? 0 : 0,
+        ...depositInfo,
+        ...amounts,
+      },
+    };
+  }
+
+  private validateBroadBookingRequest(dto: AppointmentBookingDto) {
+    if (!dto.patientEmail || !dto.patientId) {
+      throw new BadRequestException('Patient context is required');
+    }
+
+    // At least one routing hint is required so a receptionist can triage the request.
+    if (!dto.specialty && !dto.reasonForAppointment) {
+      throw new BadRequestException('Either specialty or reasonForAppointment is required for broad booking');
+    }
+
+    if (dto.paymentMethod === PaymentMethodEnum.COIN) {
+      throw new BadRequestException('COIN payment method is deprecated. Use useCoin=true for discount with ONLINE/VNPAY/CREDIT');
+    }
+
+    // DICH_VU still requires an upfront deposit, mirroring the normal booking rule.
+    if (dto.paymentCategory === PaymentCategory.DICH_VU && (!dto.depositAmount || dto.depositAmount <= 0)) {
+      throw new BadRequestException('depositAmount must be greater than 0 for DICH_VU bookings');
+    }
+  }
+
+  private resolveAssignmentDeadlineMs(): number {
+    const configured = Number(this.config.get('ASSIGNMENT_DEADLINE_MINUTES'));
+    const minutes =
+      Number.isFinite(configured) && configured > 0
+        ? Math.floor(configured)
+        : DEFAULT_ASSIGNMENT_DEADLINE_MINUTES;
+    return minutes * 60_000;
+  }
+
+  private async cancelBroadBookingAfterDepositFailure(appointmentId: string, taskId: string) {
+    try {
+      await this.appointmentModel.updateOne(
+        { _id: new Types.ObjectId(appointmentId) },
+        { $set: { appointmentStatus: AppointmentStatus.FAILED, depositStatus: DepositStatus.FAILED } },
+      );
+      const now = Date.now();
+      await this.assignmentTaskModel.updateOne(
+        { _id: new Types.ObjectId(taskId), status: AssignmentTaskStatus.PENDING },
+        {
+          $set: { status: AssignmentTaskStatus.CANCELLED },
+          $push: {
+            history: {
+              at: now,
+              from: AssignmentTaskStatus.PENDING,
+              to: AssignmentTaskStatus.CANCELLED,
+              by: 'system',
+              note: 'deposit payment creation failed',
+            },
+          },
+        },
+      );
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to roll back broad booking ${appointmentId}/${taskId}: ${error?.message || String(error)}`,
+      );
     }
   }
 
@@ -691,6 +927,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       .find({
         appointmentStatus: AppointmentStatus.PENDING,
         createdAt: { $lte: expirationTime },
+        // Broad appointments await receptionist assignment; their lifecycle is governed by
+        // the assignment task deadline, not the booking-payment TTL.
+        assignmentStatus: { $ne: AssignmentStatus.AWAITING_ASSIGNMENT },
       })
       .exec();
 
@@ -781,6 +1020,12 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
 
     if (!dto.timeSlotId) {
       throw new BadRequestException('Time slot is required');
+    }
+
+    // appointmentDate is optional at the DTO level so broad bookings can omit it;
+    // the normal (doctor-assigned) path requires it here. Legacy `date` is still accepted.
+    if (!dto.appointmentDate && !dto.date) {
+      throw new BadRequestException('appointmentDate is required');
     }
 
     if (!dto.hospitalName) {

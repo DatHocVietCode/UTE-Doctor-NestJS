@@ -20,14 +20,25 @@ import { CompleteVisitDto } from "src/visit/dto/complete-visit.dto";
 
 
 export class AppointmentBookingRequestDto {
+  // Optional at the pipe level so broad bookings (no doctor/slot) can omit it.
+  // Normal booking still requires it via AppointmentBookingService.validateBookingRequest.
+  @IsOptional()
   @IsString()
-  hospitalName: string;
+  hospitalName?: string;
 
-  // REQUIRED: When the medical visit is scheduled to happen (ISO 8601 with timezone).
+  // When the medical visit is scheduled to happen (ISO 8601 with timezone).
+  // Required for normal booking (enforced in the service); broad booking has no date yet.
+  @IsOptional()
   @IsString()
   @IsNotEmpty({ message: 'appointmentDate is required' })
   @IsIsoWithTimezone({ message: 'appointmentDate must be ISO 8601 with timezone (Z or +/-HH:mm)' })
   appointmentDate: string;
+
+  // Broad booking: patient books without choosing a doctor/slot; a receptionist
+  // assignment task is created instead. Branches before normal validation.
+  @IsOptional()
+  @IsBoolean()
+  broadBooking?: boolean;
 
   // OPTIONAL: When the booking request is created/recorded (ISO 8601 with timezone).
   // If omitted, server uses current request processing time.
@@ -46,6 +57,8 @@ export class AppointmentBookingRequestDto {
   @IsString()
   specialty?: string;
 
+  // Optional at the pipe level for broad booking; required for normal booking (service-enforced).
+  @IsOptional()
   @IsMongoId()
   timeSlotId: string;
 
@@ -54,9 +67,11 @@ export class AppointmentBookingRequestDto {
   @IsOptional()
   doctor: DoctorDto | null;
 
+  @IsOptional()
   @IsEnum(ServiceType)
   serviceType: ServiceType;
 
+  @IsOptional()
   @IsEnum(PaymentMethodEnum)
   paymentMethod: PaymentMethodEnum;
 

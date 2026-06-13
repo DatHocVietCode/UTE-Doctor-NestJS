@@ -27,9 +27,9 @@ export class ShiftListener {
         console.log("[ShiftListener] Nhận sự kiện doctor.update-schedule với payload:", payload);
         const isUpdated: boolean = await this.shiftService.handleDoctorUpdateSchedule(payload);
         if (isUpdated) {
-            console.log(`[ShiftListener] Cập nhật trạng thái TimeSlot ${payload.timeSlot._id.toString()} thành BOOKED thành công.`);
+            console.log(`[ShiftListener] Cập nhật trạng thái TimeSlot ${payload.timeSlot!._id.toString()} thành BOOKED thành công.`);
         } else {
-            console.log(`[ShiftListener] Cập nhật trạng thái TimeSlot ${payload.timeSlot._id.toString()} thành BOOKED thất bại.`);
+            console.log(`[ShiftListener] Cập nhật trạng thái TimeSlot ${payload.timeSlot!._id.toString()} thành BOOKED thất bại.`);
         }
     }
 }

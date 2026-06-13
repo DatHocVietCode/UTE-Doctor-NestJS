@@ -2,7 +2,9 @@ import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import mongoose, { HydratedDocument } from "mongoose";
 import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 import { AppointmentStatus } from "../enums/Appointment-status.enum";
+import { AssignmentStatus } from "../enums/assignment-status.enum";
 import { DepositStatus } from "../enums/deposit-status.enum";
+import { ACTIVE_DOCTOR_SLOT_PARTIAL_FILTER } from "./appointment.index";
 import { PaymentCategory } from "../enums/payment-category.enum";
 import { ServiceType } from "../enums/service-type.enum";
 
@@ -78,8 +80,10 @@ export class Appointment {
     @Prop()
     paymentTransactionStatus!: string;
 
-    @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'TimeSlotLog', required: true })
-    timeSlot!: mongoose.Types.ObjectId;
+    // Optional: a broad (unassigned-doctor) appointment has no slot until a receptionist assigns one.
+    // Normal booking still requires a slot — enforced in AppointmentBookingService.validateBookingRequest.
+    @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'TimeSlotLog' })
+    timeSlot?: mongoose.Types.ObjectId;
 
     @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true })
     patientId!: mongoose.Types.ObjectId; // This is account Id, not patient Id (To be fixed later)
@@ -101,18 +105,30 @@ export class Appointment {
 
     @Prop()
     hospitalName!: string;
+
+    // Routing state for broad / unassigned-doctor appointments.
+    // NONE for normal bookings; AWAITING_ASSIGNMENT once a broad appointment is created;
+    // ASSIGNED after a receptionist sets the doctor/slot. Kept as an explicit field for indexability.
+    @Prop({ type: String, enum: AssignmentStatus, default: AssignmentStatus.NONE })
+    assignmentStatus!: AssignmentStatus;
 }
 
 export const AppointmentSchema = SchemaFactory.createForClass(Appointment);
 AppointmentSchema.index({ scheduledAt: 1 });
 AppointmentSchema.index({ doctorId: 1, scheduledAt: 1 });
 AppointmentSchema.index({ patientId: 1, scheduledAt: 1 });
+// Active appointments must not double-book a concrete doctor/date/slot.
+// The partial filter additionally requires doctorId AND timeSlot to exist so that
+// many broad (unassigned-doctor) PENDING appointments — which have null doctor/slot —
+// do not collide on a single null key.
+// NOTE (migration): the previous version of this index omitted the doctorId/timeSlot
+// existence checks. Because the key spec is unchanged, MongoDB will report an
+// IndexOptionsConflict and keep the OLD index; the old index must be dropped so this
+// definition can be rebuilt. See PHASE7_8 notes / batch summary.
 AppointmentSchema.index(
     { doctorId: 1, date: 1, timeSlot: 1 },
     {
         unique: true,
-        partialFilterExpression: {
-            appointmentStatus: { $in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED] },
-        },
+        partialFilterExpression: ACTIVE_DOCTOR_SLOT_PARTIAL_FILTER,
     },
 );

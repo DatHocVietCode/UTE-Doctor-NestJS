@@ -14,6 +14,9 @@ import { TimeSlotLog, TimeSlotLogSchema } from "src/timeslot/schemas/timeslot-lo
 import { Visit, VisitSchema } from "src/visit/schemas/visit.schema";
 import { VisitModule } from "src/visit/visit.module";
 import { WalletModule } from "src/wallet/wallet.module";
+import { AssignmentSlaScheduler } from "./appointment-assignment-sla.scheduler";
+import { AppointmentAssignmentTaskController } from "./appointment-assignment-task.controller";
+import { AppointmentAssignmentTaskService } from "./appointment-assignment-task.service";
 import { AppointmentBookingService } from "./appointment-booking.service";
 import { AppointmentRescheduleService } from './appointment-reschedule.service';
 import { AppointmentController } from "./appointment.controller";
@@ -21,6 +24,7 @@ import { AppointmentService } from "./appointment.service";
 import { BookingListener } from "./listenners/booking.listenner";
 import { CancelListener } from "./listenners/cancel.listener";
 import { RescheduleListener } from "./listenners/reschedule.listener";
+import { AppointmentAssignmentTask, AppointmentAssignmentTaskSchema } from "./schemas/appointment-assignment-task.schema";
 import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
 
 
@@ -28,6 +32,7 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
     imports: [
         MongooseModule.forFeature([
           { name: Appointment.name, schema: AppointmentSchema },
+          { name: AppointmentAssignmentTask.name, schema: AppointmentAssignmentTaskSchema },
           { name: TimeSlotLog.name, schema: TimeSlotLogSchema },
           { name: Shift.name, schema: ShiftSchema },
           { name: Patient.name, schema: PatientSchema },
@@ -43,8 +48,10 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
         WalletModule,
         forwardRef(() => PaymentModule),
     ],
-    controllers: [AppointmentController],
-      providers: [AppointmentService, AppointmentBookingService, AppointmentRescheduleService, RedisService, BookingListener, CancelListener, RescheduleListener],
+    // AppointmentAssignmentTaskController must precede AppointmentController so its
+    // static `assignment-tasks` routes are matched before AppointmentController's `:id`.
+    controllers: [AppointmentAssignmentTaskController, AppointmentController],
+      providers: [AppointmentService, AppointmentBookingService, AppointmentRescheduleService, AppointmentAssignmentTaskService, AssignmentSlaScheduler, RedisService, BookingListener, CancelListener, RescheduleListener],
       exports: [AppointmentService, AppointmentBookingService]
 })
 export class AppointmentModule {}

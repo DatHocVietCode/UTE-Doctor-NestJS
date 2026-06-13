@@ -73,6 +73,7 @@ function createService(input: { appointment?: any; payment?: any } = {}) {
     {} as any,
     {} as any,
     {} as any,
+    {} as any,
   );
 
   return { service, paymentFindOne };
