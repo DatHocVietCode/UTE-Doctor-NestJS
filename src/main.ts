@@ -34,7 +34,8 @@ async function bootstrap() {
   app.useStaticAssets(path.join(process.cwd(), 'public'));
 
   const port = process.env.PORT ?? 3000;
-  await app.listen(port);
-  console.log(`Server is running on http://localhost:${port}/api`);
+  // Bind all interfaces so the API is reachable from Docker's container network.
+  await app.listen(port, '0.0.0.0');
+  console.log(`Server is running on http://0.0.0.0:${port}/api`);
 }
 bootstrap();
