@@ -1,55 +1,31 @@
-name: Deploy Backend to EC2
+- name: Deploy on EC2
+  run: |
+    ssh -o IdentitiesOnly=yes -i ~/.ssh/ute_doctor_deploy "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << 'EOF'
+      set -e
 
-on:
-  push:
-    branches:
-      - master
-  workflow_dispatch:
+      cd ~/ute-doctor-be
 
-concurrency:
-  group: deploy-backend-production
-  cancel-in-progress: true
+      echo "Pulling latest source..."
+      git fetch origin master
+      git reset --hard origin/master
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
+      echo "Checking production env..."
+      test -f .env.production
 
-    steps:
-      - name: Setup SSH
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ute_doctor_deploy
-          chmod 600 ~/.ssh/ute_doctor_deploy
-          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+      echo "Validating docker compose..."
+      docker compose --env-file .env.production config --quiet
 
-      - name: Deploy on EC2
-        run: |
-          ssh -i ~/.ssh/ute_doctor_deploy "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << 'EOF'
-            set -e
+      echo "Building and restarting services..."
+      docker compose --env-file .env.production up -d --build
 
-            cd ~/ute-doctor-be
+      echo "Current containers:"
+      docker compose ps
 
-            echo "Pulling latest source..."
-            git fetch origin master
-            git reset --hard origin/master
+      echo "Waiting for API..."
+      sleep 8
 
-            echo "Checking production env..."
-            test -f .env.production
+      echo "Smoke test:"
+      curl -fsS http://127.0.0.1:3001/api
 
-            echo "Validating docker compose..."
-            docker compose --env-file .env.production config --quiet
-
-            echo "Building and restarting services..."
-            docker compose --env-file .env.production up -d --build
-
-            echo "Current containers:"
-            docker compose ps
-
-            echo "Waiting for API..."
-            sleep 8
-
-            echo "Smoke test:"
-            curl -fsS http://127.0.0.1:3001/api
-
-            echo "Deploy completed."
-          EOF
+      echo "Deploy completed."
+    EOF
