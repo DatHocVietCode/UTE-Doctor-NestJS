@@ -17,6 +17,7 @@ import { AccountModule } from './account/account.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AppointmentModule } from './appointment/appointment.module';
+import { AssistantModule } from './assistant/assistant.module';
 import { AuthModule } from './auth/auth.module';
 import { ChatModule } from './chat/chat.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
@@ -71,6 +72,7 @@ import { OtpModule } from './utils/otp/otp.module';
     CloudinaryModule,
     NewsModule,
 	DoctorPostModule,
+    AssistantModule,
     ChatModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
