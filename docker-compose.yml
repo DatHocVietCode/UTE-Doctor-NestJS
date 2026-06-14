@@ -13,7 +13,7 @@ services:
       - rabbitmq
     restart: unless-stopped
 
-    mongodb:
+  mongodb:
       image: mongo:7
       container_name: ute-doctor-mongodb
       command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
@@ -22,7 +22,7 @@ services:
       ports:
         - '127.0.0.1:27017:27017'
       restart: unless-stopped
-      
+
   redis:
     image: redis:7-alpine
     command: ['redis-server', '--appendonly', 'yes']
