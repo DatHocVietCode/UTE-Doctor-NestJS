@@ -81,17 +81,17 @@ describe('notification audience ownership', () => {
     expect(patientRow).toMatchObject({
       recipientEmail: 'patient@x.com',
       recipientRole: 'PATIENT',
-      title: 'Dat lich kham thanh cong',
+      title: 'Đặt lịch khám thành công',
       details: expect.objectContaining({ recipientRole: 'PATIENT' }),
     });
     expect(doctorRow).toMatchObject({
       recipientEmail: 'doctor@x.com',
       recipientRole: 'DOCTOR',
-      title: 'Lich kham moi duoc gan cho ban',
+      title: 'Lịch khám mới được gán cho bạn',
       details: expect.objectContaining({ recipientRole: 'DOCTOR' }),
     });
-    expect(patientRow.message).toContain('cua ban');
-    expect(doctorRow.message).toContain('voi benh nhan Patient@X.com');
+    expect(patientRow.message).toContain('của bạn');
+    expect(doctorRow.message).toContain('với bệnh nhân Patient@X.com');
     expect(patientRow.message).not.toBe(doctorRow.message);
   });
 
@@ -153,8 +153,8 @@ describe('notification audience ownership', () => {
 
     const patientRow = write.storeIfNotExists.mock.calls[0][0];
     const doctorRow = write.storeIfNotExists.mock.calls[1][0];
-    expect(patientRow.title).toBe('Lich kham cua ban da bi huy');
-    expect(doctorRow.title).toBe('Benh nhan da huy lich kham');
+    expect(patientRow.title).toBe('Lịch khám của bạn đã bị hủy');
+    expect(doctorRow.title).toBe('Bệnh nhân đã hủy lịch khám');
     expect(patientRow.message).not.toBe(doctorRow.message);
   });
 
@@ -190,9 +190,9 @@ describe('notification audience ownership', () => {
 
     const patientRow = write.storeIfNotExists.mock.calls[0][0];
     const doctorRow = write.storeIfNotExists.mock.calls[1][0];
-    expect(patientRow.title).toBe('Lich kham cua ban da duoc doi lich');
-    expect(doctorRow.title).toBe('Lich kham da duoc doi lich');
-    expect(doctorRow.message).toContain('voi benh nhan Patient@X.com');
+    expect(patientRow.title).toBe('Lịch khám của bạn đã được đổi lịch');
+    expect(doctorRow.title).toBe('Lịch khám đã được đổi lịch');
+    expect(doctorRow.message).toContain('với bệnh nhân Patient@X.com');
     expect(patientRow.message).not.toBe(doctorRow.message);
   });
 
@@ -240,7 +240,7 @@ describe('notification audience ownership', () => {
       expect.objectContaining({
         recipientEmail: 'patient@x.com',
         recipientRole: 'PATIENT',
-        title: 'Thanh toan thanh cong',
+        title: 'Thanh toán thành công',
         details: expect.objectContaining({ recipientRole: 'PATIENT' }),
       }),
     );

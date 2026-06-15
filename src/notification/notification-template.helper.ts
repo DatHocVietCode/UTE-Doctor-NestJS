@@ -14,7 +14,7 @@ export type NotificationTemplate = {
 };
 
 function withOptionalPlace(message: string, hospitalName?: string): string {
-  return hospitalName ? `${message} tai ${hospitalName}` : message;
+  return hospitalName ? `${message} tại ${hospitalName}` : message;
 }
 
 export function buildAppointmentSuccessNotification(
@@ -22,25 +22,25 @@ export function buildAppointmentSuccessNotification(
   recipientRole: NotificationRecipientRole,
   timeSlotName?: string,
 ): NotificationTemplate {
-  const slotText = timeSlotName ? ` luc ${timeSlotName}` : '';
+  const slotText = timeSlotName ? ` lúc ${timeSlotName}` : '';
   const baseSchedule = `${payload.date}${slotText}`;
 
   if (recipientRole === 'DOCTOR') {
     return {
-      title: 'Lich kham moi duoc gan cho ban',
+      title: 'Lịch khám mới được gán cho bạn',
       message:
         withOptionalPlace(
-          `Ban co lich kham moi voi benh nhan ${payload.patientEmail} vao ngay ${baseSchedule}`,
+          `Bạn có lịch khám mới với bệnh nhân ${payload.patientEmail} vào ngày ${baseSchedule}`,
           payload.hospitalName,
         ) + '.',
     };
   }
 
   return {
-    title: 'Dat lich kham thanh cong',
+    title: 'Đặt lịch khám thành công',
     message:
       withOptionalPlace(
-        `Lich kham cua ban da duoc xac nhan vao ngay ${baseSchedule}`,
+        `Lịch khám của bạn đã được xác nhận vào ngày ${baseSchedule}`,
         payload.hospitalName,
       ) + '.',
   };
@@ -52,27 +52,27 @@ export function buildAppointmentCancelledNotification(
   timeSlotName?: string,
 ): NotificationTemplate {
   const slotText = timeSlotName || payload.timeSlotLabel || payload.timeSlot;
-  const schedule = `${payload.date}${slotText ? ` luc ${slotText}` : ''}`;
-  const place = payload.hospitalName ? ` tai ${payload.hospitalName}` : '';
-  const reason = payload.reason ? ` Ly do: ${payload.reason}.` : '';
+  const schedule = `${payload.date}${slotText ? ` lúc ${slotText}` : ''}`;
+  const place = payload.hospitalName ? ` tại ${payload.hospitalName}` : '';
+  const reason = payload.reason ? ` Lý do: ${payload.reason}.` : '';
 
   if (recipientRole === 'DOCTOR') {
     if (payload.appointmentId?.startsWith('doctor-shift-')) {
       return {
-        title: 'Ca truc cua ban da bi huy',
-        message: `Ca truc ${payload.timeSlot} ngay ${payload.date}${reason ? `.${reason}` : '.'}`,
+        title: 'Ca trực của bạn đã bị hủy',
+        message: `Ca trực ${payload.timeSlot} ngày ${payload.date}${reason ? `.${reason}` : '.'}`,
       };
     }
 
     return {
-      title: 'Benh nhan da huy lich kham',
-      message: `Benh nhan ${payload.patientEmail} da huy lich kham ngay ${schedule}${place}.${reason}`,
+      title: 'Bệnh nhân đã hủy lịch khám',
+      message: `Bệnh nhân ${payload.patientEmail} đã hủy lịch khám ngày ${schedule}${place}.${reason}`,
     };
   }
 
   return {
-    title: 'Lich kham cua ban da bi huy',
-    message: `Lich kham cua ban ngay ${schedule}${place} da bi huy.${reason}`,
+    title: 'Lịch khám của bạn đã bị hủy',
+    message: `Lịch khám của bạn ngày ${schedule}${place} đã bị hủy.${reason}`,
   };
 }
 
@@ -83,25 +83,25 @@ export function buildAppointmentRescheduledNotification(
   timeSlotName?: string,
 ): NotificationTemplate {
   const slotText = timeSlotName ? ` - ${timeSlotName}` : '';
-  const place = payload.hospitalName ? ` tai ${payload.hospitalName}` : '';
+  const place = payload.hospitalName ? ` tại ${payload.hospitalName}` : '';
 
   if (recipientRole === 'DOCTOR') {
     return {
-      title: 'Lich kham da duoc doi lich',
-      message: `Lich kham voi benh nhan ${payload.patientEmail} da duoc doi sang ${newDateText}${slotText}${place}.`,
+      title: 'Lịch khám đã được đổi lịch',
+      message: `Lịch khám với bệnh nhân ${payload.patientEmail} đã được đổi sang ${newDateText}${slotText}${place}.`,
     };
   }
 
   return {
-    title: 'Lich kham cua ban da duoc doi lich',
-    message: `Lich kham cua ban da duoc doi sang ${newDateText}${slotText}${place}.`,
+    title: 'Lịch khám của bạn đã được đổi lịch',
+    message: `Lịch khám của bạn đã được đổi sang ${newDateText}${slotText}${place}.`,
   };
 }
 
 export function buildAppointmentDoctorAssignedNotification(): NotificationTemplate {
   return {
-    title: 'Bac si da duoc phan cong',
-    message: 'Le tan da phan cong bac si va lich kham cho yeu cau cua ban.',
+    title: 'Bác sĩ đã được phân công',
+    message: 'Lễ tân đã phân công bác sĩ và lịch khám cho yêu cầu của bạn.',
   };
 }
 
@@ -109,8 +109,8 @@ export function buildPaymentSuccessNotification(
   payload: PaymentSuccessDto,
 ): NotificationTemplate {
   return {
-    title: 'Thanh toan thanh cong',
-    message: `Thanh toan don ${payload.orderId} cua ban da hoan tat thanh cong.`,
+    title: 'Thanh toán thành công',
+    message: `Thanh toán đơn ${payload.orderId} của bạn đã hoàn tất thành công.`,
   };
 }
 
@@ -118,18 +118,18 @@ export function buildAssignmentTaskCreatedNotification(
   payload: AssignmentTaskCreatedDto,
 ): NotificationTemplate {
   return {
-    title: 'Yeu cau dat kham can phan cong bac si',
+    title: 'Yêu cầu đặt khám cần phân công bác sĩ',
     message: payload.specialty
-      ? `Co yeu cau dat kham moi (${payload.specialty}) dang cho phan cong bac si.`
-      : 'Co yeu cau dat kham moi dang cho phan cong bac si.',
+      ? `Có yêu cầu đặt khám mới (${payload.specialty}) đang chờ phân công bác sĩ.`
+      : 'Có yêu cầu đặt khám mới đang chờ phân công bác sĩ.',
   };
 }
 
 export function buildAssignmentTaskReminderNotification(): NotificationTemplate {
   return {
-    title: 'Nhac nho: yeu cau dat kham sap qua han phan cong',
+    title: 'Nhắc nhở: yêu cầu đặt khám sắp quá hạn phân công',
     message:
-      'Co yeu cau dat kham dang cho phan cong bac si va sap qua han. Vui long xu ly som.',
+      'Có yêu cầu đặt khám đang chờ phân công bác sĩ và sắp quá hạn. Vui lòng xử lý sớm.',
   };
 }
 
@@ -137,8 +137,8 @@ export function buildAssignmentTaskExpiredNotification(
   _payload: AssignmentTaskExpiredDto,
 ): NotificationTemplate {
   return {
-    title: 'Yeu cau dat kham da qua han phan cong',
+    title: 'Yêu cầu đặt khám đã quá hạn phân công',
     message:
-      'Co yeu cau dat kham da qua han phan cong bac si. Vui long xu ly thu cong (lien he benh nhan / phan cong lai).',
+      'Có yêu cầu đặt khám đã quá hạn phân công bác sĩ. Vui lòng xử lý thủ công (liên hệ bệnh nhân / phân công lại).',
   };
 }
