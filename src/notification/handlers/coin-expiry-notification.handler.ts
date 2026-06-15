@@ -5,27 +5,39 @@ import { COIN_EXPIRY_REMINDER_MAIL_EVENT } from 'src/wallet/coin/coin-expiry-rem
 import type { CoinExpiryReminderEventPayload } from 'src/wallet/coin/coin-expiry-reminder/dto/coin-expiry-reminder.dto';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
-import type { NotificationHandler, NotificationHandlerMeta } from './notification-handler.interface';
+import type {
+  NotificationHandler,
+  NotificationHandlerMeta,
+} from './notification-handler.interface';
 
 @Injectable()
-export class CoinExpiryNotificationHandler implements NotificationHandler<CoinExpiryReminderEventPayload> {
+export class CoinExpiryNotificationHandler
+  implements NotificationHandler<CoinExpiryReminderEventPayload>
+{
   constructor(
     private readonly notificationWriteService: NotificationWriteService,
     private readonly redisService: RedisService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async handle(payload: CoinExpiryReminderEventPayload, meta: NotificationHandlerMeta): Promise<void> {
+  async handle(
+    payload: CoinExpiryReminderEventPayload,
+    meta: NotificationHandlerMeta,
+  ): Promise<void> {
     const title = 'Thong bao coin sap het han';
     const message = `Ban co ${payload.amount} coin sap het han. Vui long su dung truoc khi het han.`;
 
     const created = await this.notificationWriteService.storeIfNotExists({
       idempotencyKey: meta.idempotencyKey,
       receiverEmail: [meta.recipientEmail],
+      recipientEmail: meta.recipientEmail,
+      recipientRole: meta.recipientRole,
       title,
       message,
       details: {
         type: 'coin_expiry_reminder',
+        recipientEmail: meta.recipientEmail,
+        recipientRole: meta.recipientRole,
         jobId: payload.jobId,
         transactionId: payload.transactionId,
         amount: payload.amount,
@@ -46,6 +58,7 @@ export class CoinExpiryNotificationHandler implements NotificationHandler<CoinEx
       data: payload,
       createdAt: meta.createdAt,
       recipientEmail: meta.recipientEmail,
+      recipientRole: meta.recipientRole,
       idempotencyKey: meta.idempotencyKey,
     });
 

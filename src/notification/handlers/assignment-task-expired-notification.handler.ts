@@ -3,6 +3,7 @@ import { RedisService } from 'src/common/redis/redis.service';
 import type { AssignmentTaskExpiredDto } from '../dto/notification-payload.dto';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
+import { buildAssignmentTaskExpiredNotification } from '../notification-template.helper';
 import type {
   NotificationHandler,
   NotificationHandlerMeta,
@@ -21,17 +22,19 @@ export class AssignmentTaskExpiredNotificationHandler
     payload: AssignmentTaskExpiredDto,
     meta: NotificationHandlerMeta,
   ): Promise<void> {
-    const title = 'Yeu cau dat kham da qua han phan cong';
-    const message =
-      'Co yeu cau dat kham da qua han phan cong bac si. Vui long xu ly thu cong (lien he benh nhan / phan cong lai).';
+    const { title, message } = buildAssignmentTaskExpiredNotification(payload);
 
     const created = await this.notificationWriteService.storeIfNotExists({
       idempotencyKey: meta.idempotencyKey,
       receiverEmail: [meta.recipientEmail],
+      recipientEmail: meta.recipientEmail,
+      recipientRole: meta.recipientRole,
       title,
       message,
       details: {
         type: 'assignment_task_expired',
+        recipientEmail: meta.recipientEmail,
+        recipientRole: meta.recipientRole,
         taskId: payload.taskId,
         appointmentId: payload.appointmentId,
         deadlineAt: payload.deadlineAt,
@@ -52,6 +55,7 @@ export class AssignmentTaskExpiredNotificationHandler
       data: payload,
       createdAt: meta.createdAt,
       recipientEmail: meta.recipientEmail,
+      recipientRole: meta.recipientRole,
       idempotencyKey: meta.idempotencyKey,
     });
   }

@@ -108,6 +108,7 @@ export class NotificationService {
 
     const meta: NotificationHandlerMeta = {
       recipientEmail: payload.recipientEmail,
+      recipientRole: payload.recipientRole,
       createdAt: payload.createdAt,
       idempotencyKey: payload.idempotencyKey,
     };

@@ -3,7 +3,11 @@ import { RedisService } from 'src/common/redis/redis.service';
 import type { AppointmentDoctorAssignedDto } from '../dto/notification-payload.dto';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
-import type { NotificationHandler, NotificationHandlerMeta } from './notification-handler.interface';
+import { buildAppointmentDoctorAssignedNotification } from '../notification-template.helper';
+import type {
+  NotificationHandler,
+  NotificationHandlerMeta,
+} from './notification-handler.interface';
 
 @Injectable()
 export class AppointmentDoctorAssignedNotificationHandler
@@ -14,17 +18,23 @@ export class AppointmentDoctorAssignedNotificationHandler
     private readonly redisService: RedisService,
   ) {}
 
-  async handle(payload: AppointmentDoctorAssignedDto, meta: NotificationHandlerMeta): Promise<void> {
-    const title = 'Bac si da duoc phan cong';
-    const message = 'Le tan da phan cong bac si va lich kham cho yeu cau cua ban.';
+  async handle(
+    payload: AppointmentDoctorAssignedDto,
+    meta: NotificationHandlerMeta,
+  ): Promise<void> {
+    const { title, message } = buildAppointmentDoctorAssignedNotification();
 
     const created = await this.notificationWriteService.storeIfNotExists({
       idempotencyKey: meta.idempotencyKey,
       receiverEmail: [meta.recipientEmail],
+      recipientEmail: meta.recipientEmail,
+      recipientRole: meta.recipientRole,
       title,
       message,
       details: {
         type: 'appointment_doctor_assigned',
+        recipientEmail: meta.recipientEmail,
+        recipientRole: meta.recipientRole,
         appointmentId: payload.appointmentId,
         doctorId: payload.doctorId,
         timeSlotId: payload.timeSlotId,
@@ -43,6 +53,7 @@ export class AppointmentDoctorAssignedNotificationHandler
       data: payload,
       createdAt: meta.createdAt,
       recipientEmail: meta.recipientEmail,
+      recipientRole: meta.recipientRole,
       idempotencyKey: meta.idempotencyKey,
     });
   }

@@ -5,7 +5,11 @@ import { emitTyped } from 'src/utils/helpers/event.helper';
 import type { AppointmentRescheduledNotificationDto } from '../dto/notification-payload.dto';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
-import type { NotificationHandler, NotificationHandlerMeta } from './notification-handler.interface';
+import { buildAppointmentRescheduledNotification } from '../notification-template.helper';
+import type {
+  NotificationHandler,
+  NotificationHandlerMeta,
+} from './notification-handler.interface';
 
 @Injectable()
 export class AppointmentRescheduledNotificationHandler
@@ -17,7 +21,10 @@ export class AppointmentRescheduledNotificationHandler
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async handle(payload: AppointmentRescheduledNotificationDto, meta: NotificationHandlerMeta): Promise<void> {
+  async handle(
+    payload: AppointmentRescheduledNotificationDto,
+    meta: NotificationHandlerMeta,
+  ): Promise<void> {
     const timeSlotName = await emitTyped<string, string>(
       this.eventEmitter,
       'timeslot.get.name.by.id',
@@ -25,23 +32,36 @@ export class AppointmentRescheduledNotificationHandler
     );
 
     // Format epoch ms as a readable VN datetime string for the notification body.
-    const newDateStr = new Date(payload.newScheduledAt).toLocaleString('vi-VN', {
-      timeZone: 'Asia/Ho_Chi_Minh',
-      dateStyle: 'short',
-      timeStyle: 'short',
-    });
+    const newDateStr = new Date(payload.newScheduledAt).toLocaleString(
+      'vi-VN',
+      {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        dateStyle: 'short',
+        timeStyle: 'short',
+      },
+    );
 
-    const title = 'Lịch hẹn đã được dời lịch';
-    const message = `Lịch hẹn của bạn đã được dời sang ${newDateStr}${timeSlotName ? ` - ${timeSlotName}` : ''}${payload.hospitalName ? ` tại ${payload.hospitalName}` : ''}.`;
+    const { title, message } = buildAppointmentRescheduledNotification(
+      payload,
+      meta.recipientRole,
+      newDateStr,
+      timeSlotName,
+    );
 
     const created = await this.notificationWriteService.storeIfNotExists({
       idempotencyKey: meta.idempotencyKey,
       receiverEmail: [meta.recipientEmail],
+      recipientEmail: meta.recipientEmail,
+      recipientRole: meta.recipientRole,
       title,
       message,
       details: {
         type: 'appointment_rescheduled',
+        recipientEmail: meta.recipientEmail,
+        recipientRole: meta.recipientRole,
         appointmentId: payload.appointmentId,
+        patientEmail: payload.patientEmail,
+        doctorEmail: payload.doctorEmail,
         doctorName: payload.doctorName,
         hospitalName: payload.hospitalName,
         oldScheduledAt: payload.oldScheduledAt,
@@ -53,7 +73,7 @@ export class AppointmentRescheduledNotificationHandler
     });
 
     if (!created) {
-      // Duplicate idempotency key — already processed.
+      // Duplicate idempotency keys are retries for the same recipient/event.
       return;
     }
 
@@ -62,6 +82,7 @@ export class AppointmentRescheduledNotificationHandler
       data: payload,
       createdAt: meta.createdAt,
       recipientEmail: meta.recipientEmail,
+      recipientRole: meta.recipientRole,
       idempotencyKey: meta.idempotencyKey,
     });
   }

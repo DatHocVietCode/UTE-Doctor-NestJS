@@ -3,6 +3,7 @@ import { RedisService } from 'src/common/redis/redis.service';
 import type { AssignmentTaskReminderDto } from '../dto/notification-payload.dto';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
+import { buildAssignmentTaskReminderNotification } from '../notification-template.helper';
 import type {
   NotificationHandler,
   NotificationHandlerMeta,
@@ -21,17 +22,19 @@ export class AssignmentTaskReminderNotificationHandler
     payload: AssignmentTaskReminderDto,
     meta: NotificationHandlerMeta,
   ): Promise<void> {
-    const title = 'Nhac nho: yeu cau dat kham sap qua han phan cong';
-    const message =
-      'Co yeu cau dat kham dang cho phan cong bac si va sap qua han. Vui long xu ly som.';
+    const { title, message } = buildAssignmentTaskReminderNotification();
 
     const created = await this.notificationWriteService.storeIfNotExists({
       idempotencyKey: meta.idempotencyKey,
       receiverEmail: [meta.recipientEmail],
+      recipientEmail: meta.recipientEmail,
+      recipientRole: meta.recipientRole,
       title,
       message,
       details: {
         type: 'assignment_task_reminder',
+        recipientEmail: meta.recipientEmail,
+        recipientRole: meta.recipientRole,
         taskId: payload.taskId,
         appointmentId: payload.appointmentId,
         deadlineAt: payload.deadlineAt,
@@ -53,6 +56,7 @@ export class AssignmentTaskReminderNotificationHandler
       data: payload,
       createdAt: meta.createdAt,
       recipientEmail: meta.recipientEmail,
+      recipientRole: meta.recipientRole,
       idempotencyKey: meta.idempotencyKey,
     });
   }

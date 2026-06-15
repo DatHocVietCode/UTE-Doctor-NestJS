@@ -13,7 +13,10 @@ export class PaymentNotificationListener {
   ) {}
 
   @OnEvent('payment.update')
-  async handlePaymentUpdate(payload: { orderId: string; status: 'COMPLETED' | 'FAILED' }) {
+  async handlePaymentUpdate(payload: {
+    orderId: string;
+    status: 'COMPLETED' | 'FAILED';
+  }) {
     if (payload.status !== 'COMPLETED' || !payload.orderId) {
       return;
     }
@@ -41,6 +44,7 @@ export class PaymentNotificationListener {
       data,
       createdAt: Date.now(),
       recipientEmail: normalizedRecipient,
+      recipientRole: 'PATIENT',
       idempotencyKey: `PAYMENT_SUCCESS:${payload.orderId}:${normalizedRecipient}`,
     });
   }

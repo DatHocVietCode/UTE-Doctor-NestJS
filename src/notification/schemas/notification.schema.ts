@@ -1,5 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import mongoose, { Document } from 'mongoose';
+import { NOTIFICATION_RECIPIENT_ROLES } from '../dto/notification-payload.dto';
+import type { NotificationRecipientRole } from '../dto/notification-payload.dto';
 
 export type NotificationDocument = Notification & Document;
 
@@ -19,6 +21,13 @@ export class Notification {
   // receiver có thể là nhiều người
   @Prop({ type: [String], required: false })
   receiverEmail?: string[];
+
+  // Single-recipient ownership fields make notification rows auditable by audience.
+  @Prop({ required: false, index: true })
+  recipientEmail?: string;
+
+  @Prop({ type: String, required: false, enum: NOTIFICATION_RECIPIENT_ROLES })
+  recipientRole?: NotificationRecipientRole;
 
   // gửi broadcast cho tất cả user
   @Prop({ default: false })

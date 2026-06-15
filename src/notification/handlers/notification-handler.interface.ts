@@ -1,5 +1,8 @@
+import type { NotificationRecipientRole } from '../dto/notification-payload.dto';
+
 export type NotificationHandlerMeta = {
   recipientEmail: string;
+  recipientRole: NotificationRecipientRole;
   createdAt: number;
   idempotencyKey: string;
 };

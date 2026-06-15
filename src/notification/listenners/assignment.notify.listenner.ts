@@ -89,6 +89,7 @@ export class AssignmentNotificationListener {
         },
         createdAt: Date.now(),
         recipientEmail,
+        recipientRole: 'RECEPTIONIST',
         // One notification per receptionist per task; duplicate events dedupe on this key.
         idempotencyKey: `ASSIGNMENT_TASK_CREATED:${payload.taskId}:${recipientEmail}`,
       });
@@ -120,6 +121,7 @@ export class AssignmentNotificationListener {
           },
           createdAt: Date.now(),
           recipientEmail,
+          recipientRole: 'RECEPTIONIST',
           // reminderCount keeps each reminder distinct, while retries of the same reminder dedupe.
           idempotencyKey: `ASSIGNMENT_TASK_REMINDER:${payload.taskId}:${payload.reminderCount ?? 0}:${recipientEmail}`,
         });
@@ -157,6 +159,7 @@ export class AssignmentNotificationListener {
           },
           createdAt: Date.now(),
           recipientEmail,
+          recipientRole: 'RECEPTIONIST',
           // Expiry is a one-time transition per task; one notification per recipient.
           idempotencyKey: `ASSIGNMENT_TASK_EXPIRED:${payload.taskId}:${recipientEmail}`,
         });
@@ -251,6 +254,7 @@ export class AssignmentNotificationListener {
       },
       createdAt: Date.now(),
       recipientEmail,
+      recipientRole: 'PATIENT',
       idempotencyKey: `APPOINTMENT_DOCTOR_ASSIGNED:${payload.appointmentId}:${recipientEmail}`,
     });
   }

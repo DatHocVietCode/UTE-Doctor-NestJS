@@ -14,6 +14,16 @@ export type AppointmentCancelledDto = {
   shouldRefund?: boolean;
 };
 
+export const NOTIFICATION_RECIPIENT_ROLES = [
+  'PATIENT',
+  'DOCTOR',
+  'RECEPTIONIST',
+  'ADMIN',
+] as const;
+
+export type NotificationRecipientRole =
+  (typeof NOTIFICATION_RECIPIENT_ROLES)[number];
+
 export type PaymentSuccessDto = {
   orderId: string;
   status: 'COMPLETED';
@@ -89,6 +99,7 @@ export type NotificationPayload = {
     data: NotificationMap[K];
     createdAt: number;
     recipientEmail: string;
+    recipientRole: NotificationRecipientRole;
     idempotencyKey: string;
     retryCount?: number;
   };
