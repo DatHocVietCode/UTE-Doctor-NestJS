@@ -160,7 +160,8 @@ export class AppointmentNotificationListener {
     patientEmail: string;
     doctorEmail?: string;
     doctorName?: string;
-    date: string;
+    date: string | number | Date;
+    scheduledAt?: number;
     timeSlot: string;
     timeSlotLabel?: string;
     hospitalName?: string;
@@ -176,6 +177,7 @@ export class AppointmentNotificationListener {
         patientEmail: payload.patientEmail,
         doctorEmail: payload.doctorEmail,
         date: payload.date,
+        scheduledAt: payload.scheduledAt,
         timeSlot: payload.timeSlot,
         timeSlotLabel: payload.timeSlotLabel,
         hospitalName: payload.hospitalName,
@@ -198,6 +200,7 @@ export class AppointmentNotificationListener {
           patientEmail: payload.patientEmail,
           doctorEmail: payload.doctorEmail,
           date: payload.date,
+          scheduledAt: payload.scheduledAt,
           timeSlot: payload.timeSlot,
           timeSlotLabel: payload.timeSlotLabel,
           hospitalName: payload.hospitalName,

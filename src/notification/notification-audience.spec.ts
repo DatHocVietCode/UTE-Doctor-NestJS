@@ -21,7 +21,18 @@ function createAppointmentPayload() {
 }
 
 function createHandlerMocks(storeResult = true) {
-  const write = { storeIfNotExists: jest.fn().mockResolvedValue(storeResult) };
+  const write = {
+    storeIfNotExists: jest.fn().mockImplementation(async (notification) =>
+      storeResult
+        ? {
+            _id: 'noti-1',
+            isRead: false,
+            ...notification,
+            createdAt: notification.createdAt ?? new Date(1700000000000),
+          }
+        : null,
+    ),
+  };
   const redis = { publish: jest.fn().mockResolvedValue(undefined) };
   const eventEmitter = {
     emitAsync: jest.fn().mockResolvedValue(['09:00-09:30']),
@@ -82,16 +93,27 @@ describe('notification audience ownership', () => {
       recipientEmail: 'patient@x.com',
       recipientRole: 'PATIENT',
       title: 'Đặt lịch khám thành công',
+      titleKey: 'notification.patient.appointmentSuccess.title',
+      messageKey: 'notification.patient.appointmentSuccess.message',
+      data: expect.objectContaining({
+        appointmentDate: 1700000000000,
+        scheduledAt: 1700000000000,
+        timeRange: '09:00-09:30',
+      }),
       details: expect.objectContaining({ recipientRole: 'PATIENT' }),
     });
     expect(doctorRow).toMatchObject({
       recipientEmail: 'doctor@x.com',
       recipientRole: 'DOCTOR',
       title: 'Lịch khám mới được gán cho bạn',
+      titleKey: 'notification.doctor.assignedAppointment.title',
+      messageKey: 'notification.doctor.assignedAppointment.message',
       details: expect.objectContaining({ recipientRole: 'DOCTOR' }),
     });
-    expect(patientRow.message).toContain('của bạn');
-    expect(doctorRow.message).toContain('với bệnh nhân Patient@X.com');
+    expect(patientRow.message).not.toMatch(/\d{10,13}/);
+    expect(doctorRow.message).not.toMatch(/\d{10,13}/);
+    expect(patientRow.message).not.toMatch(/undefined|null/i);
+    expect(doctorRow.message).not.toMatch(/undefined|null/i);
     expect(patientRow.message).not.toBe(doctorRow.message);
   });
 
@@ -104,6 +126,7 @@ describe('notification audience ownership', () => {
       patientEmail: 'Patient@X.com',
       doctorEmail: 'Doctor@X.com',
       date: '2026-06-15',
+      scheduledAt: 1700000000000,
       timeSlot: 'slot-1',
       reason: 'patient request',
     });
@@ -134,6 +157,7 @@ describe('notification audience ownership', () => {
       patientEmail: 'Patient@X.com',
       doctorEmail: 'Doctor@X.com',
       date: '2026-06-15',
+      scheduledAt: 1700000000000,
       timeSlot: 'slot-1',
       reason: 'patient request',
     };
@@ -155,6 +179,18 @@ describe('notification audience ownership', () => {
     const doctorRow = write.storeIfNotExists.mock.calls[1][0];
     expect(patientRow.title).toBe('Lịch khám của bạn đã bị hủy');
     expect(doctorRow.title).toBe('Bệnh nhân đã hủy lịch khám');
+    expect(patientRow.titleKey).toBe(
+      'notification.patient.appointmentCancelled.title',
+    );
+    expect(doctorRow.titleKey).toBe(
+      'notification.doctor.appointmentCancelled.title',
+    );
+    expect(patientRow.data).toMatchObject({
+      appointmentDate: 1700000000000,
+      scheduledAt: 1700000000000,
+    });
+    expect(patientRow.message).not.toMatch(/\d{10,13}|undefined|null/i);
+    expect(doctorRow.message).not.toMatch(/\d{10,13}|undefined|null/i);
     expect(patientRow.message).not.toBe(doctorRow.message);
   });
 
@@ -192,7 +228,20 @@ describe('notification audience ownership', () => {
     const doctorRow = write.storeIfNotExists.mock.calls[1][0];
     expect(patientRow.title).toBe('Lịch khám của bạn đã được đổi lịch');
     expect(doctorRow.title).toBe('Lịch khám đã được đổi lịch');
-    expect(doctorRow.message).toContain('với bệnh nhân Patient@X.com');
+    expect(patientRow.data).toMatchObject({
+      appointmentDate: 1700003600000,
+      scheduledAt: 1700003600000,
+      oldScheduledAt: 1700000000000,
+      newScheduledAt: 1700003600000,
+    });
+    expect(patientRow.messageKey).toBe(
+      'notification.patient.appointmentRescheduled.message',
+    );
+    expect(doctorRow.messageKey).toBe(
+      'notification.doctor.appointmentRescheduled.message',
+    );
+    expect(patientRow.message).not.toMatch(/\d{10,13}|undefined|null/i);
+    expect(doctorRow.message).not.toMatch(/\d{10,13}|undefined|null/i);
     expect(patientRow.message).not.toBe(doctorRow.message);
   });
 
@@ -241,6 +290,7 @@ describe('notification audience ownership', () => {
         recipientEmail: 'patient@x.com',
         recipientRole: 'PATIENT',
         title: 'Thanh toán thành công',
+        titleKey: 'notification.patient.paymentSuccess.title',
         details: expect.objectContaining({ recipientRole: 'PATIENT' }),
       }),
     );

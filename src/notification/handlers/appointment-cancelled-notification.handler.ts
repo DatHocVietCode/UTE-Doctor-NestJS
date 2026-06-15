@@ -5,6 +5,7 @@ import { emitTyped } from 'src/utils/helpers/event.helper';
 import type { AppointmentCancelledDto } from '../dto/notification-payload.dto';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
+import { toStoredNotificationPayload } from '../notification-payload.mapper';
 import { buildAppointmentCancelledNotification } from '../notification-template.helper';
 import type {
   NotificationHandler,
@@ -31,33 +32,29 @@ export class AppointmentCancelledNotificationHandler
       payload.timeSlot,
     );
 
-    const { title, message } = buildAppointmentCancelledNotification(
-      payload,
-      meta.recipientRole,
-      timeSlotName,
-    );
+    const { title, message, titleKey, messageKey, data } =
+      buildAppointmentCancelledNotification(
+        payload,
+        meta.recipientRole,
+        timeSlotName,
+      );
 
     const created = await this.notificationWriteService.storeIfNotExists({
       idempotencyKey: meta.idempotencyKey,
       receiverEmail: [meta.recipientEmail],
       recipientEmail: meta.recipientEmail,
       recipientRole: meta.recipientRole,
+      type: 'APPOINTMENT_CANCELLED',
       title,
       message,
+      titleKey,
+      messageKey,
+      data,
       details: {
         type: 'appointment_cancelled',
         recipientEmail: meta.recipientEmail,
         recipientRole: meta.recipientRole,
-        appointmentId: payload.appointmentId,
-        patientEmail: payload.patientEmail,
-        doctorEmail: payload.doctorEmail,
-        date: payload.date,
-        timeSlot: payload.timeSlot,
-        timeSlotLabel: payload.timeSlotLabel,
-        hospitalName: payload.hospitalName,
-        reason: payload.reason,
-        refundAmount: payload.refundAmount,
-        shouldRefund: payload.shouldRefund,
+        ...data,
       },
       createdAt: new Date(meta.createdAt),
       updatedAt: new Date(meta.createdAt),
@@ -67,13 +64,9 @@ export class AppointmentCancelledNotificationHandler
       return;
     }
 
-    await this.redisService.publish(NOTIFICATION_REDIS_CHANNEL, {
-      type: 'APPOINTMENT_CANCELLED',
-      data: payload,
-      createdAt: meta.createdAt,
-      recipientEmail: meta.recipientEmail,
-      recipientRole: meta.recipientRole,
-      idempotencyKey: meta.idempotencyKey,
-    });
+    await this.redisService.publish(
+      NOTIFICATION_REDIS_CHANNEL,
+      toStoredNotificationPayload(created),
+    );
   }
 }

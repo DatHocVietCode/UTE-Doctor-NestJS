@@ -5,7 +5,8 @@ export type AppointmentCancelledDto = {
   appointmentId: string;
   patientEmail: string;
   doctorEmail?: string;
-  date: string;
+  date: string | number | Date;
+  scheduledAt?: number;
   timeSlot: string;
   timeSlotLabel?: string;
   hospitalName?: string;
@@ -27,6 +28,11 @@ export type NotificationRecipientRole =
 export type PaymentSuccessDto = {
   orderId: string;
   status: 'COMPLETED';
+  appointmentId?: string;
+  appointmentDate?: number;
+  scheduledAt?: number;
+  bookingDate?: number;
+  hospitalName?: string | null;
 };
 
 // Broad-appointment assignment task awaiting a receptionist.

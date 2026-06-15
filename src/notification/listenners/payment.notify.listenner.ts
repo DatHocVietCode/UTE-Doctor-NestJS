@@ -37,6 +37,11 @@ export class PaymentNotificationListener {
     const data: PaymentSuccessDto = {
       orderId: payload.orderId,
       status: 'COMPLETED',
+      appointmentId: appointment._id?.toString?.() ?? payload.orderId,
+      appointmentDate: appointment.scheduledAt ?? appointment.date,
+      scheduledAt: appointment.scheduledAt ?? appointment.date,
+      bookingDate: appointment.bookingDate,
+      hospitalName: appointment.hospitalName ?? null,
     };
 
     await this.notificationPublisher.publish({

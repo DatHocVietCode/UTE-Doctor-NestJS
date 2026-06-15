@@ -3,6 +3,7 @@ import { RedisService } from 'src/common/redis/redis.service';
 import type { PaymentSuccessDto } from '../dto/notification-payload.dto';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
+import { toStoredNotificationPayload } from '../notification-payload.mapper';
 import { buildPaymentSuccessNotification } from '../notification-template.helper';
 import type {
   NotificationHandler,
@@ -22,21 +23,25 @@ export class PaymentSuccessNotificationHandler
     payload: PaymentSuccessDto,
     meta: NotificationHandlerMeta,
   ): Promise<void> {
-    const { title, message } = buildPaymentSuccessNotification(payload);
+    const { title, message, titleKey, messageKey, data } =
+      buildPaymentSuccessNotification(payload);
 
     const created = await this.notificationWriteService.storeIfNotExists({
       idempotencyKey: meta.idempotencyKey,
       receiverEmail: [meta.recipientEmail],
       recipientEmail: meta.recipientEmail,
       recipientRole: meta.recipientRole,
+      type: 'PAYMENT_SUCCESS',
       title,
       message,
+      titleKey,
+      messageKey,
+      data,
       details: {
         type: 'payment_success',
         recipientEmail: meta.recipientEmail,
         recipientRole: meta.recipientRole,
-        orderId: payload.orderId,
-        status: payload.status,
+        ...data,
       },
       createdAt: new Date(meta.createdAt),
       updatedAt: new Date(meta.createdAt),
@@ -46,13 +51,9 @@ export class PaymentSuccessNotificationHandler
       return;
     }
 
-    await this.redisService.publish(NOTIFICATION_REDIS_CHANNEL, {
-      type: 'PAYMENT_SUCCESS',
-      data: payload,
-      createdAt: meta.createdAt,
-      recipientEmail: meta.recipientEmail,
-      recipientRole: meta.recipientRole,
-      idempotencyKey: meta.idempotencyKey,
-    });
+    await this.redisService.publish(
+      NOTIFICATION_REDIS_CHANNEL,
+      toStoredNotificationPayload(created),
+    );
   }
 }

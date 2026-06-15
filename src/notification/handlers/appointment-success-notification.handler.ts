@@ -5,6 +5,7 @@ import { RedisService } from 'src/common/redis/redis.service';
 import { emitTyped } from 'src/utils/helpers/event.helper';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
+import { toStoredNotificationPayload } from '../notification-payload.mapper';
 import { buildAppointmentSuccessNotification } from '../notification-template.helper';
 import type {
   NotificationHandler,
@@ -31,29 +32,29 @@ export class AppointmentSuccessNotificationHandler
       payload.timeSlot?.toString?.() || '',
     );
 
-    const { title, message } = buildAppointmentSuccessNotification(
-      payload,
-      meta.recipientRole,
-      timeSlotName,
-    );
+    const { title, message, titleKey, messageKey, data } =
+      buildAppointmentSuccessNotification(
+        payload,
+        meta.recipientRole,
+        timeSlotName,
+      );
 
     const created = await this.notificationWriteService.storeIfNotExists({
       idempotencyKey: meta.idempotencyKey,
       receiverEmail: [meta.recipientEmail],
       recipientEmail: meta.recipientEmail,
       recipientRole: meta.recipientRole,
+      type: 'APPOINTMENT_SUCCESS',
       title,
       message,
+      titleKey,
+      messageKey,
+      data,
       details: {
         type: 'appointment_success',
         recipientEmail: meta.recipientEmail,
         recipientRole: meta.recipientRole,
-        appointmentId: payload._id,
-        doctorName: payload.doctorName,
-        patientEmail: payload.patientEmail,
-        serviceType: payload.serviceType,
-        paymentMethod: payload.paymentMethod,
-        amount: payload.amount,
+        ...data,
       },
       createdAt: new Date(meta.createdAt),
       updatedAt: new Date(meta.createdAt),
@@ -63,13 +64,9 @@ export class AppointmentSuccessNotificationHandler
       return;
     }
 
-    await this.redisService.publish(NOTIFICATION_REDIS_CHANNEL, {
-      type: 'APPOINTMENT_SUCCESS',
-      data: payload,
-      createdAt: meta.createdAt,
-      recipientEmail: meta.recipientEmail,
-      recipientRole: meta.recipientRole,
-      idempotencyKey: meta.idempotencyKey,
-    });
+    await this.redisService.publish(
+      NOTIFICATION_REDIS_CHANNEL,
+      toStoredNotificationPayload(created),
+    );
   }
 }

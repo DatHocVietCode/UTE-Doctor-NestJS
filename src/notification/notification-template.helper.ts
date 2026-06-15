@@ -1,107 +1,190 @@
 import type { AppointmentEnriched } from 'src/appointment/schemas/appointment-enriched';
 import type {
   AppointmentCancelledDto,
+  AppointmentDoctorAssignedDto,
   AppointmentRescheduledNotificationDto,
   AssignmentTaskCreatedDto,
   AssignmentTaskExpiredDto,
+  AssignmentTaskReminderDto,
   NotificationRecipientRole,
   PaymentSuccessDto,
 } from './dto/notification-payload.dto';
 
+export type NotificationStructuredData = Record<string, unknown>;
+
 export type NotificationTemplate = {
   title: string;
   message: string;
+  titleKey: string;
+  messageKey: string;
+  data: NotificationStructuredData;
 };
 
-function withOptionalPlace(message: string, hospitalName?: string): string {
-  return hospitalName ? `${message} tại ${hospitalName}` : message;
+function nullableString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function epochNumber(value: unknown): number | null {
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.floor(value);
+  }
+
+  if (typeof value === 'string' && /^\d{10,13}$/.test(value)) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function withoutUndefined(
+  data: NotificationStructuredData,
+): NotificationStructuredData {
+  return Object.fromEntries(
+    Object.entries(data).filter(([, value]) => value !== undefined),
+  );
+}
+
+function appointmentIdOf(payload: AppointmentEnriched): string | null {
+  return (
+    nullableString(payload.appointmentId) ??
+    nullableString(payload._id?.toString?.()) ??
+    null
+  );
 }
 
 export function buildAppointmentSuccessNotification(
   payload: AppointmentEnriched,
   recipientRole: NotificationRecipientRole,
-  timeSlotName?: string,
+  timeRange?: string,
 ): NotificationTemplate {
-  const slotText = timeSlotName ? ` lúc ${timeSlotName}` : '';
-  const baseSchedule = `${payload.date}${slotText}`;
-
-  if (recipientRole === 'DOCTOR') {
-    return {
-      title: 'Lịch khám mới được gán cho bạn',
-      message:
-        withOptionalPlace(
-          `Bạn có lịch khám mới với bệnh nhân ${payload.patientEmail} vào ngày ${baseSchedule}`,
-          payload.hospitalName,
-        ) + '.',
-    };
-  }
+  const doctor = recipientRole === 'DOCTOR';
 
   return {
-    title: 'Đặt lịch khám thành công',
-    message:
-      withOptionalPlace(
-        `Lịch khám của bạn đã được xác nhận vào ngày ${baseSchedule}`,
-        payload.hospitalName,
-      ) + '.',
+    title: doctor
+      ? 'Lịch khám mới được gán cho bạn'
+      : 'Đặt lịch khám thành công',
+    message: doctor
+      ? 'Bạn có thông báo lịch khám được gán mới.'
+      : 'Bạn có thông báo lịch khám mới.',
+    titleKey: doctor
+      ? 'notification.doctor.assignedAppointment.title'
+      : 'notification.patient.appointmentSuccess.title',
+    messageKey: doctor
+      ? 'notification.doctor.assignedAppointment.message'
+      : 'notification.patient.appointmentSuccess.message',
+    data: withoutUndefined({
+      appointmentId: appointmentIdOf(payload),
+      appointmentDate: epochNumber(payload.scheduledAt ?? payload.date),
+      scheduledAt: epochNumber(payload.scheduledAt ?? payload.date),
+      bookingDate: epochNumber(payload.bookingDate),
+      timeRange: nullableString(timeRange),
+      hospitalName: nullableString(payload.hospitalName),
+      doctorName: nullableString(payload.doctorName),
+      patientName: nullableString(payload.patientName),
+      patientEmail: nullableString(payload.patientEmail),
+      paymentMethod: nullableString(payload.paymentMethod),
+      serviceType: nullableString(payload.serviceType),
+      amount: typeof payload.amount === 'number' ? payload.amount : null,
+    }),
   };
 }
 
 export function buildAppointmentCancelledNotification(
   payload: AppointmentCancelledDto,
   recipientRole: NotificationRecipientRole,
-  timeSlotName?: string,
+  timeRange?: string,
 ): NotificationTemplate {
-  const slotText = timeSlotName || payload.timeSlotLabel || payload.timeSlot;
-  const schedule = `${payload.date}${slotText ? ` lúc ${slotText}` : ''}`;
-  const place = payload.hospitalName ? ` tại ${payload.hospitalName}` : '';
-  const reason = payload.reason ? ` Lý do: ${payload.reason}.` : '';
-
-  if (recipientRole === 'DOCTOR') {
-    if (payload.appointmentId?.startsWith('doctor-shift-')) {
-      return {
-        title: 'Ca trực của bạn đã bị hủy',
-        message: `Ca trực ${payload.timeSlot} ngày ${payload.date}${reason ? `.${reason}` : '.'}`,
-      };
-    }
-
-    return {
-      title: 'Bệnh nhân đã hủy lịch khám',
-      message: `Bệnh nhân ${payload.patientEmail} đã hủy lịch khám ngày ${schedule}${place}.${reason}`,
-    };
-  }
+  const doctor = recipientRole === 'DOCTOR';
 
   return {
-    title: 'Lịch khám của bạn đã bị hủy',
-    message: `Lịch khám của bạn ngày ${schedule}${place} đã bị hủy.${reason}`,
+    title: doctor
+      ? 'Bệnh nhân đã hủy lịch khám'
+      : 'Lịch khám của bạn đã bị hủy',
+    message: doctor
+      ? 'Bạn có thông báo hủy lịch khám từ bệnh nhân.'
+      : 'Bạn có thông báo hủy lịch khám của mình.',
+    titleKey: doctor
+      ? 'notification.doctor.appointmentCancelled.title'
+      : 'notification.patient.appointmentCancelled.title',
+    messageKey: doctor
+      ? 'notification.doctor.appointmentCancelled.message'
+      : 'notification.patient.appointmentCancelled.message',
+    data: withoutUndefined({
+      appointmentId: nullableString(payload.appointmentId),
+      appointmentDate: epochNumber(payload.scheduledAt ?? payload.date),
+      scheduledAt: epochNumber(payload.scheduledAt ?? payload.date),
+      timeRange: nullableString(timeRange ?? payload.timeSlotLabel),
+      timeSlotId: nullableString(payload.timeSlot),
+      hospitalName: nullableString(payload.hospitalName),
+      patientEmail: nullableString(payload.patientEmail),
+      doctorEmail: nullableString(payload.doctorEmail),
+      reason: nullableString(payload.reason),
+      refundAmount:
+        typeof payload.refundAmount === 'number' ? payload.refundAmount : null,
+      shouldRefund:
+        typeof payload.shouldRefund === 'boolean' ? payload.shouldRefund : null,
+    }),
   };
 }
 
 export function buildAppointmentRescheduledNotification(
   payload: AppointmentRescheduledNotificationDto,
   recipientRole: NotificationRecipientRole,
-  newDateText: string,
-  timeSlotName?: string,
+  timeRange?: string,
 ): NotificationTemplate {
-  const slotText = timeSlotName ? ` - ${timeSlotName}` : '';
-  const place = payload.hospitalName ? ` tại ${payload.hospitalName}` : '';
-
-  if (recipientRole === 'DOCTOR') {
-    return {
-      title: 'Lịch khám đã được đổi lịch',
-      message: `Lịch khám với bệnh nhân ${payload.patientEmail} đã được đổi sang ${newDateText}${slotText}${place}.`,
-    };
-  }
+  const doctor = recipientRole === 'DOCTOR';
 
   return {
-    title: 'Lịch khám của bạn đã được đổi lịch',
-    message: `Lịch khám của bạn đã được đổi sang ${newDateText}${slotText}${place}.`,
+    title: doctor
+      ? 'Lịch khám đã được đổi lịch'
+      : 'Lịch khám của bạn đã được đổi lịch',
+    message: doctor
+      ? 'Bạn có thông báo đổi lịch khám với bệnh nhân.'
+      : 'Bạn có thông báo đổi lịch khám của mình.',
+    titleKey: doctor
+      ? 'notification.doctor.appointmentRescheduled.title'
+      : 'notification.patient.appointmentRescheduled.title',
+    messageKey: doctor
+      ? 'notification.doctor.appointmentRescheduled.message'
+      : 'notification.patient.appointmentRescheduled.message',
+    data: withoutUndefined({
+      appointmentId: nullableString(payload.appointmentId),
+      appointmentDate: epochNumber(payload.newScheduledAt),
+      scheduledAt: epochNumber(payload.newScheduledAt),
+      oldScheduledAt: epochNumber(payload.oldScheduledAt),
+      newScheduledAt: epochNumber(payload.newScheduledAt),
+      timeRange: nullableString(timeRange),
+      timeSlotId: nullableString(payload.newTimeSlotId),
+      hospitalName: nullableString(payload.hospitalName),
+      doctorName: nullableString(payload.doctorName),
+      patientEmail: nullableString(payload.patientEmail),
+      doctorEmail: nullableString(payload.doctorEmail),
+      reason: nullableString(payload.reason),
+    }),
   };
 }
 
-export function buildAppointmentDoctorAssignedNotification(): NotificationTemplate {
+export function buildAppointmentDoctorAssignedNotification(
+  payload: AppointmentDoctorAssignedDto,
+): NotificationTemplate {
   return {
     title: 'Bác sĩ đã được phân công',
-    message: 'Lễ tân đã phân công bác sĩ và lịch khám cho yêu cầu của bạn.',
+    message: 'Bạn có thông báo phân công bác sĩ.',
+    titleKey: 'notification.patient.doctorAssigned.title',
+    messageKey: 'notification.patient.doctorAssigned.message',
+    data: withoutUndefined({
+      appointmentId: nullableString(payload.appointmentId),
+      doctorId: nullableString(payload.doctorId),
+      timeSlotId: nullableString(payload.timeSlotId),
+      appointmentDate: epochNumber(payload.scheduledAt),
+      scheduledAt: epochNumber(payload.scheduledAt),
+      patientEmail: nullableString(payload.patientEmail),
+    }),
   };
 }
 
@@ -110,7 +193,20 @@ export function buildPaymentSuccessNotification(
 ): NotificationTemplate {
   return {
     title: 'Thanh toán thành công',
-    message: `Thanh toán đơn ${payload.orderId} của bạn đã hoàn tất thành công.`,
+    message: 'Bạn có thông báo thanh toán.',
+    titleKey: 'notification.patient.paymentSuccess.title',
+    messageKey: 'notification.patient.paymentSuccess.message',
+    data: withoutUndefined({
+      appointmentId:
+        nullableString(payload.appointmentId) ??
+        nullableString(payload.orderId),
+      orderId: nullableString(payload.orderId),
+      status: payload.status,
+      appointmentDate: epochNumber(payload.appointmentDate),
+      scheduledAt: epochNumber(payload.scheduledAt),
+      bookingDate: epochNumber(payload.bookingDate),
+      hospitalName: nullableString(payload.hospitalName),
+    }),
   };
 }
 
@@ -119,26 +215,55 @@ export function buildAssignmentTaskCreatedNotification(
 ): NotificationTemplate {
   return {
     title: 'Yêu cầu đặt khám cần phân công bác sĩ',
-    message: payload.specialty
-      ? `Có yêu cầu đặt khám mới (${payload.specialty}) đang chờ phân công bác sĩ.`
-      : 'Có yêu cầu đặt khám mới đang chờ phân công bác sĩ.',
+    message: 'Bạn có thông báo yêu cầu đặt khám cần xử lý.',
+    titleKey: 'notification.receptionist.assignmentTaskCreated.title',
+    messageKey: 'notification.receptionist.assignmentTaskCreated.message',
+    data: withoutUndefined({
+      taskId: nullableString(payload.taskId),
+      appointmentId: nullableString(payload.appointmentId),
+      specialty: nullableString(payload.specialty),
+      reasonForAppointment: nullableString(payload.reasonForAppointment),
+      deadlineAt: epochNumber(payload.deadlineAt),
+      priority: nullableString(payload.priority),
+      online: typeof payload.online === 'boolean' ? payload.online : null,
+    }),
   };
 }
 
-export function buildAssignmentTaskReminderNotification(): NotificationTemplate {
+export function buildAssignmentTaskReminderNotification(
+  payload: AssignmentTaskReminderDto,
+): NotificationTemplate {
   return {
     title: 'Nhắc nhở: yêu cầu đặt khám sắp quá hạn phân công',
-    message:
-      'Có yêu cầu đặt khám đang chờ phân công bác sĩ và sắp quá hạn. Vui lòng xử lý sớm.',
+    message: 'Bạn có thông báo nhắc nhở phân công bác sĩ.',
+    titleKey: 'notification.receptionist.assignmentTaskReminder.title',
+    messageKey: 'notification.receptionist.assignmentTaskReminder.message',
+    data: withoutUndefined({
+      taskId: nullableString(payload.taskId),
+      appointmentId: nullableString(payload.appointmentId),
+      deadlineAt: epochNumber(payload.deadlineAt),
+      reminderCount:
+        typeof payload.reminderCount === 'number'
+          ? payload.reminderCount
+          : null,
+      online: typeof payload.online === 'boolean' ? payload.online : null,
+    }),
   };
 }
 
 export function buildAssignmentTaskExpiredNotification(
-  _payload: AssignmentTaskExpiredDto,
+  payload: AssignmentTaskExpiredDto,
 ): NotificationTemplate {
   return {
     title: 'Yêu cầu đặt khám đã quá hạn phân công',
-    message:
-      'Có yêu cầu đặt khám đã quá hạn phân công bác sĩ. Vui lòng xử lý thủ công (liên hệ bệnh nhân / phân công lại).',
+    message: 'Bạn có thông báo yêu cầu đặt khám quá hạn.',
+    titleKey: 'notification.receptionist.assignmentTaskExpired.title',
+    messageKey: 'notification.receptionist.assignmentTaskExpired.message',
+    data: withoutUndefined({
+      taskId: nullableString(payload.taskId),
+      appointmentId: nullableString(payload.appointmentId),
+      deadlineAt: epochNumber(payload.deadlineAt),
+      online: typeof payload.online === 'boolean' ? payload.online : null,
+    }),
   };
 }

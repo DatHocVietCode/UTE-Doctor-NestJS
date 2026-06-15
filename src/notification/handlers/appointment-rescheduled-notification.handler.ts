@@ -5,6 +5,7 @@ import { emitTyped } from 'src/utils/helpers/event.helper';
 import type { AppointmentRescheduledNotificationDto } from '../dto/notification-payload.dto';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
+import { toStoredNotificationPayload } from '../notification-payload.mapper';
 import { buildAppointmentRescheduledNotification } from '../notification-template.helper';
 import type {
   NotificationHandler,
@@ -31,42 +32,29 @@ export class AppointmentRescheduledNotificationHandler
       payload.newTimeSlotId,
     );
 
-    // Format epoch ms as a readable VN datetime string for the notification body.
-    const newDateStr = new Date(payload.newScheduledAt).toLocaleString(
-      'vi-VN',
-      {
-        timeZone: 'Asia/Ho_Chi_Minh',
-        dateStyle: 'short',
-        timeStyle: 'short',
-      },
-    );
-
-    const { title, message } = buildAppointmentRescheduledNotification(
-      payload,
-      meta.recipientRole,
-      newDateStr,
-      timeSlotName,
-    );
+    const { title, message, titleKey, messageKey, data } =
+      buildAppointmentRescheduledNotification(
+        payload,
+        meta.recipientRole,
+        timeSlotName,
+      );
 
     const created = await this.notificationWriteService.storeIfNotExists({
       idempotencyKey: meta.idempotencyKey,
       receiverEmail: [meta.recipientEmail],
       recipientEmail: meta.recipientEmail,
       recipientRole: meta.recipientRole,
+      type: 'APPOINTMENT_RESCHEDULED',
       title,
       message,
+      titleKey,
+      messageKey,
+      data,
       details: {
         type: 'appointment_rescheduled',
         recipientEmail: meta.recipientEmail,
         recipientRole: meta.recipientRole,
-        appointmentId: payload.appointmentId,
-        patientEmail: payload.patientEmail,
-        doctorEmail: payload.doctorEmail,
-        doctorName: payload.doctorName,
-        hospitalName: payload.hospitalName,
-        oldScheduledAt: payload.oldScheduledAt,
-        newScheduledAt: payload.newScheduledAt,
-        reason: payload.reason,
+        ...data,
       },
       createdAt: new Date(meta.createdAt),
       updatedAt: new Date(meta.createdAt),
@@ -77,13 +65,9 @@ export class AppointmentRescheduledNotificationHandler
       return;
     }
 
-    await this.redisService.publish(NOTIFICATION_REDIS_CHANNEL, {
-      type: 'APPOINTMENT_RESCHEDULED',
-      data: payload,
-      createdAt: meta.createdAt,
-      recipientEmail: meta.recipientEmail,
-      recipientRole: meta.recipientRole,
-      idempotencyKey: meta.idempotencyKey,
-    });
+    await this.redisService.publish(
+      NOTIFICATION_REDIS_CHANNEL,
+      toStoredNotificationPayload(created),
+    );
   }
 }

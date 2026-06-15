@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { Notification, NotificationDocument } from './schemas/notification.schema';
+import {
+  Notification,
+  NotificationDocument,
+} from './schemas/notification.schema';
 
 @Injectable()
 export class NotificationWriteService {
@@ -10,14 +13,15 @@ export class NotificationWriteService {
     private readonly notificationModel: Model<NotificationDocument>,
   ) {}
 
-  async storeIfNotExists(notification: Partial<NotificationDocument>): Promise<boolean> {
+  async storeIfNotExists(
+    notification: Partial<NotificationDocument>,
+  ): Promise<NotificationDocument | null> {
     try {
       const newNoti = new this.notificationModel(notification);
-      await newNoti.save();
-      return true;
+      return await newNoti.save();
     } catch (error) {
       if ((error as { code?: number }).code === 11000) {
-        return false;
+        return null;
       }
 
       throw error;

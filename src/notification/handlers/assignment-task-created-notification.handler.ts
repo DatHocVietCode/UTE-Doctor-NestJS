@@ -3,6 +3,7 @@ import { RedisService } from 'src/common/redis/redis.service';
 import type { AssignmentTaskCreatedDto } from '../dto/notification-payload.dto';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
+import { toStoredNotificationPayload } from '../notification-payload.mapper';
 import { buildAssignmentTaskCreatedNotification } from '../notification-template.helper';
 import type {
   NotificationHandler,
@@ -22,26 +23,25 @@ export class AssignmentTaskCreatedNotificationHandler
     payload: AssignmentTaskCreatedDto,
     meta: NotificationHandlerMeta,
   ): Promise<void> {
-    const { title, message } = buildAssignmentTaskCreatedNotification(payload);
+    const { title, message, titleKey, messageKey, data } =
+      buildAssignmentTaskCreatedNotification(payload);
 
     const created = await this.notificationWriteService.storeIfNotExists({
       idempotencyKey: meta.idempotencyKey,
       receiverEmail: [meta.recipientEmail],
       recipientEmail: meta.recipientEmail,
       recipientRole: meta.recipientRole,
+      type: 'ASSIGNMENT_TASK_CREATED',
       title,
       message,
+      titleKey,
+      messageKey,
+      data,
       details: {
         type: 'assignment_task_created',
         recipientEmail: meta.recipientEmail,
         recipientRole: meta.recipientRole,
-        taskId: payload.taskId,
-        appointmentId: payload.appointmentId,
-        specialty: payload.specialty,
-        reasonForAppointment: payload.reasonForAppointment,
-        deadlineAt: payload.deadlineAt,
-        priority: payload.priority,
-        online: payload.online,
+        ...data,
       },
       createdAt: new Date(meta.createdAt),
       updatedAt: new Date(meta.createdAt),
@@ -53,13 +53,9 @@ export class AssignmentTaskCreatedNotificationHandler
       return;
     }
 
-    await this.redisService.publish(NOTIFICATION_REDIS_CHANNEL, {
-      type: 'ASSIGNMENT_TASK_CREATED',
-      data: payload,
-      createdAt: meta.createdAt,
-      recipientEmail: meta.recipientEmail,
-      recipientRole: meta.recipientRole,
-      idempotencyKey: meta.idempotencyKey,
-    });
+    await this.redisService.publish(
+      NOTIFICATION_REDIS_CHANNEL,
+      toStoredNotificationPayload(created),
+    );
   }
 }
