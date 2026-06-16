@@ -159,10 +159,14 @@ describe('PaymentService appointment deposit success', () => {
   it('keeps broad DICH_VU pending and creates assignment work after deposit success', async () => {
     const { service, payment, appointment, eventEmitter, assignmentTaskService, session } = createService();
 
-    const result = await service.handleVnpayPaymentResultByTxnRef(paymentId.toString(), 'vnpay', { paidAt });
+    const result = await service.handleVnpayPaymentResultByTxnRef(paymentId.toString(), 'vnpay', {
+      paidAt,
+      transactionId: '14325599',
+    });
 
     expect(result.code).toBe('SUCCESS');
     expect(payment.status).toBe(PaymentFlowStatusEnum.SUCCESS);
+    expect(payment.transactionId).toBe('14325599');
     expect(payment.expireAt).toBeNull();
     expect(appointment.depositStatus).toBe(DepositStatus.PAID);
     expect(appointment.depositPaidAmount).toBe(50000);
@@ -238,6 +242,56 @@ describe('PaymentService appointment deposit success', () => {
       session,
     });
     expect(timeSlotLogModel.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('does not store VNPay transactionNo 0 from a failed/cancelled callback', async () => {
+    const { service, payment, appointment } = createService();
+
+    await service.handleVnpayPaymentFailureByTxnRef(paymentId.toString(), {
+      transactionId: '0',
+      responseCode: '24',
+      transactionStatus: '02',
+    });
+
+    expect(payment.status).toBe(PaymentFlowStatusEnum.FAILED);
+    expect(payment.transactionId).toBeUndefined();
+    expect(appointment.appointmentStatus).toBe(AppointmentStatus.FAILED);
+    expect(appointment.depositStatus).toBe(DepositStatus.FAILED);
+  });
+
+  it('allows multiple failed/cancelled callbacks with transactionNo 0 without sharing a unique transactionId', async () => {
+    const firstPayment = createDepositPayment({
+      _id: new Types.ObjectId('65a000000000000000000101'),
+      appointmentId: new Types.ObjectId('65a000000000000000000201'),
+    });
+    const firstAppointment = createAppointment({
+      _id: new Types.ObjectId('65a000000000000000000201'),
+    });
+    const secondPayment = createDepositPayment({
+      _id: new Types.ObjectId('65a000000000000000000102'),
+      appointmentId: new Types.ObjectId('65a000000000000000000202'),
+    });
+    const secondAppointment = createAppointment({
+      _id: new Types.ObjectId('65a000000000000000000202'),
+    });
+    const first = createService({ payment: firstPayment, appointment: firstAppointment });
+    const second = createService({ payment: secondPayment, appointment: secondAppointment });
+
+    await first.service.handleVnpayPaymentFailureByTxnRef(firstPayment._id.toString(), {
+      transactionId: '0',
+      responseCode: '24',
+      transactionStatus: '02',
+    });
+    await second.service.handleVnpayPaymentFailureByTxnRef(secondPayment._id.toString(), {
+      transactionId: '0',
+      responseCode: '24',
+      transactionStatus: '02',
+    });
+
+    expect(firstPayment.transactionId).toBeUndefined();
+    expect(secondPayment.transactionId).toBeUndefined();
+    expect(firstPayment.save).toHaveBeenCalled();
+    expect(secondPayment.save).toHaveBeenCalled();
   });
 
   it('keeps normal doctor-selected DICH_VU payment failure slot release behavior unchanged', async () => {

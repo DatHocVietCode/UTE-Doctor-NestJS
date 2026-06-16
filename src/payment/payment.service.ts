@@ -296,7 +296,7 @@ export class PaymentService {
 				if (alreadyCompleted) {
 					payment.status = PaymentFlowStatusEnum.SUCCESS;
 					payment.expireAt = null;
-					payment.transactionId = metadata?.transactionId ?? payment.transactionId;
+					payment.transactionId = this.resolveGatewayTransactionId(metadata?.transactionId, payment.transactionId);
 					payment.paidAt = metadata?.paidAt ?? payment.paidAt ?? new Date();
 					if (channel === 'CASH') {
 						payment.method = PaymentFlowMethodEnum.CASH;
@@ -336,7 +336,7 @@ export class PaymentService {
 
 				payment.status = PaymentFlowStatusEnum.SUCCESS;
 				payment.expireAt = null;
-				payment.transactionId = metadata?.transactionId ?? payment.transactionId;
+				payment.transactionId = this.resolveGatewayTransactionId(metadata?.transactionId, payment.transactionId);
 				payment.paidAt = metadata?.paidAt ?? new Date();
 				if (channel === 'CASH') {
 					payment.method = PaymentFlowMethodEnum.CASH;
@@ -432,7 +432,7 @@ export class PaymentService {
 				const isBroadDichVuAwaitingAssignment = this.isBroadDichVuAwaitingAssignment(appointment);
 				payment.status = PaymentFlowStatusEnum.SUCCESS;
 				payment.expireAt = null;
-				payment.transactionId = metadata?.transactionId ?? payment.transactionId;
+				payment.transactionId = this.resolveGatewayTransactionId(metadata?.transactionId, payment.transactionId);
 				payment.paidAt = paidAt;
 				await payment.save({ session });
 
@@ -532,7 +532,7 @@ export class PaymentService {
 				if (payment.status !== PaymentFlowStatusEnum.SUCCESS) {
 					payment.status = PaymentFlowStatusEnum.FAILED;
 					payment.expireAt = null;
-					payment.transactionId = metadata?.transactionId ?? payment.transactionId;
+					payment.transactionId = this.resolveGatewayTransactionId(metadata?.transactionId, payment.transactionId);
 					payment.paidAt = metadata?.paidAt ?? payment.paidAt;
 					await payment.save({ session });
 
@@ -870,6 +870,20 @@ export class PaymentService {
 		}
 
 		return left._id.toString().localeCompare(right._id.toString());
+	}
+
+	private resolveGatewayTransactionId(
+		incoming?: string | null,
+		current?: string,
+	): string | undefined {
+		const normalizedIncoming = incoming?.trim();
+		// VNPay sends transactionNo=0 for cancelled/failed attempts. Treat it as
+		// "no gateway transaction" so the unique sparse transactionId index is not polluted.
+		if (!normalizedIncoming || normalizedIncoming === '0') {
+			return current;
+		}
+
+		return normalizedIncoming;
 	}
 
 	private buildPaymentExpireAt(): Date {
