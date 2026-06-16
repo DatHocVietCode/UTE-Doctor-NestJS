@@ -49,6 +49,10 @@ function withoutUndefined(
   );
 }
 
+function isAssignmentTimeout(reasonCode: unknown): boolean {
+  return reasonCode === 'ASSIGNMENT_TIMEOUT';
+}
+
 function appointmentIdOf(payload: AppointmentEnriched): string | null {
   return (
     nullableString(payload.appointmentId) ??
@@ -63,7 +67,6 @@ export function buildAppointmentSuccessNotification(
   timeRange?: string,
 ): NotificationTemplate {
   const doctor = recipientRole === 'DOCTOR';
-
   return {
     title: doctor
       ? 'Lịch khám mới được gán cho bạn'
@@ -100,6 +103,50 @@ export function buildAppointmentCancelledNotification(
   timeRange?: string,
 ): NotificationTemplate {
   const doctor = recipientRole === 'DOCTOR';
+  const assignmentTimeout = isAssignmentTimeout(payload.reasonCode);
+
+  if (assignmentTimeout) {
+    const refundMessage =
+      payload.shouldRefund && typeof payload.refundAmount === 'number'
+        ? ` Tien coc da duoc hoan vao vi credit: ${payload.refundAmount}.`
+        : '';
+
+    return {
+      title: doctor
+        ? 'Lich kham tu dong huy do qua han phan cong'
+        : 'Khong the phan cong bac si dung han',
+      message: doctor
+        ? 'He thong khong the phan cong bac si trong thoi gian quy dinh nen lich kham da duoc tu dong huy.'
+        : `He thong khong the phan cong bac si trong thoi gian quy dinh nen lich kham cua ban da duoc tu dong huy.${refundMessage}`,
+      titleKey: doctor
+        ? 'notification.doctor.assignmentTimeoutCancelled.title'
+        : 'notification.patient.assignmentTimeoutCancelled.title',
+      messageKey: doctor
+        ? 'notification.doctor.assignmentTimeoutCancelled.message'
+        : 'notification.patient.assignmentTimeoutCancelled.message',
+      data: withoutUndefined({
+        appointmentId: nullableString(payload.appointmentId),
+        appointmentDate: epochNumber(payload.scheduledAt ?? payload.date),
+        scheduledAt: epochNumber(payload.scheduledAt ?? payload.date),
+        timeRange: nullableString(timeRange ?? payload.timeSlotLabel),
+        timeSlotId: nullableString(payload.timeSlot),
+        hospitalName: nullableString(payload.hospitalName),
+        patientEmail: nullableString(payload.patientEmail),
+        doctorEmail: nullableString(payload.doctorEmail),
+        reason: nullableString(payload.reason),
+        refundAmount:
+          typeof payload.refundAmount === 'number' ? payload.refundAmount : null,
+        shouldRefund:
+          typeof payload.shouldRefund === 'boolean'
+            ? payload.shouldRefund
+            : null,
+        actor: nullableString(payload.actor),
+        reasonCode: nullableString(payload.reasonCode),
+        assignmentTaskId: nullableString(payload.assignmentTaskId),
+        deadlineAt: epochNumber(payload.deadlineAt),
+      }),
+    };
+  }
 
   return {
     title: doctor
@@ -258,6 +305,23 @@ export function buildAssignmentTaskReminderNotification(
 export function buildAssignmentTaskExpiredNotification(
   payload: AssignmentTaskExpiredDto,
 ): NotificationTemplate {
+  if (isAssignmentTimeout(payload.reasonCode)) {
+    return {
+      title: 'Yeu cau phan cong da qua han',
+      message: 'Yeu cau phan cong da qua han; lich kham da duoc tu dong huy.',
+      titleKey: 'notification.receptionist.assignmentTimeoutExpired.title',
+      messageKey: 'notification.receptionist.assignmentTimeoutExpired.message',
+      data: withoutUndefined({
+        taskId: nullableString(payload.taskId),
+        appointmentId: nullableString(payload.appointmentId),
+        deadlineAt: epochNumber(payload.deadlineAt),
+        actor: nullableString(payload.actor),
+        reasonCode: nullableString(payload.reasonCode),
+        online: typeof payload.online === 'boolean' ? payload.online : null,
+      }),
+    };
+  }
+
   return {
     title: 'Yêu cầu đặt khám đã quá hạn phân công',
     message: 'Bạn có thông báo yêu cầu đặt khám quá hạn.',

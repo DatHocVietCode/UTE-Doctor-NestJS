@@ -60,11 +60,13 @@ export type AssignmentTaskReminderDto = {
   online?: boolean;
 };
 
-// SLA expiry: a PENDING assignment task passed its deadline + grace and needs manual attention.
+// SLA expiry: an actionable assignment task passed its deadline + grace.
 export type AssignmentTaskExpiredDto = {
   taskId: string;
   appointmentId?: string;
   deadlineAt: number;
+  actor?: string;
+  reasonCode?: string;
   online?: boolean;
 };
 

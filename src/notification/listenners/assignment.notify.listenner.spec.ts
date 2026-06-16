@@ -239,6 +239,8 @@ describe('AssignmentNotificationListener', () => {
       taskId: 'task-1',
       appointmentId: 'appt-1',
       deadlineAt: Date.now() - 60_000,
+      actor: 'SYSTEM',
+      reasonCode: 'ASSIGNMENT_TIMEOUT',
     };
 
     it('publishes an expiry notification per receptionist with a stable idempotency key', async () => {
@@ -252,6 +254,10 @@ describe('AssignmentNotificationListener', () => {
       const calls = publisher.publish.mock.calls;
       expect(calls[0][0].type).toBe('ASSIGNMENT_TASK_EXPIRED');
       expect(calls[0][0].recipientRole).toBe('RECEPTIONIST');
+      expect(calls[0][0].data).toMatchObject({
+        actor: 'SYSTEM',
+        reasonCode: 'ASSIGNMENT_TIMEOUT',
+      });
       expect(calls.map((c) => c[0].idempotencyKey)).toEqual([
         'ASSIGNMENT_TASK_EXPIRED:task-1:recep1@x.com',
         'ASSIGNMENT_TASK_EXPIRED:task-1:recep1@x.com',

@@ -40,6 +40,8 @@ export type AssignmentExpiredEvent = {
   taskId: string;
   appointmentId?: string;
   deadlineAt: number;
+  actor?: string;
+  reasonCode?: string;
 };
 
 /**
@@ -155,6 +157,8 @@ export class AssignmentNotificationListener {
             taskId: payload.taskId,
             appointmentId: payload.appointmentId,
             deadlineAt: payload.deadlineAt,
+            actor: payload.actor,
+            reasonCode: payload.reasonCode,
             online: targets.onlineEmails.has(recipientEmail),
           },
           createdAt: Date.now(),
