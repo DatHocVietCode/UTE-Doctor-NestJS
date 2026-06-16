@@ -73,9 +73,10 @@ function idToString(value: unknown): string {
   }
 
   if (typeof value === 'object' && value !== null) {
-    const toHexString = (value as { toHexString?: () => unknown }).toHexString;
-    if (typeof toHexString === 'function') {
-      const hex = toHexString();
+    const objectIdLike = value as { toHexString?: () => unknown };
+    if (typeof objectIdLike.toHexString === 'function') {
+      // BSON ObjectId methods rely on their owning object as `this`.
+      const hex = objectIdLike.toHexString();
       return typeof hex === 'string' ? hex : '';
     }
   }
