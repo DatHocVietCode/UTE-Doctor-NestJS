@@ -23,6 +23,7 @@ import { AssignmentTaskStatus } from './enums/assignment-task-status.enum';
 const taskId = '64c000000000000000000001';
 const receptionistId = '64c000000000000000000002';
 const otherReceptionistId = '64c000000000000000000003';
+const appointmentId = '64c000000000000000000004';
 
 function makeModel(overrides: Record<string, jest.Mock> = {}) {
   // find().sort().skip().limit().lean() chain.
@@ -63,6 +64,13 @@ function makeService(model: any, redis: any = makeRedis()) {
     redis,
     undefined as any,
   );
+}
+
+function queryOne(value: any) {
+  return {
+    session: jest.fn().mockReturnThis(),
+    lean: jest.fn().mockResolvedValue(value),
+  };
 }
 
 const taskLockKey = `assignment-task:${taskId}:lock`;
@@ -295,6 +303,68 @@ describe('AppointmentAssignmentTaskService', () => {
       const model = modelForRelease(null);
       const service = makeService(model);
       await expect(service.releaseTask(taskId, receptionistId)).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('createAssignmentTaskAfterDepositSuccess', () => {
+    it('creates one active task with a deposit-paid deadline', async () => {
+      const deadlineAt = 1780201800000;
+      const createdTask = {
+        _id: { toString: () => taskId },
+        deadlineAt,
+        patientEmail: 'patient@example.com',
+        specialty: 'cardiology',
+        reasonForAppointment: 'chest pain',
+      };
+      const model = makeModel({
+        findOne: jest.fn().mockReturnValue(queryOne(null)),
+        create: jest.fn().mockResolvedValue([createdTask]),
+      });
+      const service = makeService(model);
+
+      const result = await service.createAssignmentTaskAfterDepositSuccess({
+        appointmentId,
+        deadlineAt,
+        specialty: 'cardiology',
+        reasonForAppointment: 'chest pain',
+        patientEmail: 'patient@example.com',
+      });
+
+      expect(result).toMatchObject({ taskId, appointmentId, deadlineAt, created: true });
+      expect(model.create).toHaveBeenCalledTimes(1);
+      const [docs] = model.create.mock.calls[0];
+      expect(docs[0]).toMatchObject({
+        status: AssignmentTaskStatus.PENDING,
+        deadlineAt,
+        specialty: 'cardiology',
+        reasonForAppointment: 'chest pain',
+        patientEmail: 'patient@example.com',
+        priority: 'NORMAL',
+      });
+      expect(docs[0].appointmentId.toString()).toBe(appointmentId);
+    });
+
+    it('returns the existing active task instead of creating a duplicate', async () => {
+      const existingTask = {
+        _id: { toString: () => taskId },
+        deadlineAt: 1780201800000,
+        patientEmail: 'patient@example.com',
+        specialty: 'cardiology',
+        reasonForAppointment: 'chest pain',
+      };
+      const model = makeModel({
+        findOne: jest.fn().mockReturnValue(queryOne(existingTask)),
+        create: jest.fn(),
+      });
+      const service = makeService(model);
+
+      const result = await service.createAssignmentTaskAfterDepositSuccess({
+        appointmentId,
+        deadlineAt: 1780201800000,
+      });
+
+      expect(result).toMatchObject({ taskId, appointmentId, created: false });
+      expect(model.create).not.toHaveBeenCalled();
     });
   });
 });

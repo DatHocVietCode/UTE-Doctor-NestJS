@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { AppointmentModule } from 'src/appointment/appointment.module';
 import { Appointment, AppointmentSchema } from 'src/appointment/schemas/appointment.schema';
 import { Billing, BillingSchema } from 'src/billing/billing.schema';
 import { Doctor, DoctorSchema } from 'src/doctor/schema/doctor.schema';
@@ -20,6 +21,7 @@ import { VnPayPaymentService } from './vnpay/vnpay-payment.service';
 
 @Module({
         imports: [
+            forwardRef(() => AppointmentModule),
             MongooseModule.forFeature([
                 { name: Payment.name, schema: PaymentSchema },
                 { name: Appointment.name, schema: AppointmentSchema },

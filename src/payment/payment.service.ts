@@ -2,9 +2,12 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
+import { AppointmentAssignmentTaskService, CreateAssignmentTaskAfterDepositSuccessResult } from 'src/appointment/appointment-assignment-task.service';
 import { ClientSession, Model, Types } from 'mongoose';
 import { AppointmentStatus } from 'src/appointment/enums/Appointment-status.enum';
+import { AssignmentStatus } from 'src/appointment/enums/assignment-status.enum';
 import { DepositStatus } from 'src/appointment/enums/deposit-status.enum';
+import { PaymentCategory } from 'src/appointment/enums/payment-category.enum';
 import { buildEnrichedAppointmentPayload } from 'src/appointment/schemas/appointment-enriched';
 import { Appointment, AppointmentDocument } from 'src/appointment/schemas/appointment.schema';
 import { Billing, BillingDocument, BillingStatus } from 'src/billing/billing.schema';
@@ -32,6 +35,7 @@ type ActiveEarnTransaction = {
 @Injectable()
 export class PaymentService {
 	private readonly logger = new Logger(PaymentService.name);
+	private readonly DEFAULT_ASSIGNMENT_DEADLINE_MINUTES = 30;
 
 	constructor(
 		@InjectModel(Payment.name) private readonly paymentModel: Model<PaymentDocument>,
@@ -50,6 +54,7 @@ export class PaymentService {
 		private readonly config: ConfigService,
 		private readonly eventEmitter: EventEmitter2,
 		private readonly vnPayPaymentService: VnPayPaymentService,
+		private readonly assignmentTaskService: AppointmentAssignmentTaskService,
 	) {}
 
 	async createPaymentForBilling(
@@ -397,6 +402,7 @@ export class PaymentService {
 			let result: any = null;
 			let confirmedAppointment: AppointmentDocument | null = null;
 			let shouldEmitBookingSuccess = false;
+			let assignmentTaskResult: CreateAssignmentTaskAfterDepositSuccessResult | null = null;
 
 			await session.withTransaction(async () => {
 				const payment = await this.paymentModel.findById(paymentId).session(session).exec();
@@ -423,6 +429,7 @@ export class PaymentService {
 
 				const paidAt = metadata?.paidAt ?? payment.paidAt ?? new Date();
 				const wasAlreadyPaid = payment.status === PaymentFlowStatusEnum.SUCCESS && appointment.depositStatus === DepositStatus.PAID;
+				const isBroadDichVuAwaitingAssignment = this.isBroadDichVuAwaitingAssignment(appointment);
 				payment.status = PaymentFlowStatusEnum.SUCCESS;
 				payment.expireAt = null;
 				payment.transactionId = metadata?.transactionId ?? payment.transactionId;
@@ -434,7 +441,19 @@ export class PaymentService {
 				appointment.depositPaidAmount = payment.amount;
 				appointment.depositPaidAt = paidAt.getTime();
 				appointment.depositPaymentId = payment._id;
-				if (appointment.appointmentStatus === AppointmentStatus.PENDING) {
+				if (isBroadDichVuAwaitingAssignment) {
+					// Broad DICH_VU deposit success opens receptionist assignment work, but
+					// doctor/slot assignment remains the booking-success/Visit boundary.
+					appointment.assignmentStatus = AssignmentStatus.AWAITING_ASSIGNMENT;
+					assignmentTaskResult = await this.assignmentTaskService.createAssignmentTaskAfterDepositSuccess({
+						appointmentId: appointment._id.toString(),
+						deadlineAt: paidAt.getTime() + this.resolveAssignmentDeadlineMs(),
+						specialty: appointment.specialtyId?.toString?.() ?? undefined,
+						reasonForAppointment: appointment.reasonForAppointment,
+						patientEmail: appointment.patientEmail,
+						session,
+					});
+				} else if (appointment.appointmentStatus === AppointmentStatus.PENDING) {
 					appointment.appointmentStatus = AppointmentStatus.CONFIRMED;
 					shouldEmitBookingSuccess = !wasAlreadyPaid;
 				}
@@ -454,10 +473,23 @@ export class PaymentService {
 				throw new BadRequestException('Deposit payment commit failed');
 			}
 			const committedResult = result as { paymentId: string; appointmentId: string; status: PaymentFlowStatusEnum; amount: number; method: PaymentFlowMethodEnum };
+			const committedAssignmentTaskResult =
+				assignmentTaskResult as CreateAssignmentTaskAfterDepositSuccessResult | null;
 
 			if (shouldEmitBookingSuccess) {
 				const payload = await this.buildAppointmentBookingPayload(confirmedAppointment);
 				this.eventEmitter.emit('appointment.booking.success', payload);
+			}
+			if (committedAssignmentTaskResult && committedAssignmentTaskResult.created) {
+				this.eventEmitter.emit('appointment.assignment.created', {
+					taskId: committedAssignmentTaskResult.taskId,
+					appointmentId: committedAssignmentTaskResult.appointmentId,
+					patientEmail: committedAssignmentTaskResult.patientEmail,
+					specialty: committedAssignmentTaskResult.specialty,
+					priority: 'NORMAL',
+					deadlineAt: committedAssignmentTaskResult.deadlineAt,
+					reasonForAppointment: committedAssignmentTaskResult.reasonForAppointment,
+				});
 			}
 			this.eventEmitter.emit('payment.update', {
 				orderId: committedResult.appointmentId,
@@ -532,6 +564,24 @@ export class PaymentService {
 		} finally {
 			await session.endSession();
 		}
+	}
+
+	private isBroadDichVuAwaitingAssignment(appointment: AppointmentDocument): boolean {
+		return (
+			appointment.paymentCategory === PaymentCategory.DICH_VU &&
+			appointment.assignmentStatus === AssignmentStatus.AWAITING_ASSIGNMENT &&
+			!appointment.doctorId &&
+			!appointment.timeSlot
+		);
+	}
+
+	private resolveAssignmentDeadlineMs(): number {
+		const configured = Number(this.config.get('ASSIGNMENT_DEADLINE_MINUTES'));
+		const minutes =
+			Number.isFinite(configured) && configured > 0
+				? Math.floor(configured)
+				: this.DEFAULT_ASSIGNMENT_DEADLINE_MINUTES;
+		return minutes * 60_000;
 	}
 
 	private async buildAppointmentBookingPayload(appointment: AppointmentDocument) {

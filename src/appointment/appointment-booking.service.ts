@@ -280,9 +280,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
   }
 
   /**
-   * Broad booking: create a PENDING appointment with no doctor/slot plus a PENDING
-   * assignment task for receptionists. Does NOT emit appointment.booking.success and
-   * does NOT create a Visit — those happen only once a doctor/slot is assigned.
+   * Broad booking: create a PENDING appointment with no doctor/slot. BHYT/no-deposit
+   * bookings enter the assignment queue immediately; DICH_VU waits until the deposit
+   * succeeds so the assignment SLA only starts for actionable tasks.
    */
   private async bookBroadAppointment(
     bookingAppointment: AppointmentBookingDto,
@@ -340,31 +340,33 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         );
         appointmentDoc = apptDocs[0] as AppointmentDocument;
 
-        const now = Date.now();
-        const taskDocs = await this.assignmentTaskModel.create(
-          [
-            {
-              appointmentId: appointmentDoc._id,
-              status: AssignmentTaskStatus.PENDING,
-              deadlineAt,
-              specialty: bookingAppointment.specialty,
-              reasonForAppointment: bookingAppointment.reasonForAppointment,
-              patientEmail: bookingAppointment.patientEmail,
-              priority: 'NORMAL',
-              history: [
-                {
-                  at: now,
-                  from: '',
-                  to: AssignmentTaskStatus.PENDING,
-                  by: 'system',
-                  note: 'broad booking created',
-                },
-              ],
-            },
-          ],
-          { session },
-        );
-        taskId = taskDocs[0]._id.toString();
+        if (!isDichVu) {
+          const now = Date.now();
+          const taskDocs = await this.assignmentTaskModel.create(
+            [
+              {
+                appointmentId: appointmentDoc._id,
+                status: AssignmentTaskStatus.PENDING,
+                deadlineAt,
+                specialty: bookingAppointment.specialty,
+                reasonForAppointment: bookingAppointment.reasonForAppointment,
+                patientEmail: bookingAppointment.patientEmail,
+                priority: 'NORMAL',
+                history: [
+                  {
+                    at: now,
+                    from: '',
+                    to: AssignmentTaskStatus.PENDING,
+                    by: 'system',
+                    note: 'broad booking created',
+                  },
+                ],
+              },
+            ],
+            { session },
+          );
+          taskId = taskDocs[0]._id.toString();
+        }
       });
       committed = true;
     } catch (error: any) {
@@ -373,10 +375,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       await session.endSession();
     }
 
-    // Both appointment and task are created atomically; treat as failure unless the
-    // transaction committed. (The unique partial index on appointmentId still guards
-    // against duplicate active tasks should the same appointment ever be retried.)
-    if (!committed || !appointmentDoc || !taskId) {
+    // DICH_VU intentionally has no task yet; BHYT/no-deposit must have one atomically.
+    // The unique partial index on appointmentId still guards duplicate active tasks.
+    if (!committed || !appointmentDoc || (!isDichVu && !taskId)) {
       return {
         code: ResponseCode.ERROR,
         message: 'Broad booking failed',
@@ -387,8 +388,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     const appointment = appointmentDoc as AppointmentDocument;
     const appointmentId = appointment._id.toString();
 
-    // DICH_VU broad booking takes the deposit upfront (same as normal DICH_VU), so the
-    // queue only holds paying patients. Failure marks the appointment FAILED + task CANCELLED.
+    // DICH_VU broad booking takes the deposit before queue activation. Failure marks
+    // only the appointment/deposit failed because no assignment task exists yet.
     let depositInfo: { depositPaymentId?: string; paymentUrl?: string } = {};
     if (isDichVu) {
       try {
@@ -402,7 +403,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
           paymentUrl: depositPayment.paymentUrl,
         };
       } catch (error: any) {
-        await this.cancelBroadBookingAfterDepositFailure(appointmentId, taskId!);
+        await this.cancelBroadBookingAfterDepositFailure(appointmentId, taskId);
         return {
           code: ResponseCode.ERROR,
           message: error?.message || 'Deposit payment creation failed',
@@ -411,16 +412,18 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       }
     }
 
-    // Notify the assignment pipeline. Visit creation is deliberately deferred.
-    this.eventEmitter.emit('appointment.assignment.created', {
-      taskId,
-      appointmentId,
-      patientEmail: bookingAppointment.patientEmail,
-      specialty: bookingAppointment.specialty,
-      priority: 'NORMAL',
-      deadlineAt,
-      reasonForAppointment: bookingAppointment.reasonForAppointment,
-    });
+    if (taskId) {
+      // Notify the assignment pipeline. Visit creation is deliberately deferred.
+      this.eventEmitter.emit('appointment.assignment.created', {
+        taskId,
+        appointmentId,
+        patientEmail: bookingAppointment.patientEmail,
+        specialty: bookingAppointment.specialty,
+        priority: 'NORMAL',
+        deadlineAt,
+        reasonForAppointment: bookingAppointment.reasonForAppointment,
+      });
+    }
 
     return {
       code: ResponseCode.PENDING,
@@ -429,7 +432,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         : 'Broad appointment created. A receptionist will assign a doctor.',
       data: {
         appointmentId,
-        assignmentTaskId: taskId,
+        ...(taskId ? { assignmentTaskId: taskId } : {}),
         assignmentStatus: AssignmentStatus.AWAITING_ASSIGNMENT,
         depositStatus: isDichVu ? DepositStatus.PENDING : DepositStatus.NOT_REQUIRED,
         depositAmount: isDichVu ? bookingAppointment.depositAmount ?? 0 : 0,
@@ -468,28 +471,30 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     return minutes * 60_000;
   }
 
-  private async cancelBroadBookingAfterDepositFailure(appointmentId: string, taskId: string) {
+  private async cancelBroadBookingAfterDepositFailure(appointmentId: string, taskId?: string | null) {
     try {
       await this.appointmentModel.updateOne(
         { _id: new Types.ObjectId(appointmentId) },
         { $set: { appointmentStatus: AppointmentStatus.FAILED, depositStatus: DepositStatus.FAILED } },
       );
-      const now = Date.now();
-      await this.assignmentTaskModel.updateOne(
-        { _id: new Types.ObjectId(taskId), status: AssignmentTaskStatus.PENDING },
-        {
-          $set: { status: AssignmentTaskStatus.CANCELLED },
-          $push: {
-            history: {
-              at: now,
-              from: AssignmentTaskStatus.PENDING,
-              to: AssignmentTaskStatus.CANCELLED,
-              by: 'system',
-              note: 'deposit payment creation failed',
+      if (taskId) {
+        const now = Date.now();
+        await this.assignmentTaskModel.updateOne(
+          { _id: new Types.ObjectId(taskId), status: AssignmentTaskStatus.PENDING },
+          {
+            $set: { status: AssignmentTaskStatus.CANCELLED },
+            $push: {
+              history: {
+                at: now,
+                from: AssignmentTaskStatus.PENDING,
+                to: AssignmentTaskStatus.CANCELLED,
+                by: 'system',
+                note: 'deposit payment creation failed',
+              },
             },
           },
-        },
-      );
+        );
+      }
     } catch (error: any) {
       this.logger.warn(
         `Failed to roll back broad booking ${appointmentId}/${taskId}: ${error?.message || String(error)}`,

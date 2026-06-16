@@ -159,8 +159,8 @@ describe('AppointmentBookingService broad booking', () => {
     expect(paymentService.createDepositPaymentForAppointment).not.toHaveBeenCalled();
   });
 
-  it('DICH_VU broad booking takes an upfront deposit and returns a payment URL', async () => {
-    const { service, paymentService, getSaved } = createService();
+  it('DICH_VU broad booking takes a deposit before creating an assignment task', async () => {
+    const { service, paymentService, assignmentTaskModel, eventEmitter, getSaved } = createService();
 
     const result = await service.bookAppointment(
       broadPayload({
@@ -175,6 +175,9 @@ describe('AppointmentBookingService broad booking', () => {
     expect(result.code).toBe('PENDING');
     expect(result.data.depositStatus).toBe(DepositStatus.PENDING);
     expect(result.data.paymentUrl).toBe('https://vnpay.example/pay');
+    expect(result.data.assignmentTaskId).toBeUndefined();
+    expect(assignmentTaskModel.create).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalledWith('appointment.assignment.created', expect.anything());
     expect(paymentService.createDepositPaymentForAppointment).toHaveBeenCalledWith(
       getSaved()._id.toString(),
       50000,
@@ -200,7 +203,7 @@ describe('AppointmentBookingService broad booking', () => {
     ).rejects.toThrow('Either specialty or reasonForAppointment is required for broad booking');
   });
 
-  it('marks appointment FAILED and task CANCELLED if DICH_VU deposit creation fails', async () => {
+  it('marks appointment FAILED without touching assignment tasks if DICH_VU deposit creation fails', async () => {
     const { service, appointmentModel, assignmentTaskModel, eventEmitter, getSaved } = createService({ depositThrows: true });
 
     const result = await service.bookAppointment(
@@ -218,10 +221,8 @@ describe('AppointmentBookingService broad booking', () => {
     expect(apptUpdate[1]).toEqual({
       $set: { appointmentStatus: AppointmentStatus.FAILED, depositStatus: DepositStatus.FAILED },
     });
-    const taskUpdate = assignmentTaskModel.updateOne.mock.calls[0];
-    expect(taskUpdate[0]._id.toString()).toBe(newTaskId.toString());
-    expect(taskUpdate[0].status).toBe(AssignmentTaskStatus.PENDING);
-    expect(taskUpdate[1].$set).toEqual({ status: AssignmentTaskStatus.CANCELLED });
+    expect(assignmentTaskModel.create).not.toHaveBeenCalled();
+    expect(assignmentTaskModel.updateOne).not.toHaveBeenCalled();
     expect(eventEmitter.emit).not.toHaveBeenCalledWith('appointment.assignment.created', expect.anything());
   });
 });
