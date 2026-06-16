@@ -156,6 +156,8 @@ export class MailService {
     reason?: string;
     refundAmount?: number;
     shouldRefund?: boolean;
+    actor?: string;
+    reasonCode?: string;
   }) {
     const timeSlotName = await emitTyped<string, string>(
       this.eventEmitter,

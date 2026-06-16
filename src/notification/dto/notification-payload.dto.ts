@@ -13,6 +13,10 @@ export type AppointmentCancelledDto = {
   reason?: string;
   refundAmount?: number;
   shouldRefund?: boolean;
+  actor?: string;
+  reasonCode?: string;
+  assignmentTaskId?: string;
+  deadlineAt?: number;
 };
 
 export const NOTIFICATION_RECIPIENT_ROLES = [

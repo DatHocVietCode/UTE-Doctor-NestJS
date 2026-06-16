@@ -113,6 +113,10 @@ function createService(input: { payment?: any; appointment?: any } = {}) {
       specialty: appointment.specialtyId?.toString?.(),
       reasonForAppointment: 'chest pain',
     }),
+    closeActiveTaskAfterDepositFailure: jest.fn().mockResolvedValue({ closed: false }),
+  };
+  const timeSlotLogModel = {
+    updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
   };
   const doctorModel = {
     findById: jest.fn().mockReturnValue({
@@ -134,7 +138,7 @@ function createService(input: { payment?: any; appointment?: any } = {}) {
     appointmentModel as any,
     {} as any,
     {} as any,
-    {} as any,
+    timeSlotLogModel as any,
     patientModel as any,
     doctorModel as any,
     {} as any,
@@ -148,7 +152,7 @@ function createService(input: { payment?: any; appointment?: any } = {}) {
     assignmentTaskService as any,
   );
 
-  return { service, payment, appointment, eventEmitter, assignmentTaskService, session };
+  return { service, payment, appointment, eventEmitter, assignmentTaskService, session, timeSlotLogModel };
 }
 
 describe('PaymentService appointment deposit success', () => {
@@ -214,5 +218,47 @@ describe('PaymentService appointment deposit success', () => {
     expect(appointment.appointmentStatus).toBe(AppointmentStatus.CONFIRMED);
     expect(assignmentTaskService.createAssignmentTaskAfterDepositSuccess).not.toHaveBeenCalled();
     expect(eventEmitter.emit).toHaveBeenCalledWith('appointment.booking.success', expect.any(Object));
+  });
+
+  it('fails a broad DICH_VU deposit and closes only legacy active assignment work', async () => {
+    const { service, payment, appointment, assignmentTaskService, timeSlotLogModel, session } = createService();
+
+    const result = await service.handleVnpayPaymentFailureByTxnRef(paymentId.toString(), {
+      transactionId: 'vnpay-failed',
+    });
+
+    expect(result).toMatchObject({ code: 'FAILED' });
+    expect(payment.status).toBe(PaymentFlowStatusEnum.FAILED);
+    expect(payment.expireAt).toBeNull();
+    expect(appointment.appointmentStatus).toBe(AppointmentStatus.FAILED);
+    expect(appointment.depositStatus).toBe(DepositStatus.FAILED);
+    expect(assignmentTaskService.closeActiveTaskAfterDepositFailure).toHaveBeenCalledWith({
+      appointmentId: appointmentId.toString(),
+      note: 'deposit payment failed',
+      session,
+    });
+    expect(timeSlotLogModel.updateOne).not.toHaveBeenCalled();
+  });
+
+  it('keeps normal doctor-selected DICH_VU payment failure slot release behavior unchanged', async () => {
+    const appointment = createAppointment({
+      assignmentStatus: AssignmentStatus.NONE,
+      doctorId,
+      timeSlot: timeSlotId,
+    });
+    const { service, assignmentTaskService, timeSlotLogModel } = createService({ appointment });
+
+    await service.handleVnpayPaymentFailureByTxnRef(paymentId.toString(), {
+      transactionId: 'vnpay-failed',
+    });
+
+    expect(appointment.appointmentStatus).toBe(AppointmentStatus.FAILED);
+    expect(appointment.depositStatus).toBe(DepositStatus.FAILED);
+    expect(assignmentTaskService.closeActiveTaskAfterDepositFailure).not.toHaveBeenCalled();
+    expect(timeSlotLogModel.updateOne).toHaveBeenCalledWith(
+      { _id: timeSlotId },
+      { $set: { status: 'available' } },
+      expect.any(Object),
+    );
   });
 });

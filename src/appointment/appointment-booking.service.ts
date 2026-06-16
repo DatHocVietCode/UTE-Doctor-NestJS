@@ -9,6 +9,7 @@ import { RedisService } from 'src/common/redis/redis.service';
 import { Doctor, DoctorDocument } from 'src/doctor/schema/doctor.schema';
 import { Patient, PatientDocument } from 'src/patient/schema/patient.schema';
 import { PaymentMethodEnum } from 'src/payment/enums/payment-method.enum';
+import { PaymentFlowStatusEnum, PaymentPurposeEnum } from 'src/payment/enums/payment-flow.enum';
 import { PaymentStatusEnum } from 'src/payment/enums/payment-status.enum';
 import { PaymentService } from 'src/payment/payment.service';
 import { Payment } from 'src/payment/schemas/payment.schema';
@@ -944,6 +945,116 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         appointment._id.toString(),
         `Appointment expired after ${VNPAY_EXPIRE_MINUTES} minutes`,
       );
+    }
+
+    const expiredBroadDichVuAppointments = await this.appointmentModel
+      .find({
+        appointmentStatus: AppointmentStatus.PENDING,
+        assignmentStatus: AssignmentStatus.AWAITING_ASSIGNMENT,
+        paymentCategory: PaymentCategory.DICH_VU,
+        depositStatus: DepositStatus.PENDING,
+        createdAt: { $lte: expirationTime },
+      })
+      .exec();
+
+    for (const appointment of expiredBroadDichVuAppointments) {
+      this.logger.log(`Expiring unpaid broad DICH_VU booking ${appointment._id.toString()}`);
+      await this.failBroadUnpaidDepositBooking(
+        appointment._id.toString(),
+        `Appointment deposit expired after ${VNPAY_EXPIRE_MINUTES} minutes`,
+        'deposit payment expired',
+      );
+    }
+  }
+
+  private async failBroadUnpaidDepositBooking(
+    appointmentId: string,
+    reason: string,
+    taskNote: string,
+  ): Promise<void> {
+    const session = await this.appointmentModel.db.startSession();
+    let patientEmail: string | undefined;
+    try {
+      await session.withTransaction(async () => {
+        const appointment = await this.appointmentModel.findById(appointmentId).session(session);
+        if (!appointment) {
+          return;
+        }
+        if (
+          appointment.appointmentStatus !== AppointmentStatus.PENDING ||
+          appointment.assignmentStatus !== AssignmentStatus.AWAITING_ASSIGNMENT ||
+          appointment.paymentCategory !== PaymentCategory.DICH_VU ||
+          appointment.depositStatus !== DepositStatus.PENDING
+        ) {
+          return;
+        }
+
+        const depositPayment = await this.paymentModel
+          .findOne({
+            purpose: PaymentPurposeEnum.APPOINTMENT_DEPOSIT,
+            appointmentId: appointment._id,
+          })
+          .session(session);
+        if (depositPayment && depositPayment.status === PaymentFlowStatusEnum.SUCCESS) {
+          return;
+        }
+
+        if (depositPayment) {
+          depositPayment.status = PaymentFlowStatusEnum.FAILED;
+          depositPayment.expireAt = null;
+          await depositPayment.save({ session });
+        } else {
+          this.logger.warn(
+            `Broad DICH_VU appointment ${appointment._id.toString()} has no pending deposit payment row during expiry cleanup`,
+          );
+        }
+
+        appointment.appointmentStatus = AppointmentStatus.FAILED;
+        appointment.depositStatus = DepositStatus.FAILED;
+        await appointment.save({ session });
+        patientEmail = appointment.patientEmail;
+
+        // Forward Phase 1 records have no task here; this only cleans up legacy
+        // pre-created active work items after payment expiry is explicitly handled.
+        const activeTask = await this.assignmentTaskModel
+          .findOne({
+            appointmentId: appointment._id,
+            status: { $in: [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED] },
+          })
+          .session(session)
+          .lean();
+        if (activeTask) {
+          await this.assignmentTaskModel.updateOne(
+            {
+              _id: activeTask._id,
+              status: { $in: [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED] },
+            },
+            {
+              $set: { status: AssignmentTaskStatus.CANCELLED },
+              $push: {
+                history: {
+                  at: Date.now(),
+                  from: activeTask.status,
+                  to: AssignmentTaskStatus.CANCELLED,
+                  by: 'system',
+                  note: taskNote,
+                },
+              },
+            },
+            { session },
+          );
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    if (patientEmail) {
+      this.eventEmitter.emit('appointment.booking.failed', {
+        appointmentId,
+        patientEmail,
+        reason,
+      });
     }
   }
 

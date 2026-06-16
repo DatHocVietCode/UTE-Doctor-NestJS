@@ -542,6 +542,14 @@ export class PaymentService {
 					}
 					await appointment.save({ session });
 
+					if (this.isBroadDichVuAwaitingAssignment(appointment)) {
+						await this.assignmentTaskService.closeActiveTaskAfterDepositFailure({
+							appointmentId: appointment._id.toString(),
+							note: 'deposit payment failed',
+							session,
+						});
+					}
+
 					if (appointment.timeSlot) {
 						await this.timeSlotLogModel.updateOne(
 							{ _id: appointment.timeSlot },

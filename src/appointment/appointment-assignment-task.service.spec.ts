@@ -367,6 +367,60 @@ describe('AppointmentAssignmentTaskService', () => {
       expect(model.create).not.toHaveBeenCalled();
     });
   });
+
+  describe('closeActiveTaskAfterDepositFailure', () => {
+    it('closes an active legacy task as CANCELLED with payment-failure context', async () => {
+      const activeTask = {
+        _id: { toString: () => taskId },
+        status: AssignmentTaskStatus.PENDING,
+      };
+      const model = makeModel({
+        findOne: jest.fn().mockReturnValue(queryOne(activeTask)),
+        updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+      });
+      const service = makeService(model);
+
+      const result = await service.closeActiveTaskAfterDepositFailure({
+        appointmentId,
+        note: 'deposit payment expired',
+      });
+
+      expect(result).toEqual({ closed: true, taskId });
+      expect(model.updateOne).toHaveBeenCalledWith(
+        {
+          _id: activeTask._id,
+          status: { $in: [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED] },
+        },
+        expect.objectContaining({
+          $set: { status: AssignmentTaskStatus.CANCELLED },
+          $push: expect.objectContaining({
+            history: expect.objectContaining({
+              from: AssignmentTaskStatus.PENDING,
+              to: AssignmentTaskStatus.CANCELLED,
+              note: 'deposit payment expired',
+            }),
+          }),
+        }),
+        expect.any(Object),
+      );
+    });
+
+    it('no-ops when there is no active legacy task', async () => {
+      const model = makeModel({
+        findOne: jest.fn().mockReturnValue(queryOne(null)),
+        updateOne: jest.fn(),
+      });
+      const service = makeService(model);
+
+      const result = await service.closeActiveTaskAfterDepositFailure({
+        appointmentId,
+        note: 'deposit payment expired',
+      });
+
+      expect(result).toEqual({ closed: false });
+      expect(model.updateOne).not.toHaveBeenCalled();
+    });
+  });
 });
 
 // Role enforcement is provided by the shared RoleGuard + @Roles metadata on the

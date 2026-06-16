@@ -3,6 +3,8 @@ import mongoose, { HydratedDocument } from "mongoose";
 import { PaymentMethodEnum } from "src/payment/enums/payment-method.enum";
 import { AppointmentStatus } from "../enums/Appointment-status.enum";
 import { AssignmentStatus } from "../enums/assignment-status.enum";
+import { CancellationActor } from "../enums/cancellation-actor.enum";
+import { CancellationReasonCode } from "../enums/cancellation-reason-code.enum";
 import { DepositStatus } from "../enums/deposit-status.enum";
 import { ACTIVE_DOCTOR_SLOT_PARTIAL_FILTER } from "./appointment.index";
 import { PaymentCategory } from "../enums/payment-category.enum";
@@ -111,6 +113,18 @@ export class Appointment {
     // ASSIGNED after a receptionist sets the doctor/slot. Kept as an explicit field for indexability.
     @Prop({ type: String, enum: AssignmentStatus, default: AssignmentStatus.NONE })
     assignmentStatus!: AssignmentStatus;
+
+    @Prop()
+    cancelledAt?: number;
+
+    @Prop({ type: String, enum: CancellationActor })
+    cancellationActor?: CancellationActor;
+
+    @Prop({ type: String, enum: CancellationReasonCode })
+    cancellationReasonCode?: CancellationReasonCode;
+
+    @Prop()
+    cancellationReason?: string;
 }
 
 export const AppointmentSchema = SchemaFactory.createForClass(Appointment);

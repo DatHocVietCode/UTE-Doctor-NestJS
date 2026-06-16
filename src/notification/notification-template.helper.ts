@@ -128,6 +128,10 @@ export function buildAppointmentCancelledNotification(
         typeof payload.refundAmount === 'number' ? payload.refundAmount : null,
       shouldRefund:
         typeof payload.shouldRefund === 'boolean' ? payload.shouldRefund : null,
+      actor: nullableString(payload.actor),
+      reasonCode: nullableString(payload.reasonCode),
+      assignmentTaskId: nullableString(payload.assignmentTaskId),
+      deadlineAt: epochNumber(payload.deadlineAt),
     }),
   };
 }

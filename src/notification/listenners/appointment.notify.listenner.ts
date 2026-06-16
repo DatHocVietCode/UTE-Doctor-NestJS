@@ -168,6 +168,10 @@ export class AppointmentNotificationListener {
     reason?: string;
     refundAmount?: number;
     shouldRefund?: boolean;
+    actor?: string;
+    reasonCode?: string;
+    assignmentTaskId?: string;
+    deadlineAt?: number;
   }) {
     const patientRecipient = payload.patientEmail.trim().toLowerCase();
     await this.publish({
@@ -184,6 +188,10 @@ export class AppointmentNotificationListener {
         reason: payload.reason,
         refundAmount: payload.refundAmount,
         shouldRefund: payload.shouldRefund,
+        actor: payload.actor,
+        reasonCode: payload.reasonCode,
+        assignmentTaskId: payload.assignmentTaskId,
+        deadlineAt: payload.deadlineAt,
       },
       createdAt: Date.now(),
       recipientEmail: patientRecipient,
@@ -207,6 +215,10 @@ export class AppointmentNotificationListener {
           reason: payload.reason,
           refundAmount: payload.refundAmount,
           shouldRefund: payload.shouldRefund,
+          actor: payload.actor,
+          reasonCode: payload.reasonCode,
+          assignmentTaskId: payload.assignmentTaskId,
+          deadlineAt: payload.deadlineAt,
         },
         createdAt: Date.now(),
         recipientEmail: doctorRecipient,

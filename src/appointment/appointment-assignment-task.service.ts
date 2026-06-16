@@ -58,6 +58,12 @@ export interface CreateAssignmentTaskAfterDepositSuccessResult {
   reasonForAppointment?: string;
 }
 
+export interface CloseActiveTaskAfterDepositFailureInput {
+  appointmentId: string;
+  note: string;
+  session?: ClientSession;
+}
+
 /**
  * Receptionist-facing queue management for broad-appointment assignment tasks.
  *
@@ -351,6 +357,49 @@ export class AppointmentAssignmentTaskService {
         reasonForAppointment: duplicateWinner.reasonForAppointment,
       };
     }
+  }
+
+  async closeActiveTaskAfterDepositFailure(
+    input: CloseActiveTaskAfterDepositFailureInput,
+  ): Promise<{ closed: boolean; taskId?: string }> {
+    const appointmentObjectId = new Types.ObjectId(input.appointmentId);
+    const session = input.session ?? null;
+    const activeTask = await this.taskModel
+      .findOne({
+        appointmentId: appointmentObjectId,
+        status: { $in: [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED] },
+      })
+      .session(session)
+      .lean();
+
+    if (!activeTask) {
+      return { closed: false };
+    }
+
+    const update = await this.taskModel.updateOne(
+      {
+        _id: activeTask._id,
+        status: { $in: [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED] },
+      },
+      {
+        $set: { status: AssignmentTaskStatus.CANCELLED },
+        $push: {
+          history: {
+            at: Date.now(),
+            from: activeTask.status,
+            to: AssignmentTaskStatus.CANCELLED,
+            by: 'system',
+            note: input.note,
+          },
+        },
+      },
+      { session: input.session ?? undefined },
+    );
+
+    return {
+      closed: update.modifiedCount > 0,
+      taskId: activeTask._id.toString(),
+    };
   }
 
   /**

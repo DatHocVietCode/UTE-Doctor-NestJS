@@ -4,6 +4,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { RedisService } from 'src/common/redis/redis.service';
+import { AppointmentService } from './appointment.service';
 import {
   AssignmentSlaConfig,
   resolveAssignmentSlaConfig,
@@ -40,6 +41,7 @@ export class AssignmentSlaScheduler implements OnModuleInit, OnModuleDestroy {
     private readonly redisService: RedisService,
     private readonly eventEmitter: EventEmitter2,
     private readonly config: ConfigService,
+    private readonly appointmentService: AppointmentService,
   ) {
     this.slaConfig = resolveAssignmentSlaConfig((key) => this.config.get(key));
   }
@@ -117,8 +119,8 @@ export class AssignmentSlaScheduler implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  // Expire PENDING tasks past deadline + grace. MVP: mark EXPIRED (no escalation,
-  // no auto-cancel, no auto-refund). Appointment is left for manual handling.
+  // Expire actionable PENDING tasks past deadline + grace. ASSIGNED tasks keep the
+  // existing reclaim flow below instead of being auto-cancelled from this phase.
   private async expireOverdue(now: number): Promise<void> {
     const overdue = await this.taskModel
       .find({
@@ -129,28 +131,7 @@ export class AssignmentSlaScheduler implements OnModuleInit, OnModuleDestroy {
       .lean();
 
     for (const task of overdue) {
-      const res = await this.taskModel.updateOne(
-        { _id: task._id, status: AssignmentTaskStatus.PENDING },
-        {
-          $set: { status: AssignmentTaskStatus.EXPIRED },
-          $push: {
-            history: {
-              at: now,
-              from: AssignmentTaskStatus.PENDING,
-              to: AssignmentTaskStatus.EXPIRED,
-              by: 'system',
-              note: 'deadline passed',
-            },
-          },
-        },
-      );
-      if (res.modifiedCount > 0) {
-        this.eventEmitter.emit('appointment.assignment.expired', {
-          taskId: task._id.toString(),
-          appointmentId: task.appointmentId?.toString(),
-          deadlineAt: task.deadlineAt,
-        });
-      }
+      await this.appointmentService.cancelForAssignmentTimeout(task._id.toString());
     }
   }
 

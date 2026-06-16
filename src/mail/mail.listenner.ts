@@ -75,6 +75,8 @@ export class MailListener {
         reason?: string;
         refundAmount?: number;
         shouldRefund?: boolean;
+        actor?: string;
+        reasonCode?: string;
     }) {
         try {
             await this.mailService.sendPatientAppointmentCancellationMail(payload);
