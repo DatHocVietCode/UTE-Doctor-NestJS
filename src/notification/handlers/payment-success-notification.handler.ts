@@ -3,28 +3,45 @@ import { RedisService } from 'src/common/redis/redis.service';
 import type { PaymentSuccessDto } from '../dto/notification-payload.dto';
 import { NotificationWriteService } from '../notification-write.service';
 import { NOTIFICATION_REDIS_CHANNEL } from '../notification.constants';
-import type { NotificationHandler, NotificationHandlerMeta } from './notification-handler.interface';
+import { toStoredNotificationPayload } from '../notification-payload.mapper';
+import { buildPaymentSuccessNotification } from '../notification-template.helper';
+import type {
+  NotificationHandler,
+  NotificationHandlerMeta,
+} from './notification-handler.interface';
 
 @Injectable()
-export class PaymentSuccessNotificationHandler implements NotificationHandler<PaymentSuccessDto> {
+export class PaymentSuccessNotificationHandler
+  implements NotificationHandler<PaymentSuccessDto>
+{
   constructor(
     private readonly notificationWriteService: NotificationWriteService,
     private readonly redisService: RedisService,
   ) {}
 
-  async handle(payload: PaymentSuccessDto, meta: NotificationHandlerMeta): Promise<void> {
-    const title = 'Thanh toan thanh cong';
-    const message = `Thanh toan don ${payload.orderId} da hoan tat thanh cong.`;
+  async handle(
+    payload: PaymentSuccessDto,
+    meta: NotificationHandlerMeta,
+  ): Promise<void> {
+    const { title, message, titleKey, messageKey, data } =
+      buildPaymentSuccessNotification(payload);
 
     const created = await this.notificationWriteService.storeIfNotExists({
       idempotencyKey: meta.idempotencyKey,
       receiverEmail: [meta.recipientEmail],
+      recipientEmail: meta.recipientEmail,
+      recipientRole: meta.recipientRole,
+      type: 'PAYMENT_SUCCESS',
       title,
       message,
+      titleKey,
+      messageKey,
+      data,
       details: {
         type: 'payment_success',
-        orderId: payload.orderId,
-        status: payload.status,
+        recipientEmail: meta.recipientEmail,
+        recipientRole: meta.recipientRole,
+        ...data,
       },
       createdAt: new Date(meta.createdAt),
       updatedAt: new Date(meta.createdAt),
@@ -34,12 +51,9 @@ export class PaymentSuccessNotificationHandler implements NotificationHandler<Pa
       return;
     }
 
-    await this.redisService.publish(NOTIFICATION_REDIS_CHANNEL, {
-      type: 'PAYMENT_SUCCESS',
-      data: payload,
-      createdAt: meta.createdAt,
-      recipientEmail: meta.recipientEmail,
-      idempotencyKey: meta.idempotencyKey,
-    });
+    await this.redisService.publish(
+      NOTIFICATION_REDIS_CHANNEL,
+      toStoredNotificationPayload(created),
+    );
   }
 }

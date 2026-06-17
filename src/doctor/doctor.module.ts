@@ -7,7 +7,6 @@ import { Profile, ProfileSchema } from 'src/profile/schema/profile.schema';
 import { VisitModule } from 'src/visit/visit.module';
 import { DoctorVisitsController } from './doctor-visits.controller';
 import { DoctorController } from './doctor.controller';
-import { DoctorSeeder } from './doctor.seeder';
 import { DoctorService } from './doctor.service';
 import { DoctorListener } from './listenners/doctor.listernner';
 import { Doctor, DoctorSchema } from './schema/doctor.schema';
@@ -23,7 +22,7 @@ import { Doctor, DoctorSchema } from './schema/doctor.schema';
     CloudinaryModule,
     VisitModule,
   ],
-  providers: [DoctorService, DoctorSeeder, DoctorListener],
+  providers: [DoctorService, DoctorListener],
   controllers: [DoctorController, DoctorVisitsController],
   exports: [DoctorService],
 })

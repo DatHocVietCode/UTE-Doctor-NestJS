@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
-import { FilterQuery, Model, Types } from 'mongoose';
+import { ClientSession, FilterQuery, Model, Types } from 'mongoose';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode } from 'src/common/enum/reponse-code.enum';
 import { RedisService } from 'src/common/redis/redis.service';
@@ -37,6 +37,31 @@ export interface AssignDoctorSlotInput {
   doctorId: string;
   timeSlotId: string;
   appointmentDate: string;
+}
+
+export interface CreateAssignmentTaskAfterDepositSuccessInput {
+  appointmentId: string;
+  deadlineAt: number;
+  specialty?: string | null;
+  reasonForAppointment?: string;
+  patientEmail?: string;
+  session?: ClientSession;
+}
+
+export interface CreateAssignmentTaskAfterDepositSuccessResult {
+  taskId: string;
+  appointmentId: string;
+  deadlineAt: number;
+  created: boolean;
+  patientEmail?: string;
+  specialty?: string | null;
+  reasonForAppointment?: string;
+}
+
+export interface CloseActiveTaskAfterDepositFailureInput {
+  appointmentId: string;
+  note: string;
+  session?: ClientSession;
 }
 
 /**
@@ -242,6 +267,138 @@ export class AppointmentAssignmentTaskService {
         taskId: updated!._id.toString(),
         status: updated!.status,
       },
+    };
+  }
+
+  async createAssignmentTaskAfterDepositSuccess(
+    input: CreateAssignmentTaskAfterDepositSuccessInput,
+  ): Promise<CreateAssignmentTaskAfterDepositSuccessResult> {
+    const appointmentObjectId = new Types.ObjectId(input.appointmentId);
+    const activeStatuses = [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED];
+    const session = input.session ?? null;
+    const filter = {
+      appointmentId: appointmentObjectId,
+      status: { $in: activeStatuses },
+    };
+
+    const existing = await this.taskModel
+      .findOne(filter)
+      .session(session)
+      .lean();
+    if (existing) {
+      return {
+        taskId: existing._id.toString(),
+        appointmentId: input.appointmentId,
+        deadlineAt: existing.deadlineAt,
+        created: false,
+        patientEmail: existing.patientEmail,
+        specialty: existing.specialty,
+        reasonForAppointment: existing.reasonForAppointment,
+      };
+    }
+
+    const now = Date.now();
+    try {
+      const [task] = await this.taskModel.create(
+        [
+          {
+            appointmentId: appointmentObjectId,
+            status: AssignmentTaskStatus.PENDING,
+            deadlineAt: input.deadlineAt,
+            specialty: input.specialty ?? undefined,
+            reasonForAppointment: input.reasonForAppointment,
+            patientEmail: input.patientEmail,
+            priority: 'NORMAL',
+            history: [
+              {
+                at: now,
+                from: '',
+                to: AssignmentTaskStatus.PENDING,
+                by: 'system',
+                note: 'deposit paid; assignment task created',
+              },
+            ],
+          },
+        ],
+        { session: input.session ?? undefined },
+      );
+
+      return {
+        taskId: task._id.toString(),
+        appointmentId: input.appointmentId,
+        deadlineAt: task.deadlineAt,
+        created: true,
+        patientEmail: task.patientEmail,
+        specialty: task.specialty,
+        reasonForAppointment: task.reasonForAppointment,
+      };
+    } catch (error: any) {
+      if (error?.code !== 11000) {
+        throw error;
+      }
+
+      // Unique active-task index is the final race guard; if another callback won,
+      // return that task instead of surfacing a duplicate-key failure.
+      const duplicateWinner = await this.taskModel
+        .findOne(filter)
+        .session(session)
+        .lean();
+      if (!duplicateWinner) {
+        throw error;
+      }
+
+      return {
+        taskId: duplicateWinner._id.toString(),
+        appointmentId: input.appointmentId,
+        deadlineAt: duplicateWinner.deadlineAt,
+        created: false,
+        patientEmail: duplicateWinner.patientEmail,
+        specialty: duplicateWinner.specialty,
+        reasonForAppointment: duplicateWinner.reasonForAppointment,
+      };
+    }
+  }
+
+  async closeActiveTaskAfterDepositFailure(
+    input: CloseActiveTaskAfterDepositFailureInput,
+  ): Promise<{ closed: boolean; taskId?: string }> {
+    const appointmentObjectId = new Types.ObjectId(input.appointmentId);
+    const session = input.session ?? null;
+    const activeTask = await this.taskModel
+      .findOne({
+        appointmentId: appointmentObjectId,
+        status: { $in: [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED] },
+      })
+      .session(session)
+      .lean();
+
+    if (!activeTask) {
+      return { closed: false };
+    }
+
+    const update = await this.taskModel.updateOne(
+      {
+        _id: activeTask._id,
+        status: { $in: [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED] },
+      },
+      {
+        $set: { status: AssignmentTaskStatus.CANCELLED },
+        $push: {
+          history: {
+            at: Date.now(),
+            from: activeTask.status,
+            to: AssignmentTaskStatus.CANCELLED,
+            by: 'system',
+            note: input.note,
+          },
+        },
+      },
+      { session: input.session ?? undefined },
+    );
+
+    return {
+      closed: update.modifiedCount > 0,
+      taskId: activeTask._id.toString(),
     };
   }
 

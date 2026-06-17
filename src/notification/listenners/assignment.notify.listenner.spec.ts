@@ -60,6 +60,7 @@ describe('AssignmentNotificationListener', () => {
       expect(first).toMatchObject({
         type: 'ASSIGNMENT_TASK_CREATED',
         recipientEmail: 'recep1@x.com',
+        recipientRole: 'RECEPTIONIST',
         idempotencyKey: 'ASSIGNMENT_TASK_CREATED:task-1:recep1@x.com',
         data: {
           taskId: 'task-1',
@@ -183,6 +184,7 @@ describe('AssignmentNotificationListener', () => {
       expect(publisher.publish).toHaveBeenCalledTimes(2);
       const first = publisher.publish.mock.calls[0][0];
       expect(first.type).toBe('ASSIGNMENT_TASK_REMINDER');
+      expect(first.recipientRole).toBe('RECEPTIONIST');
       expect(first.idempotencyKey).toBe(
         'ASSIGNMENT_TASK_REMINDER:task-1:2:recep1@x.com',
       );
@@ -237,6 +239,8 @@ describe('AssignmentNotificationListener', () => {
       taskId: 'task-1',
       appointmentId: 'appt-1',
       deadlineAt: Date.now() - 60_000,
+      actor: 'SYSTEM',
+      reasonCode: 'ASSIGNMENT_TIMEOUT',
     };
 
     it('publishes an expiry notification per receptionist with a stable idempotency key', async () => {
@@ -249,6 +253,11 @@ describe('AssignmentNotificationListener', () => {
 
       const calls = publisher.publish.mock.calls;
       expect(calls[0][0].type).toBe('ASSIGNMENT_TASK_EXPIRED');
+      expect(calls[0][0].recipientRole).toBe('RECEPTIONIST');
+      expect(calls[0][0].data).toMatchObject({
+        actor: 'SYSTEM',
+        reasonCode: 'ASSIGNMENT_TIMEOUT',
+      });
       expect(calls.map((c) => c[0].idempotencyKey)).toEqual([
         'ASSIGNMENT_TASK_EXPIRED:task-1:recep1@x.com',
         'ASSIGNMENT_TASK_EXPIRED:task-1:recep1@x.com',
@@ -286,6 +295,7 @@ describe('AssignmentNotificationListener', () => {
       expect(publisher.publish.mock.calls[0][0]).toMatchObject({
         type: 'APPOINTMENT_DOCTOR_ASSIGNED',
         recipientEmail: 'patient@x.com',
+        recipientRole: 'PATIENT',
         idempotencyKey: 'APPOINTMENT_DOCTOR_ASSIGNED:appt-1:patient@x.com',
         data: {
           appointmentId: 'appt-1',

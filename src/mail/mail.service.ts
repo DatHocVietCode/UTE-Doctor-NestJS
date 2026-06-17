@@ -156,7 +156,34 @@ export class MailService {
     reason?: string;
     refundAmount?: number;
     shouldRefund?: boolean;
+    actor?: string;
+    reasonCode?: string;
+    assignmentTaskId?: string;
+    deadlineAt?: number;
   }) {
+    if (payload.reasonCode === 'ASSIGNMENT_TIMEOUT') {
+      const refundLine =
+        payload.shouldRefund && payload.refundAmount !== undefined
+          ? `<p>So credit hoan: <b>${payload.refundAmount}</b></p>`
+          : '<p>Don huy khong phat sinh hoan credit.</p>';
+      const html = `
+        <h2>Xin chao ${payload.patientEmail},</h2>
+        <p>He thong khong the phan cong bac si trong thoi gian quy dinh nen lich kham cua ban da duoc tu dong huy.</p>
+        <p><b>Thoi gian:</b> ${payload.date}</p>
+        ${payload.hospitalName ? `<p><b>Dia diem:</b> ${payload.hospitalName}</p>` : ''}
+        ${payload.reason ? `<p><b>Ly do:</b> ${payload.reason}</p>` : ''}
+        ${refundLine}
+        <p>Neu can ho tro, vui long lien he bo phan ho tro cua UTE Doctor.</p>
+      `;
+
+      await this.sendMail(
+        payload.patientEmail,
+        'Thong bao tu dong huy lich kham - UTE Doctor',
+        html,
+      );
+      return;
+    }
+
     const timeSlotName = await emitTyped<string, string>(
       this.eventEmitter,
       'timeslot.get.name.by.id',

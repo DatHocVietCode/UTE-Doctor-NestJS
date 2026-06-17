@@ -5,18 +5,38 @@ export type AppointmentCancelledDto = {
   appointmentId: string;
   patientEmail: string;
   doctorEmail?: string;
-  date: string;
+  date: string | number | Date;
+  scheduledAt?: number;
   timeSlot: string;
   timeSlotLabel?: string;
   hospitalName?: string;
   reason?: string;
   refundAmount?: number;
   shouldRefund?: boolean;
+  actor?: string;
+  reasonCode?: string;
+  assignmentTaskId?: string;
+  deadlineAt?: number;
 };
+
+export const NOTIFICATION_RECIPIENT_ROLES = [
+  'PATIENT',
+  'DOCTOR',
+  'RECEPTIONIST',
+  'ADMIN',
+] as const;
+
+export type NotificationRecipientRole =
+  (typeof NOTIFICATION_RECIPIENT_ROLES)[number];
 
 export type PaymentSuccessDto = {
   orderId: string;
   status: 'COMPLETED';
+  appointmentId?: string;
+  appointmentDate?: number;
+  scheduledAt?: number;
+  bookingDate?: number;
+  hospitalName?: string | null;
 };
 
 // Broad-appointment assignment task awaiting a receptionist.
@@ -40,11 +60,13 @@ export type AssignmentTaskReminderDto = {
   online?: boolean;
 };
 
-// SLA expiry: a PENDING assignment task passed its deadline + grace and needs manual attention.
+// SLA expiry: an actionable assignment task passed its deadline + grace.
 export type AssignmentTaskExpiredDto = {
   taskId: string;
   appointmentId?: string;
   deadlineAt: number;
+  actor?: string;
+  reasonCode?: string;
   online?: boolean;
 };
 
@@ -89,6 +111,7 @@ export type NotificationPayload = {
     data: NotificationMap[K];
     createdAt: number;
     recipientEmail: string;
+    recipientRole: NotificationRecipientRole;
     idempotencyKey: string;
     retryCount?: number;
   };

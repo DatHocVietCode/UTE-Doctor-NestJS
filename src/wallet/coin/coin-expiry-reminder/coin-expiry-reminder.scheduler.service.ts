@@ -43,22 +43,22 @@ export class CoinExpiryReminderSchedulerService implements OnModuleInit, OnModul
 		try {
 			const now = new Date();
 			const cutoff = new Date(now.getTime() + REMINDER_DISPATCH_BUFFER_MS);
-			this.logger.debug(`[CoinExpiryScheduler] Checking for due jobs at ${now.toISOString()}, cutoff: ${cutoff.toISOString()}`);
+			//this.logger.debug(`[CoinExpiryScheduler] Checking for due jobs at ${now.toISOString()}, cutoff: ${cutoff.toISOString()}`);
 			
 			const dueJobs = await this.coinExpiryReminderService.listDueJobs(cutoff, 100);
-			this.logger.log(`[CoinExpiryScheduler] Found ${dueJobs.length} due jobs to dispatch`);
+			//this.logger.log(`[CoinExpiryScheduler] Found ${dueJobs.length} due jobs to dispatch`);
 
 			if (dueJobs.length === 0) {
-				this.logger.debug(`[CoinExpiryScheduler] No due jobs found`);
+				//this.logger.debug(`[CoinExpiryScheduler] No due jobs found`);
 				return;
 			}
 
 			for (const job of dueJobs) {
-				this.logger.log(`[CoinExpiryScheduler] Processing job ${job.jobId} for patient ${job.patientId}`);
+				//this.logger.log(`[CoinExpiryScheduler] Processing job ${job.jobId} for patient ${job.patientId}`);
 				
 				const locked = await this.coinExpiryReminderService.acquireDispatchLock(job.jobId);
 				if (!locked) {
-					this.logger.warn(`[CoinExpiryScheduler] Failed to acquire lock for job ${job.jobId}`);
+					//this.logger.warn(`[CoinExpiryScheduler] Failed to acquire lock for job ${job.jobId}`);
 					continue;
 				}
 
@@ -72,15 +72,15 @@ export class CoinExpiryReminderSchedulerService implements OnModuleInit, OnModul
 
 				const published = await this.coinExpiryReminderService.publishDispatch(payload);
 				if (!published) {
-					this.logger.warn(`[CoinExpiryScheduler] Failed to publish reminder job ${job.jobId} to RabbitMQ.`);
+					//this.logger.warn(`[CoinExpiryScheduler] Failed to publish reminder job ${job.jobId} to RabbitMQ.`);
 				} else {
-					this.logger.log(`[CoinExpiryScheduler] Successfully published job ${job.jobId}`);
+					//this.logger.log(`[CoinExpiryScheduler] Successfully published job ${job.jobId}`);
 				}
 
 				await this.coinExpiryReminderService.releaseDispatchLock(job.jobId);
 			}
 		} catch (error) {
-			this.logger.error(`[CoinExpiryScheduler] Scheduler error: ${(error as Error).message}`, (error as Error).stack);
+			//this.logger.error(`[CoinExpiryScheduler] Scheduler error: ${(error as Error).message}`, (error as Error).stack);
 		} finally {
 			this.running = false;
 		}

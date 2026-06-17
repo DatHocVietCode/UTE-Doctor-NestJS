@@ -13,7 +13,10 @@ export class PaymentNotificationListener {
   ) {}
 
   @OnEvent('payment.update')
-  async handlePaymentUpdate(payload: { orderId: string; status: 'COMPLETED' | 'FAILED' }) {
+  async handlePaymentUpdate(payload: {
+    orderId: string;
+    status: 'COMPLETED' | 'FAILED';
+  }) {
     if (payload.status !== 'COMPLETED' || !payload.orderId) {
       return;
     }
@@ -34,6 +37,11 @@ export class PaymentNotificationListener {
     const data: PaymentSuccessDto = {
       orderId: payload.orderId,
       status: 'COMPLETED',
+      appointmentId: appointment._id?.toString?.() ?? payload.orderId,
+      appointmentDate: appointment.scheduledAt ?? appointment.date,
+      scheduledAt: appointment.scheduledAt ?? appointment.date,
+      bookingDate: appointment.bookingDate,
+      hospitalName: appointment.hospitalName ?? null,
     };
 
     await this.notificationPublisher.publish({
@@ -41,6 +49,7 @@ export class PaymentNotificationListener {
       data,
       createdAt: Date.now(),
       recipientEmail: normalizedRecipient,
+      recipientRole: 'PATIENT',
       idempotencyKey: `PAYMENT_SUCCESS:${payload.orderId}:${normalizedRecipient}`,
     });
   }

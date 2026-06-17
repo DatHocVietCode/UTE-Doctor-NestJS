@@ -101,6 +101,10 @@ export class AppointmentGateway extends BaseGateway {
     reason?: string;
     refundAmount?: number;
     shouldRefund?: boolean;
+    actor?: string;
+    reasonCode?: string;
+    assignmentTaskId?: string;
+    deadlineAt?: number;
   }) {
     const res: DataResponse = {
       code: ResponseCode.SUCCESS,

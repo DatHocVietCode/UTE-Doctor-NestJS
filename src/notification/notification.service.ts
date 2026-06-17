@@ -17,6 +17,8 @@ import { AssignmentTaskReminderNotificationHandler } from './handlers/assignment
 import { CoinExpiryNotificationHandler } from './handlers/coin-expiry-notification.handler';
 import { NotificationHandlerMeta } from './handlers/notification-handler.interface';
 import type { HandlerRegistry } from './handlers/notification-handler.types';
+import { toStoredNotificationPayload } from './notification-payload.mapper';
+import type { StoredNotificationPayload } from './notification-payload.mapper';
 import { PaymentSuccessNotificationHandler } from './handlers/payment-success-notification.handler';
 import {
   Notification,
@@ -108,6 +110,7 @@ export class NotificationService {
 
     const meta: NotificationHandlerMeta = {
       recipientEmail: payload.recipientEmail,
+      recipientRole: payload.recipientRole,
       createdAt: payload.createdAt,
       idempotencyKey: payload.idempotencyKey,
     };
@@ -133,7 +136,7 @@ export class NotificationService {
 
   async getNotifications(
     pagination: PaginationQueryDto,
-  ): Promise<PaginationResult<Notification>> {
+  ): Promise<PaginationResult<StoredNotificationPayload>> {
     const { page, limit } = pagination;
 
     const skip = (page - 1) * limit;
@@ -150,14 +153,14 @@ export class NotificationService {
     ]);
 
     const normalizedData = data.map((item) =>
-      this.normalizeNotificationTimestamps(item),
+      toStoredNotificationPayload(item),
     );
     return new PaginationResult(normalizedData, total, page, limit);
   }
   async getNotificationsByEmail(
     email: string,
     pagination: PaginationQueryDto,
-  ): Promise<PaginationResult<Notification>> {
+  ): Promise<PaginationResult<StoredNotificationPayload>> {
     const { page, limit } = pagination;
     const skip = (page - 1) * limit;
 
@@ -177,7 +180,7 @@ export class NotificationService {
     ]);
 
     const normalizedData = data.map((item) =>
-      this.normalizeNotificationTimestamps(item),
+      toStoredNotificationPayload(item),
     );
     return new PaginationResult(normalizedData, total, page, limit);
   }
@@ -191,7 +194,7 @@ export class NotificationService {
     });
   }
 
-  async markAsRead(id: string): Promise<Notification> {
+  async markAsRead(id: string): Promise<any> {
     const notif = await this.notificationModel
       .findByIdAndUpdate(id, { isRead: true }, { new: true })
       .lean();
@@ -200,6 +203,6 @@ export class NotificationService {
       throw new NotFoundException(
         '[NotificationService] Notification not found',
       );
-    return this.normalizeNotificationTimestamps(notif);
+    return toStoredNotificationPayload(notif);
   }
 }

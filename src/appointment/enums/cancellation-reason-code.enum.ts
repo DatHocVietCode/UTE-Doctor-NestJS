@@ -1,0 +1,4 @@
+export enum CancellationReasonCode {
+  PATIENT_REQUEST = 'PATIENT_REQUEST',
+  ASSIGNMENT_TIMEOUT = 'ASSIGNMENT_TIMEOUT',
+}

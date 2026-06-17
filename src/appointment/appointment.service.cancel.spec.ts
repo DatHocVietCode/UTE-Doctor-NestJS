@@ -21,6 +21,8 @@ import { AppointmentService } from './appointment.service';
 import { AppointmentStatus } from './enums/Appointment-status.enum';
 import { AssignmentStatus } from './enums/assignment-status.enum';
 import { AssignmentTaskStatus } from './enums/assignment-task-status.enum';
+import { CancellationActor } from './enums/cancellation-actor.enum';
+import { CancellationReasonCode } from './enums/cancellation-reason-code.enum';
 import { DepositStatus } from './enums/deposit-status.enum';
 import { PaymentCategory } from './enums/payment-category.enum';
 
@@ -173,6 +175,69 @@ function createService(input: {
   );
 
   return { service, eventEmitter, timeSlotLogModel, appointment, session, creditService, paymentModel, assignmentTaskModel };
+}
+
+function createTimeoutService(input: {
+  task?: any;
+  appointment?: any;
+  depositPayment?: any;
+  taskUpdateModifiedCount?: number;
+  refundRate?: string;
+} = {}) {
+  const session = {
+    withTransaction: jest.fn(async (callback: () => Promise<void>) => callback()),
+    endSession: jest.fn().mockResolvedValue(undefined),
+  };
+  const task = input.task ?? {
+    _id: { toString: () => '64b000000000000000000090' },
+    appointmentId: appointmentId,
+    status: AssignmentTaskStatus.PENDING,
+    deadlineAt: Date.now() - 60_000,
+  };
+  const appointment = input.appointment ?? createBroadAppointment({
+    paymentCategory: PaymentCategory.BHYT,
+    depositStatus: DepositStatus.NOT_REQUIRED,
+  });
+  const depositPayment = input.depositPayment ?? null;
+
+  const eventEmitter = { emit: jest.fn() };
+  const appointmentModel = {
+    db: { startSession: jest.fn().mockResolvedValue(session) },
+    findById: jest.fn().mockReturnValue({ session: jest.fn().mockResolvedValue(appointment) }),
+  };
+  const assignmentTaskModel = {
+    findById: jest.fn().mockReturnValue({ session: jest.fn().mockResolvedValue(task) }),
+    updateOne: jest.fn().mockResolvedValue({ modifiedCount: input.taskUpdateModifiedCount ?? 1 }),
+  };
+  const paymentModel = {
+    findOne: jest.fn().mockReturnValue(queryResult(depositPayment)),
+  };
+  const timeSlotLogModel = {
+    updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+  };
+  const creditService = {
+    refundAppointmentCancellation: jest.fn().mockResolvedValue({ credited: true }),
+  };
+
+  const service = new AppointmentService(
+    eventEmitter as any,
+    appointmentModel as any,
+    timeSlotLogModel as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    {} as any,
+    paymentModel as any,
+    assignmentTaskModel as any,
+    {} as any,
+    {} as any,
+    creditService as any,
+    { get: jest.fn().mockReturnValue(input.refundRate) } as any,
+  );
+
+  return { service, eventEmitter, appointment, task, assignmentTaskModel, timeSlotLogModel, creditService, depositPayment };
 }
 
 async function expectBlocked(service: AppointmentService, blockedReason: string) {
@@ -397,5 +462,108 @@ describe('AppointmentService.cancelAppointment', () => {
       });
       await expectBlocked(service, 'APPOINTMENT_DEPOSIT_PAYMENT_PENDING');
     });
+  });
+});
+
+describe('AppointmentService.cancelForAssignmentTimeout', () => {
+  it('auto-cancels an overdue actionable PENDING broad task and marks it EXPIRED', async () => {
+    const { service, appointment, assignmentTaskModel, eventEmitter, timeSlotLogModel } = createTimeoutService();
+
+    const result = await service.cancelForAssignmentTimeout('64b000000000000000000090');
+
+    expect(result.data).toMatchObject({ cancelled: true, appointmentId });
+    expect(appointment.appointmentStatus).toBe(AppointmentStatus.CANCELLED);
+    expect(appointment.cancellationActor).toBe(CancellationActor.SYSTEM);
+    expect(appointment.cancellationReasonCode).toBe(CancellationReasonCode.ASSIGNMENT_TIMEOUT);
+    expect(assignmentTaskModel.updateOne).toHaveBeenCalledWith(
+      expect.objectContaining({ status: AssignmentTaskStatus.PENDING }),
+      expect.objectContaining({ $set: { status: AssignmentTaskStatus.EXPIRED } }),
+      expect.any(Object),
+    );
+    expect(timeSlotLogModel.updateOne).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      'appointment.assignment.expired',
+      expect.objectContaining({
+        actor: CancellationActor.SYSTEM,
+        reasonCode: CancellationReasonCode.ASSIGNMENT_TIMEOUT,
+      }),
+    );
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      'notify.patient.appointment.cancelled',
+      expect.objectContaining({
+        actor: CancellationActor.SYSTEM,
+        reasonCode: CancellationReasonCode.ASSIGNMENT_TIMEOUT,
+      }),
+    );
+  });
+
+  it('refunds paid DICH_VU deposit once through the existing credit refund path', async () => {
+    const appointment = createBroadAppointment({
+      paymentCategory: PaymentCategory.DICH_VU,
+      depositStatus: DepositStatus.PAID,
+      depositPaidAmount: 100000,
+    });
+    const depositPayment = createDepositPayment({ status: PaymentFlowStatusEnum.SUCCESS });
+    const { service, creditService } = createTimeoutService({ appointment, depositPayment });
+
+    const result = await service.cancelForAssignmentTimeout('64b000000000000000000090');
+
+    expect(result.data.refundAmount).toBe(100000);
+    expect(creditService.refundAppointmentCancellation).toHaveBeenCalledWith(
+      patientId,
+      100000,
+      appointmentId,
+      'Assignment timeout auto-cancellation',
+      expect.any(Object),
+    );
+    expect(appointment.depositStatus).toBe(DepositStatus.REFUNDED);
+    expect(depositPayment.refundedAt).toBeInstanceOf(Date);
+  });
+
+  it('does not refund BHYT or NOT_REQUIRED assignment timeout cancellation', async () => {
+    const { service, creditService } = createTimeoutService();
+
+    await service.cancelForAssignmentTimeout('64b000000000000000000090');
+
+    expect(creditService.refundAppointmentCancellation).not.toHaveBeenCalled();
+  });
+
+  it('skips legacy DICH_VU PENDING task without assignment-timeout cancellation', async () => {
+    const appointment = createBroadAppointment({
+      paymentCategory: PaymentCategory.DICH_VU,
+      depositStatus: DepositStatus.PENDING,
+    });
+    const { service, assignmentTaskModel, eventEmitter } = createTimeoutService({ appointment });
+
+    const result = await service.cancelForAssignmentTimeout('64b000000000000000000090');
+
+    expect(result.data.cancelled).toBe(false);
+    expect(appointment.appointmentStatus).toBe(AppointmentStatus.PENDING);
+    expect(assignmentTaskModel.updateOne).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalledWith('appointment.assignment.expired', expect.anything());
+  });
+
+  it('ignores terminal appointments', async () => {
+    const appointment = createBroadAppointment({ appointmentStatus: AppointmentStatus.CANCELLED });
+    const { service, assignmentTaskModel, eventEmitter } = createTimeoutService({ appointment });
+
+    const result = await service.cancelForAssignmentTimeout('64b000000000000000000090');
+
+    expect(result.data.cancelled).toBe(false);
+    expect(assignmentTaskModel.updateOne).not.toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalledWith('notify.patient.appointment.cancelled', expect.anything());
+  });
+
+  it('lets a concurrent task transition win without duplicate side effects', async () => {
+    const { service, appointment, assignmentTaskModel, eventEmitter } = createTimeoutService({
+      taskUpdateModifiedCount: 0,
+    });
+
+    const result = await service.cancelForAssignmentTimeout('64b000000000000000000090');
+
+    expect(result.data.cancelled).toBe(false);
+    expect(appointment.appointmentStatus).toBe(AppointmentStatus.PENDING);
+    expect(assignmentTaskModel.updateOne).toHaveBeenCalled();
+    expect(eventEmitter.emit).not.toHaveBeenCalledWith('notify.patient.appointment.cancelled', expect.anything());
   });
 });

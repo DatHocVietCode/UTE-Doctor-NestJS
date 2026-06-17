@@ -2,6 +2,7 @@ import { AssignmentTaskCreatedNotificationHandler } from './assignment-task-crea
 
 const meta = {
   recipientEmail: 'recep1@x.com',
+  recipientRole: 'RECEPTIONIST' as const,
   createdAt: 1700000000000,
   idempotencyKey: 'ASSIGNMENT_TASK_CREATED:task-1:recep1@x.com',
 };
@@ -16,9 +17,22 @@ const payload = {
 };
 
 function createHandler(stored: boolean) {
-  const write = { storeIfNotExists: jest.fn().mockResolvedValue(stored) };
+  const write = {
+    storeIfNotExists: jest
+      .fn()
+      .mockImplementation(async (notification) =>
+        stored ? { _id: 'noti-1', isRead: false, ...notification } : null,
+      ),
+  };
   const redis = { publish: jest.fn().mockResolvedValue(undefined) };
-  return { handler: new AssignmentTaskCreatedNotificationHandler(write as any, redis as any), write, redis };
+  return {
+    handler: new AssignmentTaskCreatedNotificationHandler(
+      write as any,
+      redis as any,
+    ),
+    write,
+    redis,
+  };
 }
 
 describe('AssignmentTaskCreatedNotificationHandler', () => {
@@ -31,7 +45,20 @@ describe('AssignmentTaskCreatedNotificationHandler', () => {
       expect.objectContaining({
         idempotencyKey: meta.idempotencyKey,
         receiverEmail: [meta.recipientEmail],
-        details: expect.objectContaining({ type: 'assignment_task_created', taskId: 'task-1' }),
+        recipientEmail: meta.recipientEmail,
+        recipientRole: 'RECEPTIONIST',
+        titleKey: 'notification.receptionist.assignmentTaskCreated.title',
+        messageKey: 'notification.receptionist.assignmentTaskCreated.message',
+        data: expect.objectContaining({
+          taskId: 'task-1',
+          appointmentId: 'appt-1',
+          deadlineAt: 1700001800000,
+        }),
+        details: expect.objectContaining({
+          type: 'assignment_task_created',
+          taskId: 'task-1',
+          recipientRole: 'RECEPTIONIST',
+        }),
       }),
     );
     expect(redis.publish).toHaveBeenCalledTimes(1);

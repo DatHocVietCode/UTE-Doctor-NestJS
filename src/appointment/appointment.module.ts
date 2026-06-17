@@ -52,6 +52,6 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
     // static `assignment-tasks` routes are matched before AppointmentController's `:id`.
     controllers: [AppointmentAssignmentTaskController, AppointmentController],
       providers: [AppointmentService, AppointmentBookingService, AppointmentRescheduleService, AppointmentAssignmentTaskService, AssignmentSlaScheduler, RedisService, BookingListener, CancelListener, RescheduleListener],
-      exports: [AppointmentService, AppointmentBookingService]
+      exports: [AppointmentService, AppointmentBookingService, AppointmentAssignmentTaskService]
 })
 export class AppointmentModule {}

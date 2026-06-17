@@ -16,6 +16,7 @@ import { ReceptionistModule } from 'src/receptionist/receptionist.module';
 import { ReviewModule } from 'src/review/review.module';
 import { ShiftModule } from 'src/shift/shift.module';
 import { AccountModule } from './account/account.module';
+import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AppointmentModule } from './appointment/appointment.module';
@@ -80,6 +81,8 @@ import { VisitModule } from './visit/visit.module';
     VisitModule,
     // Billing module: creates draft billing after visit completion
     BillingModule,
+    // Read-only admin appointment lifecycle (domain-first reconstruction)
+    AdminModule,
   // ShiftModule was already imported above; avoid duplicate imports which register providers/listeners twice
   ],
   controllers: [AppController],

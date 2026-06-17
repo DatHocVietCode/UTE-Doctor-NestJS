@@ -26,6 +26,8 @@ import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
 import { AssignmentStatus } from './enums/assignment-status.enum';
 import { AssignmentTaskStatus } from './enums/assignment-task-status.enum';
+import { CancellationActor } from './enums/cancellation-actor.enum';
+import { CancellationReasonCode } from './enums/cancellation-reason-code.enum';
 import { DepositStatus } from './enums/deposit-status.enum';
 import { PaymentCategory } from './enums/payment-category.enum';
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
@@ -751,6 +753,172 @@ export class AppointmentService {
             paymentUrl: null,
             isConfirmed,
             isTerminal,
+        };
+    }
+
+    async cancelForAssignmentTimeout(taskId: string): Promise<DataResponse> {
+        const session = await this.appointmentModel.db.startSession();
+        let cancellationPayload: any | null = null;
+        let refundAmount = 0;
+        let refundReason = 'No verified paid DICH_VU deposit to refund';
+        let shouldRefund = false;
+
+        try {
+            await session.withTransaction(async () => {
+                const task = await this.assignmentTaskModel.findById(taskId).session(session);
+                if (!task || task.status !== AssignmentTaskStatus.PENDING) {
+                    return;
+                }
+
+                const appointment = await this.appointmentModel.findById(task.appointmentId).session(session);
+                if (!appointment) {
+                    return;
+                }
+
+                const isBroadUnassigned =
+                    appointment.assignmentStatus === AssignmentStatus.AWAITING_ASSIGNMENT &&
+                    !appointment.doctorId &&
+                    !appointment.timeSlot;
+                if (!isBroadUnassigned) {
+                    return;
+                }
+
+                if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(appointment.appointmentStatus)) {
+                    return;
+                }
+
+                if (
+                    appointment.paymentCategory === PaymentCategory.DICH_VU &&
+                    appointment.depositStatus === DepositStatus.PENDING
+                ) {
+                    console.warn(
+                        `[AssignmentTimeout] Skipping pending-deposit DICH_VU appointment ${appointment._id.toString()} task=${taskId}`,
+                    );
+                    return;
+                }
+
+                const taskUpdate = await this.assignmentTaskModel.updateOne(
+                    { _id: task._id, status: AssignmentTaskStatus.PENDING },
+                    {
+                        $set: { status: AssignmentTaskStatus.EXPIRED },
+                        $push: {
+                            history: {
+                                at: Date.now(),
+                                from: AssignmentTaskStatus.PENDING,
+                                to: AssignmentTaskStatus.EXPIRED,
+                                by: CancellationActor.SYSTEM,
+                                note: CancellationReasonCode.ASSIGNMENT_TIMEOUT,
+                            },
+                        },
+                    },
+                    { session },
+                );
+                if (taskUpdate.modifiedCount !== 1) {
+                    return;
+                }
+
+                const depositPayment = await this.paymentModel
+                    .findOne({
+                        appointmentId: appointment._id,
+                        purpose: PaymentPurposeEnum.APPOINTMENT_DEPOSIT,
+                    })
+                    .session(session)
+                    .exec();
+
+                const hasVerifiedPaidDeposit =
+                    appointment.paymentCategory === PaymentCategory.DICH_VU &&
+                    appointment.depositStatus === DepositStatus.PAID &&
+                    appointment.depositPaidAmount > 0;
+                if (hasVerifiedPaidDeposit && depositPayment?.status !== PaymentFlowStatusEnum.SUCCESS) {
+                    this.throwCancelBlocked(
+                        'APPOINTMENT_DEPOSIT_PAYMENT_INCONSISTENT',
+                        'Cannot auto-cancel appointment because verified deposit state is inconsistent',
+                    );
+                }
+
+                if (hasVerifiedPaidDeposit) {
+                    const refundRate = this.getCancelRefundRate();
+                    refundAmount = Math.max(0, Math.floor(appointment.depositPaidAmount * refundRate));
+                    refundReason = `Refunded verified appointment deposit at ${(refundRate * 100).toFixed(0)}% rate`;
+                    shouldRefund = refundAmount > 0;
+                    if (shouldRefund) {
+                        await this.creditService.refundAppointmentCancellation(
+                            appointment.patientId.toString(),
+                            refundAmount,
+                            appointment._id.toString(),
+                            'Assignment timeout auto-cancellation',
+                            session,
+                        );
+                        appointment.depositStatus = DepositStatus.REFUNDED;
+                        depositPayment!.refundedAt = new Date();
+                        await depositPayment!.save({ session });
+                    } else {
+                        appointment.depositStatus = DepositStatus.FORFEITED;
+                    }
+                }
+
+                const cancelledAt = Date.now();
+                appointment.appointmentStatus = AppointmentStatus.CANCELLED;
+                appointment.cancelledAt = cancelledAt;
+                appointment.cancellationActor = CancellationActor.SYSTEM;
+                appointment.cancellationReasonCode = CancellationReasonCode.ASSIGNMENT_TIMEOUT;
+                appointment.cancellationReason = 'Assignment timeout auto-cancellation';
+                await appointment.save({ session });
+
+                const scheduledAt = AppointmentTimeHelper.resolveStoredScheduledAt(appointment) ?? appointment.scheduledAt ?? appointment.date;
+                cancellationPayload = {
+                    appointmentId: appointment._id.toString(),
+                    assignmentTaskId: task._id.toString(),
+                    patientId: appointment.patientId?.toString?.() ?? '',
+                    patientEmail: appointment.patientEmail,
+                    date: scheduledAt,
+                    scheduledAt,
+                    timeSlot: appointment.timeSlot?.toString?.() ?? '',
+                    timeSlotLabel: 'Chua phan cong',
+                    hospitalName: appointment.hospitalName,
+                    reason: 'Tu dong huy do qua han phan cong bac si',
+                    actor: CancellationActor.SYSTEM,
+                    reasonCode: CancellationReasonCode.ASSIGNMENT_TIMEOUT,
+                    deadlineAt: task.deadlineAt,
+                    refundAmount,
+                    refundReason,
+                    shouldRefund,
+                    status: AppointmentStatus.CANCELLED,
+                };
+            });
+        } finally {
+            await session.endSession();
+        }
+
+        if (!cancellationPayload) {
+            return {
+                code: ResponseCode.SUCCESS,
+                message: 'Assignment timeout ignored',
+                data: { taskId, cancelled: false },
+            };
+        }
+
+        this.eventEmitter.emit('appointment.assignment.expired', {
+            taskId,
+            appointmentId: cancellationPayload.appointmentId,
+            deadlineAt: cancellationPayload.deadlineAt,
+            actor: CancellationActor.SYSTEM,
+            reasonCode: CancellationReasonCode.ASSIGNMENT_TIMEOUT,
+        });
+        this.eventEmitter.emit('notify.patient.appointment.cancelled', cancellationPayload);
+        this.eventEmitter.emit('mail.patient.appointment.cancelled', cancellationPayload);
+        this.eventEmitter.emit('socket.appointment.cancelled', cancellationPayload);
+
+        return {
+            code: ResponseCode.SUCCESS,
+            message: 'Appointment auto-cancelled after assignment timeout',
+            data: {
+                taskId,
+                appointmentId: cancellationPayload.appointmentId,
+                cancelled: true,
+                refundAmount,
+                refundReason,
+            },
         };
     }
 
