@@ -151,11 +151,14 @@ export class VitalSignRecord {
 export type VitalSignRecordDocument = HydratedDocument<VitalSignRecord>;
 export const VitalSignRecordSchemaV2 = SchemaFactory.createForClass(VitalSignRecord);
 
-// Encounter/visit record (per appointment), immutable once created
+// Encounter/visit record (per visit, with appointment compatibility during migration).
 @Schema({ timestamps: true })
 export class MedicalEncounter {
-  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', required: true, unique: true })
-  appointmentId: Types.ObjectId;
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Visit', unique: true, sparse: true })
+  visitId?: Types.ObjectId;
+
+  @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Appointment', unique: true, sparse: true })
+  appointmentId?: Types.ObjectId;
 
   @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true, index: true })
   patientId: Types.ObjectId;
@@ -180,7 +183,14 @@ export class MedicalEncounter {
       {
         medicineId: { type: mongoose.Schema.Types.ObjectId, ref: 'Medicine', required: false },
         name: { type: String, required: true },
+        // Clinical prescription quantity (from doctor).
         quantity: { type: Number, required: true },
+        // Prescribed quantity snapshot for billing reference.
+        prescribedQty: { type: Number, required: true },
+        // Unit price snapshot at time of prescription (for billing immutability).
+        unitPriceSnapshot: { type: Number, default: 0 },
+        // Estimated line total for clinical reference (prescribedQty * unitPriceSnapshot).
+        estimatedLineTotal: { type: Number, default: 0 },
         note: { type: String, required: false },
         _id: false,
       }
@@ -191,6 +201,9 @@ export class MedicalEncounter {
     medicineId?: Types.ObjectId;
     name: string;
     quantity: number;
+    prescribedQty: number;
+    unitPriceSnapshot: number;
+    estimatedLineTotal: number;
     note?: string;
   }>;
 

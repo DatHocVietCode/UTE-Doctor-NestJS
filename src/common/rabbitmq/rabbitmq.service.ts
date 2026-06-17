@@ -1,5 +1,12 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { Channel, Connection, ConsumeMessage, Options, connect } from 'amqplib';
+import {
+  Channel,
+  Connection,
+  ConsumeMessage,
+  Options,
+  connect,
+  type Replies,
+} from 'amqplib';
 
 type ConsumeHandler = (message: ConsumeMessage, parsedPayload: any) => Promise<void>;
 
@@ -75,6 +82,115 @@ export class RabbitMqService implements OnModuleDestroy {
     });
   }
 
+  async publishWithQueueOptions(
+    queueName: string,
+    payload: unknown,
+    queueOptions: Options.AssertQueue,
+    options?: Options.Publish,
+  ): Promise<boolean> {
+    const ready = await this.ensureConnected();
+    if (!ready || !this.channel) {
+      return false;
+    }
+
+    await this.channel.assertQueue(queueName, queueOptions);
+    const buffer = Buffer.from(JSON.stringify(payload));
+    return this.channel.sendToQueue(queueName, buffer, {
+      persistent: true,
+      contentType: 'application/json',
+      ...options,
+    });
+  }
+
+  async publishToExchange(
+    exchangeName: string,
+    routingKey: string,
+    payload: unknown,
+    options?: Options.Publish,
+  ): Promise<boolean> {
+    const ready = await this.ensureConnected();
+    if (!ready || !this.channel) {
+      return false;
+    }
+
+    await this.channel.assertExchange(exchangeName, 'direct', { durable: true });
+    const buffer = Buffer.from(JSON.stringify(payload));
+    return this.channel.publish(exchangeName, routingKey, buffer, {
+      persistent: true,
+      contentType: 'application/json',
+      ...options,
+    });
+  }
+
+  async assertQueue(queueName: string, options?: Options.AssertQueue): Promise<Replies.AssertQueue | null> {
+    const ready = await this.ensureConnected();
+    if (!ready || !this.channel) {
+      return null;
+    }
+
+    try {
+      return await this.channel.assertQueue(queueName, options);
+    } catch (error) {
+      this.logger.warn(`RabbitMQ assertQueue failed for ${queueName}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  async checkQueue(queueName: string): Promise<boolean> {
+    const ready = await this.ensureConnected();
+    if (!ready || !this.channel) {
+      return false;
+    }
+
+    try {
+      await this.channel.checkQueue(queueName);
+      return true;
+    } catch (error) {
+      this.logger.warn(`RabbitMQ checkQueue failed for ${queueName}: ${(error as Error).message}`);
+      return false;
+    }
+  }
+
+  async assertExchange(
+    exchangeName: string,
+    type: 'direct' | 'fanout' | 'topic' | 'headers',
+    options?: Options.AssertExchange,
+  ): Promise<Replies.AssertExchange | null> {
+    const ready = await this.ensureConnected();
+    if (!ready || !this.channel) {
+      return null;
+    }
+
+    try {
+      return await this.channel.assertExchange(exchangeName, type, options);
+    } catch (error) {
+      this.logger.warn(`RabbitMQ assertExchange failed for ${exchangeName}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  async bindQueue(
+    queueName: string,
+    exchangeName: string,
+    routingKey = '',
+    args?: unknown,
+  ): Promise<boolean> {
+    const ready = await this.ensureConnected();
+    if (!ready || !this.channel) {
+      return false;
+    }
+
+    try {
+      await this.channel.bindQueue(queueName, exchangeName, routingKey, args);
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `RabbitMQ bindQueue failed for ${queueName} -> ${exchangeName}: ${(error as Error).message}`,
+      );
+      return false;
+    }
+  }
+
   async consume(queueName: string, handler: ConsumeHandler, prefetch = 20): Promise<boolean> {
     const ready = await this.ensureConnected();
     if (!ready || !this.channel) {
@@ -82,6 +198,39 @@ export class RabbitMqService implements OnModuleDestroy {
     }
 
     await this.channel.assertQueue(queueName, { durable: true });
+    await this.channel.prefetch(prefetch);
+
+    await this.channel.consume(queueName, async (message) => {
+      if (!message || !this.channel) {
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(message.content.toString('utf-8'));
+        await handler(message, parsed);
+        this.channel.ack(message);
+      } catch (error) {
+        this.logger.warn(`RabbitMQ consume handler failed for ${queueName}: ${(error as Error).message}`);
+        this.channel.nack(message, false, false);
+      }
+    });
+
+    this.logger.log(`RabbitMQ consumer attached to queue: ${queueName}`);
+    return true;
+  }
+
+  async consumeWithQueueOptions(
+    queueName: string,
+    queueOptions: Options.AssertQueue,
+    handler: ConsumeHandler,
+    prefetch = 20,
+  ): Promise<boolean> {
+    const ready = await this.ensureConnected();
+    if (!ready || !this.channel) {
+      return false;
+    }
+
+    await this.channel.assertQueue(queueName, queueOptions);
     await this.channel.prefetch(prefetch);
 
     await this.channel.consume(queueName, async (message) => {

@@ -128,6 +128,23 @@ npm run test:e2e
 - Real-time: WebSockets via `@nestjs/platform-socket.io` (`socket` module).
 - Integrations: Cloudinary, mailer (nodemailer), payment (VNPay), PDF generation (puppeteer), etc.
 
+## Socket Architecture
+
+- Socket.IO middleware handles authentication only.
+- Gateways handle connection lifecycle and namespace event routing only.
+- Services own business logic, including Redis-backed presence tracking.
+- Presence tracking uses `user:{userId}:devices` SET plus `online_users` for multi-device, multi-instance support.
+- TTL is a fallback safety net; the device set remains the source of truth.
+- Prefer reusable services and avoid duplicating JWT parsing or Redis commands in gateway handlers.
+- Future socket features such as notifications or booking sync should build on the same middleware -> gateway -> service split.
+
+Socket connection flow guidance (FE + BE):
+- Old flow (deprecated as global rule): connect -> `JOIN_ROOM` -> `ROOM_JOINED` -> business events.
+- New flow (current): connect with `handshake.auth.token` -> middleware auth gate -> gateway lifecycle/presence -> business events.
+- `JOIN_ROOM` remains required only for email-room namespaces (`/appointment`, `/payment/vnpay`, `/patient-profile`, `/notification`).
+- `/chat` should use chat-specific room events (`CHAT_JOIN_USER`, `CHAT_JOIN_CONVERSATION`) instead of relying on `JOIN_ROOM` as a handshake gate.
+- FE clients should emit `heartbeat` every 25-30 seconds on long-lived connections to refresh Redis presence TTL.
+
 ## Coding Conventions (Inferred)
 
 - Language: TypeScript throughout.
@@ -228,6 +245,87 @@ npm run test:e2e
 - After ANY edit in `api-contract/` (for example `api-contract/api.md`), you MUST commit and push that submodule immediately.
 - Do NOT delay contract-submodule push until BE root changes are ready; FE integration depends on latest submodule state.
 - When sharing updates with FE, always provide the pushed submodule branch and latest commit hash.
+
+## Unified Notification Architecture Rules
+
+- Notification realtime must use one socket event: `NOTIFICATION_RECEIVED`.
+- Preferred notification namespace for FE bell/realtime center is `/notification`.
+- Payload contract must be typed discriminated union (`NotificationPayload`) with:
+  - `type`
+  - `data` (domain DTO, no flattening)
+  - `createdAt` (epoch ms UTC)
+  - `recipientEmail`
+  - `idempotencyKey`
+- Notification processing flow must be asynchronous:
+  - domain listener -> RabbitMQ queue `notification.jobs`
+  - queue consumer -> notification handler registry
+  - handler -> Mongo persistence + Redis publish
+  - socket bridge -> emit `NOTIFICATION_RECEIVED`
+- Avoid switch-case in notification processing and FE rendering; use handler registry pattern keyed by `type`.
+- Keep backward compatibility for old domain-specific socket events temporarily, but treat them as deprecated.
+
+## Billing and Medication Dispensing Rules
+
+### Data Model Separation
+- **Encounter Prescriptions** (clinical intent): Doctor issues prescriptions during visit completion. Each prescription item includes:
+  - `medicineId`, `name`, `quantity` (original doctor input)
+  - `prescribedQty` (normalized prescription quantity)
+  - `unitPriceSnapshot` (medicine price at time of prescription, for billing reference only)
+  - `estimatedLineTotal` (prescribedQty * unitPriceSnapshot, for clinical reference)
+- **Billing Medications** (financial fulfillment): Snapshot of medicines and actual dispensing at billing finalization. Each medication includes:
+  - `medicineId`, `medicineName`
+  - `prescribedQty` (from doctor order)
+  - `dispensedQty` (receptionist-confirmed quantity actually dispensed, initially defaults to prescribedQty)
+  - `unitPrice` (snapshot from billing creation, never changes after FINALIZED)
+  - `source` (CLINIC or OUTSIDE_PURCHASE)
+  - `lineTotal` (dispensedQty * unitPrice if source=CLINIC, else 0)
+- **Immutability Rule**: After billing status becomes FINALIZED, medications[] snapshot is immutable. Doctor edits to encounter prescriptions must NOT affect finalized billing.
+
+### Draft Billing Creation (after visit completion)
+- Billing draft is created automatically when doctor completes visit (via `domain.visit.completed` event).
+- Medications[] populated from encounter prescriptions with defaults:
+  - dispensedQty = prescribedQty
+  - source = CLINIC
+  - lineTotal = prescribedQty * unitPrice (from snapshot)
+- This is NOT yet authoritative billing; it is a draft for receptionist refinement.
+
+### Receptionist Fulfillment Workflow
+- Receptionist accesses draft billing and can adjust medication fulfillment before finalization:
+  - Change `dispensedQty` per medicine (e.g., ran out, patient declined, etc.)
+  - Change `source` to OUTSIDE_PURCHASE if patient bought medicine outside clinic
+  - Adjust consultation fee if required (optional, not automated)
+- During finalization, receptionist provides fulfillment input:
+  ```
+  {
+    medications: [
+      { medicineId, dispensedQty, source },
+      ...
+    ]
+  }
+  ```
+
+### Billing Finalization
+- Receptionist initiates finalization with fulfillment input.
+- System applies fulfillment to medications[], recalculating lineTotal:
+  - If source = OUTSIDE_PURCHASE: lineTotal = 0 (patient paid outside, no clinic revenue)
+  - If dispensedQty = 0: lineTotal = 0 (not dispensed)
+  - Otherwise: lineTotal = dispensedQty * unitPrice
+- Medication fee recomputed as sum of medications[].lineTotal
+- Total amount, insurance, deposit, credit, coin, and final payable recalculated
+- Billing status transitions to FINALIZED (immutable snapshot created)
+- Payment created and can proceed
+
+### Scope Limitations (Intentional Non-Implementation)
+- **No inventory management**: Do not track clinic stock levels or implement reservation logic.
+- **No pharmacy transaction ledger**: Do not create transaction history for partial dispense tracking.
+- **No stock allocation algorithms**: Dispense decision is receptionist manual choice only, not system-driven.
+- Billing workflow scope is limited to receptionist-controlled fulfillment for financial accuracy, not inventory.
+
+### Price Snapshot Immutability
+- `unitPriceSnapshot` in encounter prescriptions created at visit completion time.
+- `unitPrice` in billing.medications[] frozen at draft creation time.
+- Future changes to Medicine.unitPrice do NOT affect historical encounters or finalized billings.
+- This prevents pricing drift and audit disputes.
 
 Notes:
 - Some folders and filenames are in kebab-case, including Vietnamese names (e.g., `chuyen-khoa`, `tiep-tan`).

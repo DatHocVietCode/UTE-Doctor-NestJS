@@ -1,4 +1,4 @@
-const DEFAULT_VNPAY_EXPIRE_MINUTES = 15;
+const DEFAULT_VNPAY_EXPIRE_MINUTES = 1;
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (!raw) {

@@ -3,6 +3,7 @@ import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import type { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
 import { emitTyped } from "src/utils/helpers/event.helper";
+import type { CoinExpiryReminderEventPayload } from 'src/wallet/coin/coin-expiry-reminder/dto/coin-expiry-reminder.dto';
 
 @Injectable()
 export class MailService {
@@ -65,7 +66,7 @@ export class MailService {
     timeSlotName = await emitTyped<string, string>(
         this.eventEmitter,
         'timeslot.get.name.by.id',
-        payload.timeSlot._id.toString()
+        payload.timeSlot!._id.toString()
     );
     const html = `
       <h2>Xin chào ${payload.patientEmail},</h2>
@@ -84,7 +85,7 @@ export class MailService {
     timeSlotName = await emitTyped<string, string>(
         this.eventEmitter,
         'timeslot.get.name.by.id',
-        payload.timeSlot._id.toString() 
+        payload.timeSlot!._id.toString() 
     );
     const html = `
       <h2>Xin chào bác sĩ ${payload.doctorName},</h2>
@@ -155,7 +156,34 @@ export class MailService {
     reason?: string;
     refundAmount?: number;
     shouldRefund?: boolean;
+    actor?: string;
+    reasonCode?: string;
+    assignmentTaskId?: string;
+    deadlineAt?: number;
   }) {
+    if (payload.reasonCode === 'ASSIGNMENT_TIMEOUT') {
+      const refundLine =
+        payload.shouldRefund && payload.refundAmount !== undefined
+          ? `<p>So credit hoan: <b>${payload.refundAmount}</b></p>`
+          : '<p>Don huy khong phat sinh hoan credit.</p>';
+      const html = `
+        <h2>Xin chao ${payload.patientEmail},</h2>
+        <p>He thong khong the phan cong bac si trong thoi gian quy dinh nen lich kham cua ban da duoc tu dong huy.</p>
+        <p><b>Thoi gian:</b> ${payload.date}</p>
+        ${payload.hospitalName ? `<p><b>Dia diem:</b> ${payload.hospitalName}</p>` : ''}
+        ${payload.reason ? `<p><b>Ly do:</b> ${payload.reason}</p>` : ''}
+        ${refundLine}
+        <p>Neu can ho tro, vui long lien he bo phan ho tro cua UTE Doctor.</p>
+      `;
+
+      await this.sendMail(
+        payload.patientEmail,
+        'Thong bao tu dong huy lich kham - UTE Doctor',
+        html,
+      );
+      return;
+    }
+
     const timeSlotName = await emitTyped<string, string>(
       this.eventEmitter,
       'timeslot.get.name.by.id',
@@ -178,5 +206,97 @@ export class MailService {
     `;
 
     await this.sendMail(payload.patientEmail, "Thông báo hủy lịch khám - UTE Doctor", html);
+  }
+
+  /** === RESCHEDULE: PATIENT === */
+  async sendPatientRescheduleMail(payload: {
+    patientEmail: string;
+    doctorName?: string;
+    hospitalName?: string;
+    oldScheduledAt: number;
+    newScheduledAt: number;
+    newTimeSlotId: string;
+    reason?: string;
+  }) {
+    const timeSlotName = await emitTyped<string, string>(
+      this.eventEmitter,
+      'timeslot.get.name.by.id',
+      payload.newTimeSlotId,
+    );
+    const oldDateStr = new Date(payload.oldScheduledAt).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+    const newDateStr = new Date(payload.newScheduledAt).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+
+    const html = `
+      <h2>Xin chào ${payload.patientEmail},</h2>
+      <p>Lịch hẹn của bạn đã được dời lịch thành công.</p>
+      ${payload.doctorName ? `<p><b>Bác sĩ:</b> ${payload.doctorName}</p>` : ''}
+      <p><b>Lịch cũ:</b> ${oldDateStr}</p>
+      <p><b>Lịch mới:</b> ${newDateStr}${timeSlotName ? ` - ${timeSlotName}` : ''}</p>
+      ${payload.hospitalName ? `<p><b>Địa điểm:</b> ${payload.hospitalName}</p>` : ''}
+      ${payload.reason ? `<p><b>Lý do dời lịch:</b> ${payload.reason}</p>` : ''}
+      <p>Vui lòng đến đúng giờ theo lịch mới. Cảm ơn bạn đã sử dụng UTE Doctor!</p>
+    `;
+
+    await this.sendMail(payload.patientEmail, 'Thông báo dời lịch hẹn - UTE Doctor', html);
+  }
+
+  /** === RESCHEDULE: DOCTOR === */
+  async sendDoctorRescheduleMail(payload: {
+    doctorEmail: string;
+    doctorName?: string;
+    patientEmail: string;
+    oldScheduledAt: number;
+    newScheduledAt: number;
+    newTimeSlotId: string;
+    reason?: string;
+  }) {
+    const timeSlotName = await emitTyped<string, string>(
+      this.eventEmitter,
+      'timeslot.get.name.by.id',
+      payload.newTimeSlotId,
+    );
+    const oldDateStr = new Date(payload.oldScheduledAt).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+    const newDateStr = new Date(payload.newScheduledAt).toLocaleString('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+
+    const html = `
+      <h2>Xin chào bác sĩ ${payload.doctorName || ''},</h2>
+      <p>Bệnh nhân đã dời lịch hẹn.</p>
+      <p><b>Bệnh nhân:</b> ${payload.patientEmail}</p>
+      <p><b>Lịch cũ:</b> ${oldDateStr}</p>
+      <p><b>Lịch mới:</b> ${newDateStr}${timeSlotName ? ` - ${timeSlotName}` : ''}</p>
+      ${payload.reason ? `<p><b>Lý do:</b> ${payload.reason}</p>` : ''}
+    `;
+
+    await this.sendMail(payload.doctorEmail, 'Thông báo dời lịch hẹn - UTE Doctor', html);
+  }
+
+  async sendCoinExpiryReminderMail(payload: CoinExpiryReminderEventPayload) {
+    const expiresAtIso = new Date(payload.expiresAt).toISOString();
+    const remainingDaysText = payload.reminderDays > 1 ? `${payload.reminderDays} ngày` : '1 ngày';
+    const html = `
+      <h2>Xin chào ${payload.patientName || 'bạn'},</h2>
+      <p>Bạn có ${payload.amount} coin sẽ hết hạn sau ${remainingDaysText}.</p>
+      <p><b>Mã giao dịch:</b> ${payload.transactionId}</p>
+      <p><b>Thời điểm hết hạn:</b> ${expiresAtIso}</p>
+      <p>Vui lòng sử dụng coin trước thời điểm này để không bị mất giá trị thưởng.</p>
+    `;
+
+    await this.sendMail(payload.patientEmail, 'Coin sắp hết hạn - UTE Doctor', html);
   }
 }

@@ -2,8 +2,8 @@ import { Controller, Get, ParseIntPipe, Query, Req, UseGuards } from '@nestjs/co
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { JwtAuthGuard } from 'src/common/guards/jws-auth.guard';
-import { CoinService } from './coin.service';
-import { CreditService } from './credit.service';
+import { CoinService } from './coin/coin.service';
+import { CreditService } from './credit/credit.service';
 import { WalletService } from './wallet.service';
 
 @Controller('wallet')

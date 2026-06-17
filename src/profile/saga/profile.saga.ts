@@ -22,7 +22,7 @@ export class ProfileSaga {
         { email: payload.email}
     );
 
-    console.log("[Saga]: get profile: ", profile)
+    //console.log("[Saga]: get profile: ", profile)
 
     let childProfile: any;
     switch (payload.role) {
@@ -73,7 +73,7 @@ export class ProfileSaga {
       })(),
     } as any;
 
-    console.log('[Saga] Full patient profile assembled for socket:', JSON.stringify(response, null, 2));
+    //console.log('[Saga] Full patient profile assembled for socket:', JSON.stringify(response, null, 2));
 
     this.eventEmitter.emit('socket.push.patient-profile', { patientProfile: response, roomEmail: payload.email } );
   }

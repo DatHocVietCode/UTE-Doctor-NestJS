@@ -1,58 +1,108 @@
+import { Logger } from '@nestjs/common';
 import {
-  OnGatewayInit,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
-import { UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
-import { SocketRoomService } from '../socket.service';
 import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
+import { AuthUser } from 'src/common/interfaces/auth-user';
+import { PresenceService } from '../presence.service';
+import { SocketRoomService } from '../socket.service';
 
 @WebSocketGateway({
   cors: true,
   namespace: '/', // base namespace
 })
-export class BaseGateway implements OnGatewayInit {
+export class BaseGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  private readonly logger = new Logger(BaseGateway.name);
+
   @WebSocketServer()
-  protected server: Server;
+  protected server!: Server;
 
   constructor(
     protected readonly socketRoomService: SocketRoomService,
-    protected readonly jwtService: JwtService,
+    protected readonly presenceService: PresenceService,
   ) {}
 
-  /**
-   * JWT verification at connection level.
-   * All namespaces that extend BaseGateway inherit this middleware.
-   * Token invalid/expired → reject connection immediately.
-   */
-  afterInit(server: Server) {
-    server.use(async (socket: Socket, next) => {
-      try {
-        const tokenFromAuth = (socket.handshake as any)?.auth?.token as string | undefined;
-        const headerAuth = socket.handshake.headers?.authorization as string | undefined;
-        const token = tokenFromAuth || (headerAuth?.startsWith('Bearer ') ? headerAuth.substring(7) : undefined);
+  private normalizeRoom(room: string): string {
+    const normalized = room?.trim();
+    if (!normalized) {
+      return '';
+    }
 
-        if (!token) {
-          console.log(`[Socket] No token provided in connection`);
-          return next(new UnauthorizedException('Missing auth token'));
-        }
+    // Email rooms are matched case-insensitively by convention across FE/BE.
+    return normalized.includes('@') ? normalized.toLowerCase() : normalized;
+  }
 
-        const payload = await this.jwtService.verifyAsync(token, {
-          secret: process.env.JWT_SECRET,
-        });
+  handleConnection(client: Socket) {
+    const userId = client.data?.userId as string | undefined;
+    this.logger.log(
+      `[Socket][Connection] namespace=${client.nsp.name} socketId=${client.id} userId=${userId || 'missing'}`,
+    );
 
-        // Attach user payload to socket data for use in handlers
-        (socket.data as any).user = payload;
-        console.log(`[Socket] JWT verified for user:`, payload.accountId || payload.sub);
-        next();
-      } catch (e) {
-        console.log(`[Socket] JWT verification failed:`, e.message);
-        return next(new UnauthorizedException('Invalid or expired token'));
-      }
+    if (!userId) {
+      this.logger.warn(
+        `[Socket][Connection] Disconnecting unauthenticated socket namespace=${client.nsp.name} socketId=${client.id}`,
+      );
+      client.disconnect(true);
+      return;
+    }
+
+    const authUser = (client.data as { authUser?: AuthUser })?.authUser;
+    void this.presenceService.addConnection(userId, client.id, {
+      email: authUser?.email,
+      role: authUser?.role,
     });
+
+    // Auto-join the authenticated user's own email room so realtime delivery does not
+    // depend on the client emitting JOIN_ROOM. The room is derived from the JWT email
+    // (never from a client-supplied payload), and re-joining a room is idempotent.
+    void this.autoJoinEmailRoom(client, authUser?.email);
+  }
+
+  /**
+   * Join the socket to its own email room using the authenticated identity only.
+   * Mirrors the room used by JOIN_ROOM so notification fan-out (emitToRoom(email, ...))
+   * reaches the socket even if the client never sends JOIN_ROOM.
+   */
+  private async autoJoinEmailRoom(
+    client: Socket,
+    rawEmail?: string,
+  ): Promise<void> {
+    const email = this.normalizeRoom(rawEmail || '');
+    if (!email) {
+      this.logger.warn(
+        `[Socket][AutoJoin] Skipped: no email in auth payload namespace=${client.nsp.name} socketId=${client.id}`,
+      );
+      return;
+    }
+
+    try {
+      await client.join(email);
+      this.logger.log(
+        `[Socket][AutoJoin] Joined namespace=${client.nsp.name} socketId=${client.id} room=${email}`,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `[Socket][AutoJoin] Failed namespace=${client.nsp.name} socketId=${client.id} room=${email} reason=${(error as Error).message}`,
+      );
+    }
+  }
+
+  handleDisconnect(client: Socket) {
+    const userId = client.data?.userId as string | undefined;
+    this.logger.log(
+      `[Socket][Disconnect] namespace=${client.nsp.name} socketId=${client.id} userId=${userId || 'missing'}`,
+    );
+
+    if (!userId) {
+      return;
+    }
+
+    void this.presenceService.removeConnection(userId, client.id);
   }
 
   /**
@@ -60,26 +110,69 @@ export class BaseGateway implements OnGatewayInit {
    * Client no longer needs to send { email } payload.
    */
   @SubscribeMessage(SocketEventsEnum.JOIN_ROOM)
-  handleJoinRoom(client: Socket) {
-    const user = (client.data as any)?.user;
-    const email = user?.email;
+  async handleJoinRoom(client: Socket) {
+    const user = client.data?.authUser;
+    this.logger.log(
+      `[Socket][JOIN_ROOM] Received namespace=${client.nsp.name} socketId=${client.id} hasAuthUser=${Boolean(user)}`,
+    );
+
+    const email = this.normalizeRoom(user?.email || '');
     if (!email) {
-      console.log('[Socket] No email found in JWT payload');
+      this.logger.warn(
+        `[Socket][JOIN_ROOM] Missing email in auth payload namespace=${client.nsp.name} socketId=${client.id}`,
+      );
       return;
     }
 
-    client.join(email);
-    console.log(`[Socket] Client joined room: ${email}`);
+    // Emit the joined ack only after Socket.IO has finished adding the socket to the room.
+    await client.join(email);
+    this.logger.log(
+      `[Socket][JOIN_ROOM] Joined namespace=${client.nsp.name} socketId=${client.id} room=${email}`,
+    );
     client.emit(SocketEventsEnum.ROOM_JOINED, { email });
+    this.logger.log(
+      `[Socket][JOIN_ROOM] ROOM_JOINED emitted namespace=${client.nsp.name} socketId=${client.id} room=${email}`,
+    );
+  }
+
+  @SubscribeMessage(SocketEventsEnum.HEARTBEAT)
+  async handleHeartbeat(client: Socket) {
+    const userId = client.data?.userId as string | undefined;
+    if (!userId) {
+      this.logger.warn(
+        `[Socket][HEARTBEAT] Rejected namespace=${client.nsp.name} socketId=${client.id} reason=missing_userId`,
+      );
+      return;
+    }
+
+    this.logger.log(
+      `[Socket][HEARTBEAT] Received namespace=${client.nsp.name} socketId=${client.id} userId=${userId}`,
+    );
+
+    const authUser = (client.data as { authUser?: AuthUser })?.authUser;
+    await this.presenceService.refreshTTL(userId, client.id, client.nsp.name, {
+      email: authUser?.email,
+      role: authUser?.role,
+    });
+    client.data.lastHeartbeatAt = Date.now();
+
+    this.logger.log(
+      `[Socket][HEARTBEAT] Processed namespace=${client.nsp.name} socketId=${client.id} userId=${userId}`,
+    );
   }
 
   /** Cho client join vào room */
-  joinRoom(client: Socket, room: string) {
-    this.socketRoomService.joinRoom(client, room);
+  async joinRoom(client: Socket, room: string) {
+    await this.socketRoomService.joinRoom(client, room);
   }
 
   emitToRoom(room: string, event: string, data: any) {
-    this.server.to(room).emit(event, data);
+    const targetRoom = this.normalizeRoom(room);
+    if (!targetRoom) {
+      return;
+    }
+
+    this.server.to(targetRoom).emit(event, data);
   }
 
   emitToAll(event: string, data: any) {

@@ -1,0 +1,59 @@
+name: Deploy Backend to EC2
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/ute_doctor_deploy
+          chmod 600 ~/.ssh/ute_doctor_deploy
+
+          echo "Private key fingerprint:"
+          ssh-keygen -lf ~/.ssh/ute_doctor_deploy
+
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy on EC2
+        run: |
+          ssh -o IdentitiesOnly=yes -i ~/.ssh/ute_doctor_deploy "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << 'EOF'
+            set -e
+
+            cd ~/ute-doctor-be
+
+            echo "Pulling latest source..."
+            git fetch origin master
+            git reset --hard origin/master
+
+            echo "Checking production env..."
+            test -f .env.production
+
+            echo "Validating docker compose..."
+            docker compose --env-file .env.production config --quiet
+
+            echo "Building and restarting services..."
+            docker compose --env-file .env.production up -d --build
+
+            echo "Current containers:"
+            docker compose ps
+
+            echo "Waiting for API..."
+            sleep 8
+
+            echo "Smoke test:"
+            curl -fsS http://127.0.0.1:3001/api
+
+            echo "Deploy completed."
+          EOF

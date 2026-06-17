@@ -1,11 +1,10 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import { CoinService } from './coin.service';
-import { CreditService } from './credit.service';
-import { CoinTransaction, CoinTransactionSchema } from './schemas/coin-transaction.schema';
-import { CoinWallet, CoinWalletSchema } from './schemas/coin-wallet.schema';
-import { CreditTransaction, CreditTransactionSchema } from './schemas/credit-transaction.schema';
-import { CreditWallet, CreditWalletSchema } from './schemas/credit-wallet.schema';
+import { Account, AccountSchema } from 'src/account/schemas/account.schema';
+import { Patient, PatientSchema } from 'src/patient/schema/patient.schema';
+import { Profile, ProfileSchema } from 'src/profile/schema/profile.schema';
+import { CoinModule } from './coin/coin.module';
+import { CreditModule } from './credit/credit.module';
 import { WalletTransaction, WalletTransactionSchema } from './schemas/wallet-transaction.schema';
 import { Wallet, WalletSchema } from './schemas/wallet.schema';
 import { WalletController } from './wallet.controller';
@@ -13,17 +12,18 @@ import { WalletService } from './wallet.service';
 
 @Module({
   imports: [
+    CoinModule,
+    CreditModule,
     MongooseModule.forFeature([
       { name: Wallet.name, schema: WalletSchema },
       { name: WalletTransaction.name, schema: WalletTransactionSchema },
-      { name: CoinWallet.name, schema: CoinWalletSchema },
-      { name: CoinTransaction.name, schema: CoinTransactionSchema },
-      { name: CreditWallet.name, schema: CreditWalletSchema },
-      { name: CreditTransaction.name, schema: CreditTransactionSchema },
+      { name: Patient.name, schema: PatientSchema },
+      { name: Profile.name, schema: ProfileSchema },
+      { name: Account.name, schema: AccountSchema },
     ]),
   ],
   controllers: [WalletController],
-  providers: [WalletService, CoinService, CreditService],
-  exports: [WalletService, CoinService, CreditService],
+  providers: [WalletService],
+  exports: [WalletService, CoinModule, CreditModule],
 })
 export class WalletModule {}

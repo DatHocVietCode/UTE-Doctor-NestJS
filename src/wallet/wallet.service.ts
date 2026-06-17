@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { DataResponse } from 'src/common/dto/data-respone';
-import { CoinService } from './coin.service';
-import { CreditService } from './credit.service';
+import { WalletSummaryDto } from 'src/common/dto/wallet-summary.dto';
+import { CoinService } from './coin/coin.service';
+import { CreditService } from './credit/credit.service';
 
 @Injectable()
 export class WalletService {
@@ -65,5 +66,25 @@ export class WalletService {
 
   async getWalletBalance(patientId: string): Promise<number> {
     return this.coinService.getAvailableCoinBalance(patientId);
+  }
+
+  async getWalletSummaryByPatientId(patientId: string, originalAmount?: number): Promise<WalletSummaryDto> {
+    const [availableCoins, availableCredit] = await Promise.all([
+      this.coinService.getAvailableCoinBalance(patientId),
+      this.creditService.getCreditBalance(patientId),
+    ]);
+
+    const summary: WalletSummaryDto = {
+      availableCoins,
+      availableCredit,
+    };
+
+    if (typeof originalAmount === 'number' && Number.isFinite(originalAmount) && originalAmount > 0) {
+      // Keep the billing-facing discount cap derived from the same coin policy used elsewhere.
+      const discountInfo = await this.coinService.calculateDiscount(patientId, originalAmount, true);
+      summary.maxApplicableDiscount = discountInfo.maxApplicableDiscount;
+    }
+
+    return summary;
   }
 }

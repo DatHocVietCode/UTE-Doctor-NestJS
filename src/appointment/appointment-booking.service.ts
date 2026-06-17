@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
@@ -8,19 +9,32 @@ import { RedisService } from 'src/common/redis/redis.service';
 import { Doctor, DoctorDocument } from 'src/doctor/schema/doctor.schema';
 import { Patient, PatientDocument } from 'src/patient/schema/patient.schema';
 import { PaymentMethodEnum } from 'src/payment/enums/payment-method.enum';
+import { PaymentFlowStatusEnum, PaymentPurposeEnum } from 'src/payment/enums/payment-flow.enum';
 import { PaymentStatusEnum } from 'src/payment/enums/payment-status.enum';
 import { PaymentService } from 'src/payment/payment.service';
 import { Payment } from 'src/payment/schemas/payment.schema';
 import { BOOKING_PENDING_TTL_SECONDS, VNPAY_EXPIRE_MINUTES } from 'src/payment/vnpay/vnpay-timeout.config';
 import { TimeSlotLog, TimeSlotLogDocument } from 'src/timeslot/schemas/timeslot-log.schema';
 import { TimeHelper } from 'src/utils/helpers/time.helper';
-import { CoinService } from 'src/wallet/coin.service';
-import { CreditService } from 'src/wallet/credit.service';
+import { CoinService } from 'src/wallet/coin/coin.service';
+import { CreditService } from 'src/wallet/credit/credit.service';
 import { AppointmentBookingDto } from './dto/appointment-booking.dto';
 import { AppointmentStatus } from './enums/Appointment-status.enum';
+import { AssignmentStatus } from './enums/assignment-status.enum';
+import { AssignmentTaskStatus } from './enums/assignment-task-status.enum';
+import { DepositStatus } from './enums/deposit-status.enum';
+import { PaymentCategory } from './enums/payment-category.enum';
+import { VisitType } from './enums/visit-type.enum';
+import {
+  AppointmentAssignmentTask,
+  AppointmentAssignmentTaskDocument,
+} from './schemas/appointment-assignment-task.schema';
 import { buildEnrichedAppointmentPayload } from './schemas/appointment-enriched';
 import { Appointment, AppointmentDocument } from './schemas/appointment.schema';
 import { AppointmentTimeHelper } from './utils/appointment-time.helper';
+
+// Default SLA window for a receptionist to pick up a broad-booking task.
+const DEFAULT_ASSIGNMENT_DEADLINE_MINUTES = 30;
 
 type BookingAmountBreakdown = {
   originalAmount: number;
@@ -37,6 +51,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
 
   constructor(
     private readonly eventEmitter: EventEmitter2,
+    private readonly config: ConfigService,
     private readonly paymentService: PaymentService,
     private readonly redisService: RedisService,
     private readonly coinService: CoinService,
@@ -46,6 +61,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
     @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
     @InjectModel(Payment.name) private readonly paymentModel: Model<Payment>,
+    @InjectModel(AppointmentAssignmentTask.name)
+    private readonly assignmentTaskModel: Model<AppointmentAssignmentTaskDocument>,
   ) {}
 
   onModuleInit() {
@@ -61,6 +78,15 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
   }
 
   async bookAppointment(bookingAppointment: AppointmentBookingDto, clientIp = '127.0.0.1'): Promise<DataResponse> {
+    // Normalize new visit-based fields before legacy validations/payment flow.
+    bookingAppointment = this.normalizeVisitWorkflowDefaults(bookingAppointment);
+
+    // Broad booking has no doctor/slot — branch out before the normal validation,
+    // which hard-requires both. This keeps the normal booking path untouched.
+    if (bookingAppointment.broadBooking) {
+      return this.bookBroadAppointment(bookingAppointment, clientIp);
+    }
+
     this.validateBookingRequest(bookingAppointment);
 
     const bookingId = new Types.ObjectId();
@@ -70,7 +96,7 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     let appointmentDateNormalized: Date;
     let appointmentDateEpoch: number;
     let bookingDateEpoch: number;
-    let bookingAmounts = this.getDefaultAmountBreakdown(bookingAppointment.amount);
+    let bookingAmounts = this.getDefaultAmountBreakdown(this.resolveConsultationFee());
     let resolvedTimeSlot: Pick<TimeSlotLog, 'start' | 'end'> | null = null;
     
     try {
@@ -146,8 +172,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         };
       }
 
-      // Coins now act as discount-only; final payment is handled by ONLINE/VNPAY or CREDIT.
-      bookingAmounts = await this.calculateBookingAmounts(bookingAppointment);
+      // Client-sent amount is deprecated; fee snapshots now come from server policy.
+      bookingAmounts = this.getDefaultAmountBreakdown(this.resolveConsultationFee());
 
       const appointmentDoc = await this.createAppointmentWithTransaction({
         bookingId,
@@ -165,25 +191,40 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         slotKey,
       });
 
-      if (bookingAmounts.discountAmount > 0) {
-        const coinPaymentResult = await this.coinService.spendCoins(
-          bookingAppointment.patientId,
-          bookingAmounts.discountAmount,
-          'appointment_booking_discount',
-          appointmentDoc._id.toString(),
-          `Apply ${bookingAmounts.discountAmount} coin discount for appointment booking`,
-        );
-
-        if (coinPaymentResult.code !== ResponseCode.SUCCESS) {
+      if (bookingAppointment.paymentCategory === PaymentCategory.DICH_VU) {
+        let depositPayment: { paymentId: string; paymentUrl: string; amount: number; purpose: string };
+        try {
+          depositPayment = await this.paymentService.createDepositPaymentForAppointment(
+            appointmentDoc._id.toString(),
+            bookingAppointment.depositAmount ?? 0,
+            clientIp,
+          );
+        } catch (error: any) {
           return await this.failBooking(
             appointmentDoc._id.toString(),
-            coinPaymentResult.message || 'Coin discount application failed',
+            error?.message || 'Deposit payment creation failed',
             lockValue,
             slotKey,
             undefined,
             bookingAmounts,
           );
         }
+
+        const payload = await this.buildBookingPayload(appointmentDoc);
+        this.eventEmitter.emit('appointment.booking.pending', payload);
+
+        return {
+          code: ResponseCode.PENDING,
+          message: 'Appointment created. Complete deposit payment to confirm booking.',
+          data: {
+            appointmentId: appointmentDoc._id.toString(),
+            depositStatus: DepositStatus.PENDING,
+            depositAmount: bookingAppointment.depositAmount ?? 0,
+            depositPaymentId: depositPayment.paymentId,
+            paymentUrl: depositPayment.paymentUrl,
+            ...bookingAmounts,
+          },
+        };
       }
 
       if (bookingAmounts.finalAmount === 0) {
@@ -200,30 +241,13 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         );
       }
 
-      if (
-        bookingAppointment.paymentMethod === PaymentMethodEnum.ONLINE ||
-        bookingAppointment.paymentMethod === PaymentMethodEnum.VNPAY
-      ) {
-        return await this.handleOnlinePayment(
-          appointmentDoc,
-          bookingAppointment,
-          clientIp,
-          lockValue,
-          slotKey,
-          bookingAmounts,
-        );
-      }
-
-      if (bookingAppointment.paymentMethod === PaymentMethodEnum.CREDIT) {
-        return await this.handleCreditPayment(appointmentDoc, bookingAppointment, lockValue, slotKey, bookingAmounts);
-      }
-
-      return await this.failBooking(
+      // BHYT has no deposit requirement; remaining payment is handled by billing.
+      return await this.confirmBooking(
         appointmentDoc._id.toString(),
-        'Offline payment is not supported',
         lockValue,
         slotKey,
-        undefined,
+        'Booking confirmed (payment deferred - use billing flow)',
+        undefined, // no payment meta persisted here
         bookingAmounts,
       );
     } catch (error: any) {
@@ -253,6 +277,229 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
           ...bookingAmounts,
         },
       };
+    }
+  }
+
+  /**
+   * Broad booking: create a PENDING appointment with no doctor/slot. BHYT/no-deposit
+   * bookings enter the assignment queue immediately; DICH_VU waits until the deposit
+   * succeeds so the assignment SLA only starts for actionable tasks.
+   */
+  private async bookBroadAppointment(
+    bookingAppointment: AppointmentBookingDto,
+    clientIp: string,
+  ): Promise<DataResponse> {
+    this.validateBroadBookingRequest(bookingAppointment);
+
+    const bookingDateEpoch = bookingAppointment.bookingDate
+      ? TimeHelper.toEpoch(TimeHelper.parseISOToUTC(bookingAppointment.bookingDate))
+      : Date.now();
+
+    const isDichVu = bookingAppointment.paymentCategory === PaymentCategory.DICH_VU;
+    const consultationFee = this.resolveConsultationFee();
+    const amounts = this.getDefaultAmountBreakdown(consultationFee);
+    const deadlineAt = Date.now() + this.resolveAssignmentDeadlineMs();
+
+    const bookingId = new Types.ObjectId();
+    const session = await this.appointmentModel.db.startSession();
+    let appointmentDoc: AppointmentDocument | null = null;
+    let taskId: string | null = null;
+    let committed = false;
+
+    try {
+      await session.withTransaction(async () => {
+        const apptDocs = await this.appointmentModel.create(
+          [
+            {
+              _id: bookingId,
+              // No real schedule yet; placeholders satisfy the required fields and are
+              // overwritten when a receptionist assigns a doctor/slot. The appointment is
+              // distinguished as broad via assignmentStatus = AWAITING_ASSIGNMENT.
+              date: bookingDateEpoch,
+              scheduledAt: bookingDateEpoch,
+              bookingDate: bookingDateEpoch,
+              appointmentStatus: AppointmentStatus.PENDING,
+              assignmentStatus: AssignmentStatus.AWAITING_ASSIGNMENT,
+              serviceType: bookingAppointment.serviceType,
+              consultationFee: amounts.originalAmount,
+              paymentCategory: bookingAppointment.paymentCategory,
+              depositAmount: isDichVu ? bookingAppointment.depositAmount ?? 0 : 0,
+              depositStatus: isDichVu ? DepositStatus.PENDING : DepositStatus.NOT_REQUIRED,
+              depositPaidAmount: 0,
+              coinDiscountAmount: amounts.discountAmount,
+              paymentAmount: amounts.finalAmount,
+              // doctorId and timeSlot intentionally omitted (null) until assignment.
+              patientId: new Types.ObjectId(bookingAppointment.patientId),
+              reasonForAppointment: bookingAppointment.reasonForAppointment,
+              specialtyId: bookingAppointment.specialty ?? null,
+              paymentMethod: bookingAppointment.paymentMethod,
+              hospitalName: bookingAppointment.hospitalName,
+              patientEmail: bookingAppointment.patientEmail,
+            },
+          ],
+          { session },
+        );
+        appointmentDoc = apptDocs[0] as AppointmentDocument;
+
+        if (!isDichVu) {
+          const now = Date.now();
+          const taskDocs = await this.assignmentTaskModel.create(
+            [
+              {
+                appointmentId: appointmentDoc._id,
+                status: AssignmentTaskStatus.PENDING,
+                deadlineAt,
+                specialty: bookingAppointment.specialty,
+                reasonForAppointment: bookingAppointment.reasonForAppointment,
+                patientEmail: bookingAppointment.patientEmail,
+                priority: 'NORMAL',
+                history: [
+                  {
+                    at: now,
+                    from: '',
+                    to: AssignmentTaskStatus.PENDING,
+                    by: 'system',
+                    note: 'broad booking created',
+                  },
+                ],
+              },
+            ],
+            { session },
+          );
+          taskId = taskDocs[0]._id.toString();
+        }
+      });
+      committed = true;
+    } catch (error: any) {
+      this.logger.error(`bookBroadAppointment failed: ${error?.message || String(error)}`);
+    } finally {
+      await session.endSession();
+    }
+
+    // DICH_VU intentionally has no task yet; BHYT/no-deposit must have one atomically.
+    // The unique partial index on appointmentId still guards duplicate active tasks.
+    if (!committed || !appointmentDoc || (!isDichVu && !taskId)) {
+      return {
+        code: ResponseCode.ERROR,
+        message: 'Broad booking failed',
+        data: { ...amounts },
+      };
+    }
+
+    const appointment = appointmentDoc as AppointmentDocument;
+    const appointmentId = appointment._id.toString();
+
+    // DICH_VU broad booking takes the deposit before queue activation. Failure marks
+    // only the appointment/deposit failed because no assignment task exists yet.
+    let depositInfo: { depositPaymentId?: string; paymentUrl?: string } = {};
+    if (isDichVu) {
+      try {
+        const depositPayment = await this.paymentService.createDepositPaymentForAppointment(
+          appointmentId,
+          bookingAppointment.depositAmount ?? 0,
+          clientIp,
+        );
+        depositInfo = {
+          depositPaymentId: depositPayment.paymentId,
+          paymentUrl: depositPayment.paymentUrl,
+        };
+      } catch (error: any) {
+        await this.cancelBroadBookingAfterDepositFailure(appointmentId, taskId);
+        return {
+          code: ResponseCode.ERROR,
+          message: error?.message || 'Deposit payment creation failed',
+          data: { appointmentId, ...amounts },
+        };
+      }
+    }
+
+    if (taskId) {
+      // Notify the assignment pipeline. Visit creation is deliberately deferred.
+      this.eventEmitter.emit('appointment.assignment.created', {
+        taskId,
+        appointmentId,
+        patientEmail: bookingAppointment.patientEmail,
+        specialty: bookingAppointment.specialty,
+        priority: 'NORMAL',
+        deadlineAt,
+        reasonForAppointment: bookingAppointment.reasonForAppointment,
+      });
+    }
+
+    return {
+      code: ResponseCode.PENDING,
+      message: isDichVu
+        ? 'Broad appointment created. Complete deposit payment; a receptionist will assign a doctor.'
+        : 'Broad appointment created. A receptionist will assign a doctor.',
+      data: {
+        appointmentId,
+        ...(taskId ? { assignmentTaskId: taskId } : {}),
+        assignmentStatus: AssignmentStatus.AWAITING_ASSIGNMENT,
+        depositStatus: isDichVu ? DepositStatus.PENDING : DepositStatus.NOT_REQUIRED,
+        depositAmount: isDichVu ? bookingAppointment.depositAmount ?? 0 : 0,
+        ...depositInfo,
+        ...amounts,
+      },
+    };
+  }
+
+  private validateBroadBookingRequest(dto: AppointmentBookingDto) {
+    if (!dto.patientEmail || !dto.patientId) {
+      throw new BadRequestException('Patient context is required');
+    }
+
+    // At least one routing hint is required so a receptionist can triage the request.
+    if (!dto.specialty && !dto.reasonForAppointment) {
+      throw new BadRequestException('Either specialty or reasonForAppointment is required for broad booking');
+    }
+
+    if (dto.paymentMethod === PaymentMethodEnum.COIN) {
+      throw new BadRequestException('COIN payment method is deprecated. Use useCoin=true for discount with ONLINE/VNPAY/CREDIT');
+    }
+
+    // DICH_VU still requires an upfront deposit, mirroring the normal booking rule.
+    if (dto.paymentCategory === PaymentCategory.DICH_VU && (!dto.depositAmount || dto.depositAmount <= 0)) {
+      throw new BadRequestException('depositAmount must be greater than 0 for DICH_VU bookings');
+    }
+  }
+
+  private resolveAssignmentDeadlineMs(): number {
+    const configured = Number(this.config.get('ASSIGNMENT_DEADLINE_MINUTES'));
+    const minutes =
+      Number.isFinite(configured) && configured > 0
+        ? Math.floor(configured)
+        : DEFAULT_ASSIGNMENT_DEADLINE_MINUTES;
+    return minutes * 60_000;
+  }
+
+  private async cancelBroadBookingAfterDepositFailure(appointmentId: string, taskId?: string | null) {
+    try {
+      await this.appointmentModel.updateOne(
+        { _id: new Types.ObjectId(appointmentId) },
+        { $set: { appointmentStatus: AppointmentStatus.FAILED, depositStatus: DepositStatus.FAILED } },
+      );
+      if (taskId) {
+        const now = Date.now();
+        await this.assignmentTaskModel.updateOne(
+          { _id: new Types.ObjectId(taskId), status: AssignmentTaskStatus.PENDING },
+          {
+            $set: { status: AssignmentTaskStatus.CANCELLED },
+            $push: {
+              history: {
+                at: now,
+                from: AssignmentTaskStatus.PENDING,
+                to: AssignmentTaskStatus.CANCELLED,
+                by: 'system',
+                note: 'deposit payment creation failed',
+              },
+            },
+          },
+        );
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to roll back broad booking ${appointmentId}/${taskId}: ${error?.message || String(error)}`,
+      );
     }
   }
 
@@ -321,6 +568,12 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
             appointmentStatus: AppointmentStatus.PENDING,
             serviceType: input.bookingAppointment.serviceType,
                         consultationFee: input.originalAmount,
+                        paymentCategory: input.bookingAppointment.paymentCategory,
+                        depositAmount: input.bookingAppointment.depositAmount ?? 0,
+                        depositStatus: input.bookingAppointment.paymentCategory === PaymentCategory.DICH_VU
+                          ? DepositStatus.PENDING
+                          : DepositStatus.NOT_REQUIRED,
+                        depositPaidAmount: 0,
                         coinDiscountAmount: input.discountAmount,
                         paymentAmount: input.finalAmount,
             timeSlot: new Types.ObjectId(input.bookingAppointment.timeSlotId),
@@ -367,67 +620,8 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     amounts: BookingAmountBreakdown,
   ): Promise<DataResponse> {
     const appointmentId = appointmentDoc._id.toString();
-    const amount = amounts.finalAmount;
-
-    try {
-      const existingPayment = await this.paymentModel.findOne({
-        appointmentId: appointmentDoc._id,
-      }).select('_id').lean();
-
-      if (existingPayment) {
-        return {
-          code: ResponseCode.ERROR,
-          message: 'Payment already initiated for this appointment',
-          data: {
-            appointmentId,
-            ...amounts,
-          },
-        };
-      }
-
-      await this.paymentModel.create({
-        amount,
-        method: PaymentMethodEnum.ONLINE,
-        appointmentId: appointmentDoc._id,
-        status: PaymentStatusEnum.PENDING,
-      });
-
-      const paymentUrl = this.paymentService.createPaymentUrl(appointmentId, amount, clientIp);
-
-      const pendingPayload = await this.buildBookingPayload(appointmentDoc);
-      pendingPayload.paymentStatus = PaymentStatusEnum.PENDING;
-      this.eventEmitter.emit('appointment.booking.pending', pendingPayload);
-
-      return {
-        code: ResponseCode.PENDING,
-        message: 'Appointment created. Complete payment to confirm booking.',
-        data: {
-          appointmentId,
-          paymentUrl,
-          ...amounts,
-        },
-      };
-    } catch (error: any) {
-      if (error?.code === 11000) {
-        return {
-          code: ResponseCode.ERROR,
-          message: 'Payment already initiated for this appointment',
-          data: {
-            appointmentId,
-            ...amounts,
-          },
-        };
-      }
-
-      return await this.failBooking(
-        appointmentId,
-        error?.message || 'Booking failed',
-        lockValue,
-        slotKey,
-        undefined,
-        amounts,
-      );
-    }
+    this.logger.warn('[Deprecated] handleOnlinePayment called for appointment ' + appointmentId);
+    throw new BadRequestException('Payment after booking is deprecated. Use billing flow.');
   }
 
   private async handleCreditPayment(
@@ -437,36 +631,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     slotKey: string,
     amounts: BookingAmountBreakdown,
   ): Promise<DataResponse> {
-    const paymentResult = await this.creditService.deductCredit(
-      bookingAppointment.patientId,
-      amounts.finalAmount,
-      'appointment_booking',
-      appointmentDoc._id.toString(),
-      `Thanh toan lich kham bang credit: ${amounts.finalAmount}`,
-    );
-
-    if (paymentResult.code !== ResponseCode.SUCCESS) {
-      return await this.failBooking(
-        appointmentDoc._id.toString(),
-        paymentResult.message || 'Credit payment failed',
-        lockValue,
-        slotKey,
-        undefined,
-        amounts,
-      );
-    }
-
-    return await this.confirmBooking(
-      appointmentDoc._id.toString(),
-      lockValue,
-      slotKey,
-      paymentResult.message,
-      {
-        amount: amounts.finalAmount,
-        paidAt: new Date(),
-      },
-      amounts,
-    );
+    const appointmentId = appointmentDoc._id.toString();
+    this.logger.warn('[Deprecated] handleCreditPayment called for appointment ' + appointmentId);
+    throw new BadRequestException('Payment after booking is deprecated. Use billing flow.');
   }
 
   private buildSlotBookedError() {
@@ -558,6 +725,10 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         message: `Appointment already finalized as ${appointment.appointmentStatus}`,
         data: {
           appointmentId: appointment._id.toString(),
+          depositStatus: appointment.depositStatus,
+          depositAmount: appointment.depositAmount ?? 0,
+          depositPaidAmount: appointment.depositPaidAmount ?? 0,
+          depositPaidAt: appointment.depositPaidAt ?? null,
           ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
         },
       };
@@ -568,6 +739,11 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         code: ResponseCode.ERROR,
         message: `Appointment cannot be confirmed from status ${appointment.appointmentStatus}`,
         data: {
+          appointmentId: appointment._id.toString(),
+          depositStatus: appointment.depositStatus,
+          depositAmount: appointment.depositAmount ?? 0,
+          depositPaidAmount: appointment.depositPaidAmount ?? 0,
+          depositPaidAt: appointment.depositPaidAt ?? null,
           ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
         },
       };
@@ -599,6 +775,10 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       message: note || 'Appointment confirmed successfully',
       data: {
         appointmentId: appointment._id.toString(),
+        depositStatus: appointment.depositStatus,
+        depositAmount: appointment.depositAmount ?? 0,
+        depositPaidAmount: appointment.depositPaidAmount ?? 0,
+        depositPaidAt: appointment.depositPaidAt ?? null,
         ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
       },
     };
@@ -658,6 +838,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
     }
 
     appointment.appointmentStatus = AppointmentStatus.FAILED;
+    if (appointment.depositStatus === DepositStatus.PENDING) {
+      appointment.depositStatus = DepositStatus.FAILED;
+    }
     if (typeof paymentMeta?.amount === 'number') {
       appointment.paymentAmount = paymentMeta.amount;
     }
@@ -688,6 +871,13 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         ...(amounts ?? this.buildAmountBreakdownFromAppointment(appointment)),
       },
     };
+  }
+
+  private resolveConsultationFee(): number {
+    const configuredFee = Number(this.config.get('CONSULTATION_FEE'));
+    return Number.isFinite(configuredFee) && !Number.isNaN(configuredFee)
+      ? Math.max(0, Math.floor(configuredFee))
+      : 0;
   }
 
   private getDefaultAmountBreakdown(amount?: number): BookingAmountBreakdown {
@@ -743,6 +933,9 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       .find({
         appointmentStatus: AppointmentStatus.PENDING,
         createdAt: { $lte: expirationTime },
+        // Broad appointments await receptionist assignment; their lifecycle is governed by
+        // the assignment task deadline, not the booking-payment TTL.
+        assignmentStatus: { $ne: AssignmentStatus.AWAITING_ASSIGNMENT },
       })
       .exec();
 
@@ -752,6 +945,116 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
         appointment._id.toString(),
         `Appointment expired after ${VNPAY_EXPIRE_MINUTES} minutes`,
       );
+    }
+
+    const expiredBroadDichVuAppointments = await this.appointmentModel
+      .find({
+        appointmentStatus: AppointmentStatus.PENDING,
+        assignmentStatus: AssignmentStatus.AWAITING_ASSIGNMENT,
+        paymentCategory: PaymentCategory.DICH_VU,
+        depositStatus: DepositStatus.PENDING,
+        createdAt: { $lte: expirationTime },
+      })
+      .exec();
+
+    for (const appointment of expiredBroadDichVuAppointments) {
+      this.logger.log(`Expiring unpaid broad DICH_VU booking ${appointment._id.toString()}`);
+      await this.failBroadUnpaidDepositBooking(
+        appointment._id.toString(),
+        `Appointment deposit expired after ${VNPAY_EXPIRE_MINUTES} minutes`,
+        'deposit payment expired',
+      );
+    }
+  }
+
+  private async failBroadUnpaidDepositBooking(
+    appointmentId: string,
+    reason: string,
+    taskNote: string,
+  ): Promise<void> {
+    const session = await this.appointmentModel.db.startSession();
+    let patientEmail: string | undefined;
+    try {
+      await session.withTransaction(async () => {
+        const appointment = await this.appointmentModel.findById(appointmentId).session(session);
+        if (!appointment) {
+          return;
+        }
+        if (
+          appointment.appointmentStatus !== AppointmentStatus.PENDING ||
+          appointment.assignmentStatus !== AssignmentStatus.AWAITING_ASSIGNMENT ||
+          appointment.paymentCategory !== PaymentCategory.DICH_VU ||
+          appointment.depositStatus !== DepositStatus.PENDING
+        ) {
+          return;
+        }
+
+        const depositPayment = await this.paymentModel
+          .findOne({
+            purpose: PaymentPurposeEnum.APPOINTMENT_DEPOSIT,
+            appointmentId: appointment._id,
+          })
+          .session(session);
+        if (depositPayment && depositPayment.status === PaymentFlowStatusEnum.SUCCESS) {
+          return;
+        }
+
+        if (depositPayment) {
+          depositPayment.status = PaymentFlowStatusEnum.FAILED;
+          depositPayment.expireAt = null;
+          await depositPayment.save({ session });
+        } else {
+          this.logger.warn(
+            `Broad DICH_VU appointment ${appointment._id.toString()} has no pending deposit payment row during expiry cleanup`,
+          );
+        }
+
+        appointment.appointmentStatus = AppointmentStatus.FAILED;
+        appointment.depositStatus = DepositStatus.FAILED;
+        await appointment.save({ session });
+        patientEmail = appointment.patientEmail;
+
+        // Forward Phase 1 records have no task here; this only cleans up legacy
+        // pre-created active work items after payment expiry is explicitly handled.
+        const activeTask = await this.assignmentTaskModel
+          .findOne({
+            appointmentId: appointment._id,
+            status: { $in: [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED] },
+          })
+          .session(session)
+          .lean();
+        if (activeTask) {
+          await this.assignmentTaskModel.updateOne(
+            {
+              _id: activeTask._id,
+              status: { $in: [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED] },
+            },
+            {
+              $set: { status: AssignmentTaskStatus.CANCELLED },
+              $push: {
+                history: {
+                  at: Date.now(),
+                  from: activeTask.status,
+                  to: AssignmentTaskStatus.CANCELLED,
+                  by: 'system',
+                  note: taskNote,
+                },
+              },
+            },
+            { session },
+          );
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    if (patientEmail) {
+      this.eventEmitter.emit('appointment.booking.failed', {
+        appointmentId,
+        patientEmail,
+        reason,
+      });
     }
   }
 
@@ -835,6 +1138,12 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       throw new BadRequestException('Time slot is required');
     }
 
+    // appointmentDate is optional at the DTO level so broad bookings can omit it;
+    // the normal (doctor-assigned) path requires it here. Legacy `date` is still accepted.
+    if (!dto.appointmentDate && !dto.date) {
+      throw new BadRequestException('appointmentDate is required');
+    }
+
     if (!dto.hospitalName) {
       throw new BadRequestException('Hospital name is required');
     }
@@ -852,18 +1161,46 @@ export class AppointmentBookingService implements OnModuleInit, OnModuleDestroy 
       throw new BadRequestException('COIN payment method is deprecated. Use useCoin=true for discount with ONLINE/VNPAY/CREDIT');
     }
 
-    if (
-      (dto.paymentMethod === PaymentMethodEnum.ONLINE ||
-        dto.paymentMethod === PaymentMethodEnum.VNPAY ||
-        dto.paymentMethod === PaymentMethodEnum.CREDIT) &&
-      (!dto.amount || dto.amount <= 0)
-    ) {
-      throw new BadRequestException('Amount must be greater than 0 for selected payment method');
+    if (dto.paymentCategory === PaymentCategory.DICH_VU && (!dto.depositAmount || dto.depositAmount <= 0)) {
+      throw new BadRequestException('depositAmount must be greater than 0 for DICH_VU bookings');
     }
 
     if (!dto.patientEmail || !dto.patientId) {
       throw new BadRequestException('Patient context is required');
     }
+  }
+
+  private normalizeVisitWorkflowDefaults(dto: AppointmentBookingDto): AppointmentBookingDto {
+    // Keep OFFLINE as safe default for the current visit-based rollout.
+    const visitType = dto.visitType ?? VisitType.OFFLINE;
+    let depositAmount = this.toSafeMoneyValue(dto.depositAmount);
+
+    const paymentCategory = dto.paymentCategory ?? PaymentCategory.DICH_VU;
+
+    if (paymentCategory === PaymentCategory.BHYT) {
+      // BHYT visits never require deposit in the new workflow.
+      depositAmount = 0;
+    }
+
+    if (paymentCategory === PaymentCategory.DICH_VU) {
+      // DICH_VU allows deposit; preserve the provided value after sanitization.
+      depositAmount = this.toSafeMoneyValue(dto.depositAmount);
+    }
+
+    return {
+      ...dto,
+      visitType,
+      paymentCategory,
+      depositAmount,
+    };
+  }
+
+  private toSafeMoneyValue(value?: number): number | undefined {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return undefined;
+    }
+
+    return Math.max(0, Math.floor(value));
   }
 
   private mapAppointmentStatusToPaymentStatus(status: AppointmentStatus): PaymentStatusEnum {

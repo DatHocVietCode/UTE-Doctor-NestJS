@@ -1,205 +1,208 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { EventEmitter2 } from "@nestjs/event-emitter";
-import { InjectModel } from "@nestjs/mongoose";
-import { Model } from "mongoose";
-import { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
-import { PaginationQueryDto } from "src/common/dto/pagination-query.dto";
-import { PaginationResult } from "src/common/dto/pagination-result.dto";
-import { emitTyped } from "src/utils/helpers/event.helper";
-import { Notification, NotificationDocument } from "./schemas/notification.schema";
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto';
+import { PaginationResult } from 'src/common/dto/pagination-result.dto';
+import type {
+  NotificationPayload,
+  NotificationType,
+} from './dto/notification-payload.dto';
+import { AppointmentCancelledNotificationHandler } from './handlers/appointment-cancelled-notification.handler';
+import { AppointmentDoctorAssignedNotificationHandler } from './handlers/appointment-doctor-assigned-notification.handler';
+import { AppointmentRescheduledNotificationHandler } from './handlers/appointment-rescheduled-notification.handler';
+import { AppointmentSuccessNotificationHandler } from './handlers/appointment-success-notification.handler';
+import { AssignmentTaskCreatedNotificationHandler } from './handlers/assignment-task-created-notification.handler';
+import { AssignmentTaskExpiredNotificationHandler } from './handlers/assignment-task-expired-notification.handler';
+import { AssignmentTaskReminderNotificationHandler } from './handlers/assignment-task-reminder-notification.handler';
+import { CoinExpiryNotificationHandler } from './handlers/coin-expiry-notification.handler';
+import { NotificationHandlerMeta } from './handlers/notification-handler.interface';
+import type { HandlerRegistry } from './handlers/notification-handler.types';
+import { toStoredNotificationPayload } from './notification-payload.mapper';
+import type { StoredNotificationPayload } from './notification-payload.mapper';
+import { PaymentSuccessNotificationHandler } from './handlers/payment-success-notification.handler';
+import {
+  Notification,
+  NotificationDocument,
+} from './schemas/notification.schema';
 
 @Injectable()
 export class NotificationService {
-    constructor(@InjectModel(Notification.name) private notificationModel: Model<NotificationDocument>
-                ,private readonly eventEmitter: EventEmitter2) {}
+  private readonly logger = new Logger(NotificationService.name);
+  private readonly handlers: HandlerRegistry;
 
-    async storeNewNotification(notification: Partial<NotificationDocument>) {
-        const newNoti = new this.notificationModel(notification);
-        return await newNoti.save();
+  constructor(
+    @InjectModel(Notification.name)
+    private readonly notificationModel: Model<NotificationDocument>,
+    private readonly coinExpiryHandler: CoinExpiryNotificationHandler,
+    private readonly appointmentSuccessHandler: AppointmentSuccessNotificationHandler,
+    private readonly appointmentCancelledHandler: AppointmentCancelledNotificationHandler,
+    private readonly appointmentRescheduledHandler: AppointmentRescheduledNotificationHandler,
+    private readonly paymentSuccessHandler: PaymentSuccessNotificationHandler,
+    private readonly assignmentTaskCreatedHandler: AssignmentTaskCreatedNotificationHandler,
+    private readonly assignmentTaskReminderHandler: AssignmentTaskReminderNotificationHandler,
+    private readonly assignmentTaskExpiredHandler: AssignmentTaskExpiredNotificationHandler,
+    private readonly appointmentDoctorAssignedHandler: AppointmentDoctorAssignedNotificationHandler,
+  ) {
+    // Registry avoids switch-case branching and keeps each type handler isolated.
+    this.handlers = {
+      COIN_EXPIRY_REMINDER: this.coinExpiryHandler,
+      APPOINTMENT_SUCCESS: this.appointmentSuccessHandler,
+      APPOINTMENT_CANCELLED: this.appointmentCancelledHandler,
+      APPOINTMENT_RESCHEDULED: this.appointmentRescheduledHandler,
+      PAYMENT_SUCCESS: this.paymentSuccessHandler,
+      ASSIGNMENT_TASK_CREATED: this.assignmentTaskCreatedHandler,
+      ASSIGNMENT_TASK_REMINDER: this.assignmentTaskReminderHandler,
+      ASSIGNMENT_TASK_EXPIRED: this.assignmentTaskExpiredHandler,
+      APPOINTMENT_DOCTOR_ASSIGNED: this.appointmentDoctorAssignedHandler,
+    };
+  }
+
+  private toEpoch(value: unknown): number | null {
+    if (value instanceof Date) {
+      return value.getTime();
     }
 
-    async createPatientAppointmentNotification(payload: AppointmentEnriched) {
-        let timeSlotName = '';
-        timeSlotName = await emitTyped<string, string>(
-            this.eventEmitter,
-            'timeslot.get.name.by.id',
-            payload.timeSlot.toString()
-        );
-        const body = {
-            title: 'Đặt lịch khám thành công',
-            message: `Bạn đã đặt lịch khám thành công vào ngày ${payload.date} lúc ${timeSlotName} tại ${payload.hospitalName}.`,
-            details: {
-                bacSi: payload.doctorName || 'Chưa chọn',
-                dichVu: payload.serviceType,
-                hinhThucThanhToan: payload.paymentMethod,
-                amount: payload.amount,
-            },
-        };
-
-        // Use notiService to st
-        await this.storeNewNotification({
-            receiverEmail: [payload.patientEmail],
-            ...body
-        });
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.floor(value);
     }
 
-    async createDoctorAppointmentNotification(payload: AppointmentEnriched) {
-        const timeSlotName = await emitTyped<string, string>(
-            this.eventEmitter,
-            'timeslot.get.name.by.id',
-            payload.timeSlot._id.toString()!
-        );
-        const body = {
-            title: 'Đặt lịch khám thành công',
-            message: `Bạn đã được thêm mới lịch khám vào ngày: ${payload.date} lúc ${timeSlotName} tại ${payload.hospitalName}.`,
-            details: {
-                bacSi: payload.doctorName || 'Chưa chọn',
-                dichVu: payload.paymentMethod,
-                hinhThucThanhToan: payload.paymentMethod,
-                thoiGian: "Ngày: " + payload.date + " lúc " +  timeSlotName,
-                amount: payload.amount,
-            },
-        };
-
-        // Use notiService to st
-        await this.storeNewNotification({
-            receiverEmail: [payload.doctorEmail!], // chắc chắn có email bác sĩ
-            ...body
-        });
+    if (typeof value === 'string') {
+      const parsed = new Date(value).getTime();
+      return Number.isNaN(parsed) ? null : parsed;
     }
 
-    async getNotifications(
-        pagination: PaginationQueryDto
-        ): Promise<PaginationResult<Notification>> {
-        const { page, limit } = pagination;
+    return null;
+  }
 
-        const skip = (page - 1) * limit;
-
-        const [data, total] = await Promise.all([
-            this.notificationModel
-            .find()
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
-            .lean(),
-
-            this.notificationModel.countDocuments(),
-        ]);
-
-        return new PaginationResult(data, total, page, limit);
-    }
-    async getNotificationsByEmail(
-        email: string,
-        pagination: PaginationQueryDto
-        ): Promise<PaginationResult<Notification>> {
-
-        const { page, limit } = pagination;
-        const skip = (page - 1) * limit;
-
-        const filter = {
-            $or: [
-            { isBroadcast: true },
-            { receiverEmail: email },
-            ],
-        };
-
-        const [data, total] = await Promise.all([
-            this.notificationModel
-            .find(filter)
-            .sort({ createdAt: -1 })
-            .skip(skip)
-            .limit(limit)
-            .lean(),
-
-            this.notificationModel.countDocuments(filter),
-        ]);
-
-        return new PaginationResult(data, total, page, limit);
+  private normalizeNotificationTimestamps(notification: any): any {
+    if (!notification) {
+      return notification;
     }
 
-    async countUnreadByEmail(email: string): Promise<number> {
-        if (!email) throw new Error('[NotificationService] Email is required');
+    const normalized = { ...notification };
+    normalized.createdAt = this.toEpoch(normalized.createdAt);
+    normalized.updatedAt = this.toEpoch(normalized.updatedAt);
 
-        return this.notificationModel.countDocuments({
-        receiverEmail: email,
-        isRead: false,
-        });
+    if (normalized.details && typeof normalized.details === 'object') {
+      normalized.details = {
+        ...normalized.details,
+        expiresAt: this.toEpoch(normalized.details.expiresAt),
+        runAt: this.toEpoch(normalized.details.runAt),
+      };
     }
 
-    async markAsRead(id: string): Promise<Notification> {
-        const notif = await this.notificationModel.findByIdAndUpdate(
-            id,
-            { isRead: true },
-            { new: true }
-        ).lean();
+    return normalized;
+  }
 
-        if (!notif) throw new NotFoundException('[NotificationService] Notification not found');
-        return notif;
+  async storeNewNotification(notification: Partial<NotificationDocument>) {
+    const newNoti = new this.notificationModel(notification);
+    return await newNoti.save();
+  }
+
+  async process(payload: NotificationPayload): Promise<void> {
+    const handler = this.handlers[payload.type as NotificationType];
+    if (!handler) {
+      this.logger.warn(
+        `No notification handler registered for type ${payload.type}`,
+      );
+      return;
     }
 
-    async createPatientShiftCancellationNotification(payload: {
-        patientEmail: string;
-        doctorName?: string;
-        date: string;
-        timeSlot: string;
-        hospitalName?: string;
-        reason?: string;
-    }) {
-        const timeSlotName = await emitTyped<string, string>(
-            this.eventEmitter,
-            'timeslot.get.name.by.id',
-            payload.timeSlot
-        );
+    const meta: NotificationHandlerMeta = {
+      recipientEmail: payload.recipientEmail,
+      recipientRole: payload.recipientRole,
+      createdAt: payload.createdAt,
+      idempotencyKey: payload.idempotencyKey,
+    };
 
-        const title = 'Thông báo hủy ca khám';
-        const message = `Ca khám ngày ${payload.date} lúc ${timeSlotName}${payload.hospitalName ? ` tại ${payload.hospitalName}` : ''} đã bị hủy${payload.doctorName ? ` bởi bác sĩ ${payload.doctorName}` : ''}${payload.reason ? `. Lý do: ${payload.reason}` : ''}. Vui lòng đặt lại lịch hoặc liên hệ hỗ trợ.`;
+    await handler.handle(payload.data as never, meta);
+  }
 
-        await this.storeNewNotification({
-            receiverEmail: [payload.patientEmail],
-            title,
-            message,
-        });
+  async storeIfNotExists(
+    notification: Partial<NotificationDocument>,
+  ): Promise<boolean> {
+    try {
+      await this.storeNewNotification(notification);
+      return true;
+    } catch (error) {
+      // Duplicate key means this notification has already been processed.
+      if ((error as { code?: number }).code === 11000) {
+        return false;
+      }
+
+      throw error;
     }
+  }
 
-    async createDoctorShiftCancellationNotification(payload: {
-        doctorEmail: string;
-        date: string;
-        shift: string;
-        reason?: string;
-        affectedAppointmentsCount: number;
-    }) {
-        const title = 'Xác nhận hủy ca trực';
-        const message = `Bạn đã hủy ca ${payload.shift === 'morning' ? 'sáng' : payload.shift === 'afternoon' ? 'trưa' : 'ngoài giờ'} ngày ${payload.date}${payload.reason ? `. Lý do: ${payload.reason}` : ''}. Có ${payload.affectedAppointmentsCount} lịch hẹn bị ảnh hưởng. Bệnh nhân đã được thông báo và hoàn coin.`;
+  async getNotifications(
+    pagination: PaginationQueryDto,
+  ): Promise<PaginationResult<StoredNotificationPayload>> {
+    const { page, limit } = pagination;
 
-        await this.storeNewNotification({
-            receiverEmail: [payload.doctorEmail],
-            title,
-            message,
-        });
-    }
+    const skip = (page - 1) * limit;
 
-    async createPatientAppointmentCancellationNotification(payload: {
-        patientEmail: string;
-        doctorName?: string;
-        date: string;
-        timeSlot: string;
-        hospitalName?: string;
-        reason?: string;
-    }) {
-        const timeSlotName = await emitTyped<string, string>(
-            this.eventEmitter,
-            'timeslot.get.name.by.id',
-            payload.timeSlot
-        );
+    const [data, total] = await Promise.all([
+      this.notificationModel
+        .find()
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
 
-        const title = 'Thông báo hủy lịch khám';
-        const message = `Lịch khám ngày ${payload.date} lúc ${timeSlotName}${payload.hospitalName ? ` tại ${payload.hospitalName}` : ''} đã bị hủy${payload.doctorName ? ` bởi bác sĩ ${payload.doctorName}` : ''}${payload.reason ? `. Lý do: ${payload.reason}` : ''}.`; 
+      this.notificationModel.countDocuments(),
+    ]);
 
-        await this.storeNewNotification({
-            receiverEmail: [payload.patientEmail],
-            title,
-            message,
-        });
-    }
+    const normalizedData = data.map((item) =>
+      toStoredNotificationPayload(item),
+    );
+    return new PaginationResult(normalizedData, total, page, limit);
+  }
+  async getNotificationsByEmail(
+    email: string,
+    pagination: PaginationQueryDto,
+  ): Promise<PaginationResult<StoredNotificationPayload>> {
+    const { page, limit } = pagination;
+    const skip = (page - 1) * limit;
+
+    const filter = {
+      $or: [{ isBroadcast: true }, { receiverEmail: email }],
+    };
+
+    const [data, total] = await Promise.all([
+      this.notificationModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+
+      this.notificationModel.countDocuments(filter),
+    ]);
+
+    const normalizedData = data.map((item) =>
+      toStoredNotificationPayload(item),
+    );
+    return new PaginationResult(normalizedData, total, page, limit);
+  }
+
+  async countUnreadByEmail(email: string): Promise<number> {
+    if (!email) throw new Error('[NotificationService] Email is required');
+
+    return this.notificationModel.countDocuments({
+      receiverEmail: email,
+      isRead: false,
+    });
+  }
+
+  async markAsRead(id: string): Promise<any> {
+    const notif = await this.notificationModel
+      .findByIdAndUpdate(id, { isRead: true }, { new: true })
+      .lean();
+
+    if (!notif)
+      throw new NotFoundException(
+        '[NotificationService] Notification not found',
+      );
+    return toStoredNotificationPayload(notif);
+  }
 }
-

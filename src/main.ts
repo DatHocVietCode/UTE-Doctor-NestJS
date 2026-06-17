@@ -1,9 +1,11 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { json, urlencoded } from 'express';
 import * as path from 'path';
+import { AppModule } from './app.module';
+import { SocketAuthMiddleware } from './socket/middleware/socket-auth.middleware';
+import { SocketAdapter } from './socket/socket.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -27,6 +29,8 @@ async function bootstrap() {
     forbidNonWhitelisted: true,
   }));
 
+  app.useWebSocketAdapter(new SocketAdapter(app, app.get(SocketAuthMiddleware)));
+
 
   app.setGlobalPrefix('api');
 
@@ -34,7 +38,8 @@ async function bootstrap() {
   app.useStaticAssets(path.join(process.cwd(), 'public'));
 
   const port = process.env.PORT ?? 3000;
-  await app.listen(port);
-  console.log(`Server is running on http://localhost:${port}/api`);
+  // Bind all interfaces so the API is reachable from Docker's container network.
+  await app.listen(port, '0.0.0.0');
+  console.log(`Server is running on http://0.0.0.0:${port}/api`);
 }
 bootstrap();

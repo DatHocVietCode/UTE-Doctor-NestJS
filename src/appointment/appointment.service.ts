@@ -1,38 +1,57 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { InjectModel } from "@nestjs/mongoose";
 import mongoose, { Model, Types } from "mongoose";
+import { Billing, BillingDocument } from "src/billing/billing.schema";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
-import { RoleEnum } from "src/common/enum/role.enum";
+import { RoleEnum } from 'src/common/enum/role.enum';
 import { AuthUser } from "src/common/interfaces/auth-user";
 import { Doctor, DoctorDocument } from "src/doctor/schema/doctor.schema";
-import { Medicine, MedicineDocument } from "src/medicine/schema/medicine.schema";
 import { MedicalEncounter, MedicalEncounterDocument } from "src/patient/schema/medical-record.schema";
 import { Patient, PatientDocument } from "src/patient/schema/patient.schema";
+import { Payment, PaymentDocument } from "src/payment/schemas/payment.schema";
+import { PaymentFlowStatusEnum, PaymentPurposeEnum } from 'src/payment/enums/payment-flow.enum';
 import { Profile, ProfileDocument } from "src/profile/schema/profile.schema";
 import { TimeSlotLog, TimeSlotLogDocument } from "src/timeslot/schemas/timeslot-log.schema";
-import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
 import { TimeHelper } from "src/utils/helpers/time.helper";
-import { CoinService } from "src/wallet/coin.service";
+import { VisitStatus } from "src/visit/enums/visit-status.enum";
+import { Visit, VisitDocument } from "src/visit/schemas/visit.schema";
+import { VisitService } from 'src/visit/visit.service';
+import { CoinService } from 'src/wallet/coin/coin.service';
+import { CreditService } from 'src/wallet/credit/credit.service';
 import { AppointmentBookingDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 import { AppointmentDto } from "./dto/appointment.dto";
 import { AppointmentStatus } from "./enums/Appointment-status.enum";
+import { AssignmentStatus } from './enums/assignment-status.enum';
+import { AssignmentTaskStatus } from './enums/assignment-task-status.enum';
+import { CancellationActor } from './enums/cancellation-actor.enum';
+import { CancellationReasonCode } from './enums/cancellation-reason-code.enum';
+import { DepositStatus } from './enums/deposit-status.enum';
+import { PaymentCategory } from './enums/payment-category.enum';
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
+import { AppointmentAssignmentTask, AppointmentAssignmentTaskDocument } from "./schemas/appointment-assignment-task.schema";
 import { AppointmentTimeHelper } from "./utils/appointment-time.helper";
 
 @Injectable()
 export class AppointmentService {
 
     constructor(private readonly eventEmitter: EventEmitter2,
-        @InjectModel(Appointment.name) private readonly appointmentModel: Model<Appointment>,
+        @InjectModel(Appointment.name) private readonly appointmentModel: Model<AppointmentDocument>,
         @InjectModel(TimeSlotLog.name) private readonly timeSlotLogModel: Model<TimeSlotLogDocument>,
         @InjectModel(Patient.name) private readonly patientModel: Model<PatientDocument>,
-        @InjectModel(MedicalEncounter.name) private readonly medicalEncounterModel: Model<MedicalEncounterDocument>,
-        @InjectModel(Medicine.name) private readonly medicineModel: Model<MedicineDocument>,
         @InjectModel(Doctor.name) private readonly doctorModel: Model<DoctorDocument>,
         @InjectModel(Profile.name) private readonly profileModel: Model<ProfileDocument>,
+        @InjectModel(Visit.name) private readonly visitModel: Model<VisitDocument>,
+        @InjectModel(MedicalEncounter.name) private readonly medicalEncounterModel: Model<MedicalEncounterDocument>,
+        @InjectModel(Billing.name) private readonly billingModel: Model<BillingDocument>,
+        @InjectModel(Payment.name) private readonly paymentModel: Model<PaymentDocument>,
+        @InjectModel(AppointmentAssignmentTask.name) private readonly assignmentTaskModel: Model<AppointmentAssignmentTaskDocument>,
         private readonly coinService: CoinService,
+        private readonly visitService: VisitService,
+        private readonly creditService: CreditService,
+        private readonly config: ConfigService,
     ) {}
 
     async bookAppointment(bookingAppointment: AppointmentBookingDto) {
@@ -156,16 +175,11 @@ export class AppointmentService {
     const appointment = await this.appointmentModel.findById(dto.appointmentId);
     if (!appointment) throw new NotFoundException('Appointment not found');
 
-    const timeSlot = await this.timeSlotLogModel.findById(appointment.timeSlot);
-    if (!timeSlot) throw new NotFoundException('TimeSlot not found');
+    const visitResult = dto.visitId
+        ? await this.visitService.completeVisit(dto.visitId, dto)
+        : await this.visitService.completeVisitByAppointmentId(dto.appointmentId, dto);
 
-    timeSlot.status = 'completed';
-    await timeSlot.save();
-
-    appointment.appointmentStatus = AppointmentStatus.COMPLETED;
-    await appointment.save();
-
-    // Reward coin after appointment is completed. The reward method is idempotent per appointment.
+    // Reward coin after the visit is committed so the compatibility wrapper stays side-effect safe.
     const rewardResult = await this.coinService.rewardCoinForCompletedAppointment(
         appointment.patientId.toString(),
         appointment._id.toString(),
@@ -184,76 +198,14 @@ export class AppointmentService {
     const patient = await this.patientModel.findById(appointment.patientId);
     if (!patient) throw new NotFoundException('Patient not found');
 
-    // Build prescriptions
-    const mappedPrescriptions = await Promise.all((dto.prescriptions || []).map(async (p) => {
-        let medicineIdObj: Types.ObjectId | null = null;
-        
-        console.log('[CompleteAppointment] Processing prescription item:', p);
-
-        // Only convert medicineId if it exists
-        if (p.medicineId) {
-            try {
-                medicineIdObj = (typeof p.medicineId === 'string') 
-                    ? new Types.ObjectId(p.medicineId) 
-                    : p.medicineId;
-            } catch (err) {
-                console.warn('[CompleteAppointment] Invalid medicineId:', p.medicineId);
-                medicineIdObj = null;
-            }
-        }
-        
-        let name = p.name;
-        // If no name provided but have medicineId, fetch from database
-        if (!name && medicineIdObj) {
-            try {
-                const med = await this.medicineModel.findById(medicineIdObj).select('name').lean();
-                name = med?.name ?? p.name ?? 'Unknown medicine';
-            } catch (err) {
-                name = p.name ?? 'Unknown medicine';
-            }
-        }
-        
-        const prescription: any = {
-            name,
-            quantity: (typeof p.quantity === 'number' && p.quantity > 0) ? p.quantity : 1,
-            note: p.note,
-        };
-        
-        // Only add medicineId if it exists
-        if (medicineIdObj) {
-            prescription.medicineId = medicineIdObj;
-        }
-        
-        return prescription;
-    }));
-
-    console.log('[AppointmentService] Mapped prescriptions:', mappedPrescriptions);
-
-    if (!appointment.doctorId) {
-        throw new NotFoundException('Doctor not assigned to appointment');
-    }
-
-    const encounter = await this.medicalEncounterModel.create({
-        appointmentId: appointment._id,
-        patientId: appointment.patientId,
-        createdByDoctorId: appointment.doctorId,
-        createdByRole: RoleEnum.DOCTOR,
-        diagnosis: dto.diagnosis,
-        note: dto.note ?? '',
-        prescriptions: mappedPrescriptions,
-        vitalSigns: [],
-        dateRecord: DateTimeHelper.nowUtc(),
-    });
-
-    console.log('[AppointmentService] Medical encounter saved:', JSON.stringify(encounter.toObject(), null, 2));
-
     return {
         code: 'SUCCESS',
         message: 'Appointment completed and encounter stored',
         data: {
             appointmentId: appointment._id,
             patientId: patient._id,
-            encounterId: encounter._id,
+            encounterId: visitResult.encounterId,
+            visitId: visitResult.visit._id,
         },
     };
 
@@ -447,70 +399,49 @@ export class AppointmentService {
     };
 }
 
-    async cancelAppointment(appointmentId: string, reason?: string) {
+    async cancelAppointment(appointmentId: string, reason?: string, user?: AuthUser) {
         const appointment = await this.appointmentModel.findById(appointmentId);
         if (!appointment) {
             throw new NotFoundException('Appointment not found');
         }
+        this.assertCanCancelAppointment(appointment, user);
 
         const previousStatus = appointment.appointmentStatus;
-
-        // Only allow cancelling for PENDING or CONFIRMED appointments
         if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(previousStatus)) {
-            throw new Error(`Cannot cancel appointment with status ${previousStatus}`);
+            this.throwCancelBlocked(
+                'APPOINTMENT_NOT_CANCELABLE',
+                `Cannot cancel appointment with status ${previousStatus}`,
+            );
         }
 
-        // ⏰ Time-based cancellation restriction: Cannot cancel if <= 24 hours before appointment
-        // Cancellation now evaluates against the stored scheduledAt snapshot.
+        // A broad/unassigned appointment has no real doctor/slot yet; its scheduledAt is a
+        // placeholder (≈ booking time), and no Visit exists until a receptionist assigns it.
+        // The 24h window and the missing-Visit guard are therefore meaningless for it and must
+        // be bypassed so the patient can still cancel (and be refunded) while awaiting assignment.
+        const isAwaitingAssignment = appointment.assignmentStatus === AssignmentStatus.AWAITING_ASSIGNMENT;
+
         const appointmentScheduledAt = AppointmentTimeHelper.resolveStoredScheduledAt(appointment);
         if (!appointmentScheduledAt) {
-            throw new Error('Invalid appointment date');
+            this.throwCancelBlocked('APPOINTMENT_NOT_CANCELABLE', 'Invalid appointment date');
         }
         const appointmentDate = TimeHelper.fromEpoch(appointmentScheduledAt);
-
 
         console.log(`[AppointmentService] Cancelling appointment ${appointmentId} scheduled at ${appointmentDate}, reason: ${reason}`);
         const appointmentTime = appointmentScheduledAt;
         const currentTime = Date.now();
         const hoursUntilAppointment = (appointmentTime - currentTime) / (1000 * 60 * 60);
 
-        if (hoursUntilAppointment <= 24) {
-            throw new Error(`Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${hoursUntilAppointment.toFixed(1)}`);
+        if (!isAwaitingAssignment && hoursUntilAppointment <= 24) {
+            this.throwCancelBlocked(
+                'APPOINTMENT_NOT_CANCELABLE',
+                `Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${hoursUntilAppointment.toFixed(1)}`,
+            );
         }
 
-        // 💰 Tiered refund logic based on cancellation timing
         const timeSlotId = appointment.timeSlot;
-        // Refund should be based on actual charged amount and must never exceed original consultation fee.
-        const originalConsultationFee = Math.max(0, Math.floor(appointment.consultationFee ?? 0));
-        const chargedAmount = typeof appointment.paymentAmount === 'number'
-            ? Math.max(0, Math.min(Math.floor(appointment.paymentAmount), originalConsultationFee))
-            : originalConsultationFee;
-        const consultationFee = chargedAmount;
         let refundAmount = 0;
-        let refundReason = '';
-
-        if (previousStatus === AppointmentStatus.PENDING) {
-            // PENDING appointments get 100% refund if cancelled > 48h before
-            if (hoursUntilAppointment > 48) {
-                refundAmount = consultationFee;
-                refundReason = '100% refund (cancelled > 48 hours before)';
-            } else if (hoursUntilAppointment > 24) {
-                refundAmount = Math.ceil(consultationFee * 0.5); // 50% refund
-                refundReason = '50% refund (cancelled 24-48 hours before)';
-            }
-        } else if (previousStatus === AppointmentStatus.CONFIRMED) {
-            // CONFIRMED appointments follow same tier logic
-            if (hoursUntilAppointment > 48) {
-                refundAmount = consultationFee;
-                refundReason = '100% refund (cancelled > 48 hours before)';
-            } else if (hoursUntilAppointment > 24) {
-                refundAmount = Math.ceil(consultationFee * 0.5); // 50% refund
-                refundReason = '50% refund (cancelled 24-48 hours before)';
-            }
-            // < 24h returns 0 (already blocked above, but for clarity)
-        }
-
-        const shouldRefund = refundAmount > 0;
+        let refundReason = 'No verified paid DICH_VU deposit to refund';
+        let shouldRefund = false;
 
         const doctorProfile = appointment.doctorId
             ? await this.doctorModel.findById(appointment.doctorId).populate('profileId', 'name email').lean()
@@ -529,7 +460,7 @@ export class AppointmentService {
             // Downstream listeners still expect a readable date value alongside the snapshot.
             date: appointmentDate,
             scheduledAt: appointmentScheduledAt,
-            timeSlot: timeSlotId.toString(),
+            timeSlot: timeSlotId?.toString() ?? '',
             timeSlotLabel,
             hospitalName: appointment.hospitalName,
             reason: reason || 'Appointment cancelled',
@@ -539,50 +470,491 @@ export class AppointmentService {
             status: AppointmentStatus.CANCELLED,
         };
 
-        // Update appointment
-        appointment.appointmentStatus = AppointmentStatus.CANCELLED;
-        await appointment.save();
+        const session = await this.appointmentModel.db.startSession();
+        try {
+            await session.withTransaction(async () => {
+                const freshAppointment = await this.appointmentModel.findById(appointmentId).session(session);
+                if (!freshAppointment) {
+                    throw new NotFoundException('Appointment not found');
+                }
 
-        // Release time slot
-        const timeSlot = await this.timeSlotLogModel.findById(timeSlotId);
-        if (timeSlot) {
-            timeSlot.status = 'available';
-            await timeSlot.save();
-        }
+                if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(freshAppointment.appointmentStatus)) {
+                    this.throwCancelBlocked(
+                        'APPOINTMENT_NOT_CANCELABLE',
+                        `Cannot cancel appointment with status ${freshAppointment.appointmentStatus}`,
+                    );
+                }
+                this.assertCanCancelAppointment(freshAppointment, user);
 
-        if (shouldRefund && refundAmount > 0) {
-            // Emit cancel event for refund processing in the credit wallet.
-            this.eventEmitter.emit('appointment.cancelled', {
-                appointmentId,
-                patientId: appointment.patientId.toString(),
-                consultationFee,
-                refundAmount,
-                refundReason,
-                reason: reason || 'Appointment cancelled',
-                timeSlotId: timeSlotId.toString(),
+                // Re-check timing from the transactional snapshot so a concurrent reschedule cannot bypass policy.
+                const freshScheduledAt = AppointmentTimeHelper.resolveStoredScheduledAt(freshAppointment);
+                if (!freshScheduledAt) {
+                    this.throwCancelBlocked('APPOINTMENT_NOT_CANCELABLE', 'Invalid appointment date');
+                }
+                const freshHoursUntilAppointment = (freshScheduledAt - Date.now()) / (1000 * 60 * 60);
+                if (!isAwaitingAssignment && freshHoursUntilAppointment <= 24) {
+                    this.throwCancelBlocked(
+                        'APPOINTMENT_NOT_CANCELABLE',
+                        `Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${freshHoursUntilAppointment.toFixed(1)}`,
+                    );
+                }
+
+                const depositPayments = await this.paymentModel
+                    .find({
+                        appointmentId: freshAppointment._id,
+                        purpose: PaymentPurposeEnum.APPOINTMENT_DEPOSIT,
+                    })
+                    .session(session)
+                    .exec();
+                if (depositPayments.length > 1) {
+                    this.throwCancelBlocked(
+                        'APPOINTMENT_DEPOSIT_PAYMENT_AMBIGUOUS',
+                        'Cannot cancel appointment because multiple deposit payments exist',
+                    );
+                }
+
+                const depositPayment = depositPayments[0];
+                if (depositPayment?.status === PaymentFlowStatusEnum.PENDING) {
+                    this.throwCancelBlocked(
+                        'APPOINTMENT_DEPOSIT_PAYMENT_PENDING',
+                        'Cannot cancel appointment while deposit payment callback is pending',
+                    );
+                }
+
+                const visit = await this.visitModel
+                    .findOne({ appointmentId: freshAppointment._id })
+                    .session(session)
+                    .exec();
+                // A broad appointment awaiting assignment legitimately has no Visit yet; only treat a
+                // missing Visit as a blocker for normal/assigned appointments.
+                if (!visit && !isAwaitingAssignment) {
+                    this.throwCancelBlocked(
+                        'APPOINTMENT_NOT_CANCELABLE',
+                        'Cannot cancel appointment because visit record is missing',
+                    );
+                }
+
+                // Visit/encounter/billing guards only apply when a Visit exists (i.e. the appointment
+                // has been assigned and progressed past booking).
+                if (visit) {
+                    if (visit.status === VisitStatus.COMPLETED) {
+                        this.throwCancelBlocked('VISIT_COMPLETED', 'Cannot cancel appointment because visit is completed');
+                    }
+
+                    if (visit.status !== VisitStatus.CREATED) {
+                        this.throwCancelBlocked(
+                            'VISIT_ALREADY_STARTED',
+                            `Cannot cancel appointment because visit status is ${visit.status}`,
+                        );
+                    }
+
+                    const encounterExists = await this.medicalEncounterModel.exists({
+                        $or: [
+                            { visitId: visit._id },
+                            { appointmentId: freshAppointment._id },
+                        ],
+                    }).session(session);
+                    if (encounterExists) {
+                        this.throwCancelBlocked('MEDICAL_ENCOUNTER_EXISTS', 'Cannot cancel appointment because medical encounter exists');
+                    }
+
+                    const billing = await this.billingModel
+                        .findOne({ visitId: visit._id })
+                        .session(session)
+                        .select('_id')
+                        .lean()
+                        .exec();
+                    const paymentExists = billing
+                        ? await this.paymentModel.exists({ billingId: billing._id }).session(session)
+                        : null;
+                    if (paymentExists) {
+                        this.throwCancelBlocked('PAYMENT_EXISTS', 'Cannot cancel appointment because payment exists');
+                    }
+
+                    if (billing) {
+                        this.throwCancelBlocked('BILLING_EXISTS', 'Cannot cancel appointment because billing exists');
+                    }
+                }
+
+                const hasVerifiedPaidDeposit =
+                    freshAppointment.paymentCategory === PaymentCategory.DICH_VU &&
+                    freshAppointment.depositStatus === DepositStatus.PAID &&
+                    freshAppointment.depositPaidAmount > 0;
+                if (hasVerifiedPaidDeposit && (!depositPayment || depositPayment.status !== PaymentFlowStatusEnum.SUCCESS)) {
+                    this.throwCancelBlocked(
+                        'APPOINTMENT_DEPOSIT_PAYMENT_INCONSISTENT',
+                        'Cannot cancel appointment because verified deposit state is inconsistent',
+                    );
+                }
+                if (!hasVerifiedPaidDeposit && depositPayment?.status === PaymentFlowStatusEnum.SUCCESS) {
+                    this.throwCancelBlocked(
+                        'APPOINTMENT_DEPOSIT_PAYMENT_INCONSISTENT',
+                        'Cannot cancel appointment because successful deposit payment evidence is inconsistent',
+                    );
+                }
+
+                if (hasVerifiedPaidDeposit) {
+                    const refundRate = this.getCancelRefundRate();
+                    // Refund is derived only from verified paid deposit evidence, never intended or legacy amounts.
+                    refundAmount = Math.max(0, Math.floor(freshAppointment.depositPaidAmount * refundRate));
+                    refundReason = `Refunded verified appointment deposit at ${(refundRate * 100).toFixed(0)}% rate`;
+                    shouldRefund = refundAmount > 0;
+                    if (shouldRefund) {
+                        await this.creditService.refundAppointmentCancellation(
+                            freshAppointment.patientId.toString(),
+                            refundAmount,
+                            appointmentId,
+                            reason || 'Appointment cancelled',
+                            session,
+                        );
+                        freshAppointment.depositStatus = DepositStatus.REFUNDED;
+                        depositPayment.refundedAt = new Date();
+                        await depositPayment.save({ session });
+                    } else {
+                        // A zero configured rate explicitly forfeits the verified deposit.
+                        freshAppointment.depositStatus = DepositStatus.FORFEITED;
+                    }
+                }
+
+                // Keep appointment, visit, and slot state aligned so cancellation cannot leave an active visit.
+                freshAppointment.appointmentStatus = AppointmentStatus.CANCELLED;
+                await freshAppointment.save({ session });
+
+                if (visit) {
+                    visit.status = VisitStatus.CANCELLED;
+                    await visit.save({ session });
+                }
+
+                if (freshAppointment.timeSlot) {
+                    const slotRelease = await this.timeSlotLogModel.updateOne(
+                        { _id: freshAppointment.timeSlot, status: 'booked' },
+                        { $set: { status: 'available' } },
+                        { session },
+                    );
+                    if (slotRelease.modifiedCount !== 1) {
+                        this.throwCancelBlocked(
+                            'TIME_SLOT_RELEASE_FAILED',
+                            'Cannot cancel appointment because booked time slot could not be released',
+                        );
+                    }
+                }
+
+                // Close any still-open assignment task so a cancelled broad appointment leaves no
+                // orphaned work item in the receptionist queue. No-ops for normal appointments (which
+                // never have a task) and for terminal tasks (e.g. COMPLETED after assignment).
+                const activeTask = await this.assignmentTaskModel
+                    .findOne({
+                        appointmentId: freshAppointment._id,
+                        status: { $in: [AssignmentTaskStatus.PENDING, AssignmentTaskStatus.ASSIGNED] },
+                    })
+                    .session(session)
+                    .exec();
+                if (activeTask) {
+                    const taskActor = user?.role
+                        ? `${user.role}:${user.accountId ?? user.email ?? ''}`
+                        : 'system';
+                    await this.assignmentTaskModel.updateOne(
+                        { _id: activeTask._id },
+                        {
+                            $set: { status: AssignmentTaskStatus.CANCELLED },
+                            $push: {
+                                history: {
+                                    at: Date.now(),
+                                    from: activeTask.status,
+                                    to: AssignmentTaskStatus.CANCELLED,
+                                    by: taskActor,
+                                    note: 'appointment cancelled',
+                                },
+                            },
+                        },
+                        { session },
+                    );
+                }
             });
-            console.log(`[AppointmentService] Cancelled appointment ${appointmentId}, refund: ${refundAmount} credit (${refundReason})`);
-        } else {
-            console.log(`[AppointmentService] Cancelled appointment ${appointmentId} with no refund (${refundReason})`);
+        } finally {
+            await session.endSession();
         }
 
-        // Notify patient via notification, mail, and socket
+        console.log(`[AppointmentService] Cancelled appointment ${appointmentId}; refund=${refundAmount} (${refundReason})`);
+
+        cancellationPayload.refundAmount = refundAmount;
+        cancellationPayload.refundReason = refundReason;
+        cancellationPayload.shouldRefund = shouldRefund;
         this.eventEmitter.emit('notify.patient.appointment.cancelled', cancellationPayload);
         this.eventEmitter.emit('mail.patient.appointment.cancelled', cancellationPayload);
         this.eventEmitter.emit('socket.appointment.cancelled', cancellationPayload);
 
         return {
             code: 'SUCCESS',
-            message: shouldRefund
-                ? `Appointment cancelled and refunded: ${refundReason}`
-                : 'Appointment cancelled (no refund for cancellations within 24 hours)',
+            message: 'Appointment cancelled',
             data: {
                 appointmentId,
                 refundAmount,
                 refundReason,
-                hoursUntilAppointment: (appointmentTime - currentTime) / (1000 * 60 * 60),
+                hoursUntilAppointment,
             },
         };
+    }
+
+    async getDepositStatus(appointmentId: string, user?: AuthUser) {
+        if (!Types.ObjectId.isValid(appointmentId)) {
+            throw new NotFoundException('Appointment not found');
+        }
+
+        const appointment = await this.appointmentModel.findById(appointmentId).lean().exec();
+        if (!appointment) {
+            throw new NotFoundException('Appointment not found');
+        }
+        this.assertCanViewDepositStatus(appointment, user);
+
+        let payment: { _id: Types.ObjectId; status: PaymentFlowStatusEnum } | null = null;
+        if (appointment.paymentCategory === PaymentCategory.DICH_VU) {
+            const paymentReferences: Record<string, unknown>[] = [{ appointmentId: appointment._id }];
+            if (appointment.depositPaymentId) {
+                paymentReferences.unshift({ _id: appointment.depositPaymentId });
+            }
+
+            // Read the linked deposit record only; polling must never create or refresh a payment.
+            payment = await this.paymentModel
+                .findOne({
+                    purpose: PaymentPurposeEnum.APPOINTMENT_DEPOSIT,
+                    $or: paymentReferences,
+                })
+                .select('_id status')
+                .lean()
+                .exec();
+        }
+
+        const isConfirmed =
+            appointment.appointmentStatus === AppointmentStatus.CONFIRMED ||
+            appointment.appointmentStatus === AppointmentStatus.COMPLETED;
+        const terminalDepositStatuses = [
+            DepositStatus.NOT_REQUIRED,
+            DepositStatus.PAID,
+            DepositStatus.FAILED,
+            DepositStatus.REFUNDED,
+            DepositStatus.FORFEITED,
+        ];
+        const isTerminal =
+            terminalDepositStatuses.includes(appointment.depositStatus) ||
+            appointment.appointmentStatus === AppointmentStatus.FAILED ||
+            appointment.appointmentStatus === AppointmentStatus.CANCELLED;
+
+        return {
+            appointmentId: appointment._id.toString(),
+            appointmentStatus: appointment.appointmentStatus,
+            paymentCategory: appointment.paymentCategory,
+            depositStatus: appointment.depositStatus,
+            depositAmount: appointment.depositAmount ?? 0,
+            depositPaidAmount: appointment.depositPaidAmount ?? 0,
+            depositPaidAt: appointment.depositPaidAt ?? null,
+            depositPaymentId: appointment.depositPaymentId?.toString() ?? payment?._id?.toString() ?? null,
+            paymentStatus: payment?.status ?? null,
+            paymentUrl: null,
+            isConfirmed,
+            isTerminal,
+        };
+    }
+
+    async cancelForAssignmentTimeout(taskId: string): Promise<DataResponse> {
+        const session = await this.appointmentModel.db.startSession();
+        let cancellationPayload: any | null = null;
+        let refundAmount = 0;
+        let refundReason = 'No verified paid DICH_VU deposit to refund';
+        let shouldRefund = false;
+
+        try {
+            await session.withTransaction(async () => {
+                const task = await this.assignmentTaskModel.findById(taskId).session(session);
+                if (!task || task.status !== AssignmentTaskStatus.PENDING) {
+                    return;
+                }
+
+                const appointment = await this.appointmentModel.findById(task.appointmentId).session(session);
+                if (!appointment) {
+                    return;
+                }
+
+                const isBroadUnassigned =
+                    appointment.assignmentStatus === AssignmentStatus.AWAITING_ASSIGNMENT &&
+                    !appointment.doctorId &&
+                    !appointment.timeSlot;
+                if (!isBroadUnassigned) {
+                    return;
+                }
+
+                if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(appointment.appointmentStatus)) {
+                    return;
+                }
+
+                if (
+                    appointment.paymentCategory === PaymentCategory.DICH_VU &&
+                    appointment.depositStatus === DepositStatus.PENDING
+                ) {
+                    console.warn(
+                        `[AssignmentTimeout] Skipping pending-deposit DICH_VU appointment ${appointment._id.toString()} task=${taskId}`,
+                    );
+                    return;
+                }
+
+                const taskUpdate = await this.assignmentTaskModel.updateOne(
+                    { _id: task._id, status: AssignmentTaskStatus.PENDING },
+                    {
+                        $set: { status: AssignmentTaskStatus.EXPIRED },
+                        $push: {
+                            history: {
+                                at: Date.now(),
+                                from: AssignmentTaskStatus.PENDING,
+                                to: AssignmentTaskStatus.EXPIRED,
+                                by: CancellationActor.SYSTEM,
+                                note: CancellationReasonCode.ASSIGNMENT_TIMEOUT,
+                            },
+                        },
+                    },
+                    { session },
+                );
+                if (taskUpdate.modifiedCount !== 1) {
+                    return;
+                }
+
+                const depositPayment = await this.paymentModel
+                    .findOne({
+                        appointmentId: appointment._id,
+                        purpose: PaymentPurposeEnum.APPOINTMENT_DEPOSIT,
+                    })
+                    .session(session)
+                    .exec();
+
+                const hasVerifiedPaidDeposit =
+                    appointment.paymentCategory === PaymentCategory.DICH_VU &&
+                    appointment.depositStatus === DepositStatus.PAID &&
+                    appointment.depositPaidAmount > 0;
+                if (hasVerifiedPaidDeposit && depositPayment?.status !== PaymentFlowStatusEnum.SUCCESS) {
+                    this.throwCancelBlocked(
+                        'APPOINTMENT_DEPOSIT_PAYMENT_INCONSISTENT',
+                        'Cannot auto-cancel appointment because verified deposit state is inconsistent',
+                    );
+                }
+
+                if (hasVerifiedPaidDeposit) {
+                    const refundRate = this.getCancelRefundRate();
+                    refundAmount = Math.max(0, Math.floor(appointment.depositPaidAmount * refundRate));
+                    refundReason = `Refunded verified appointment deposit at ${(refundRate * 100).toFixed(0)}% rate`;
+                    shouldRefund = refundAmount > 0;
+                    if (shouldRefund) {
+                        await this.creditService.refundAppointmentCancellation(
+                            appointment.patientId.toString(),
+                            refundAmount,
+                            appointment._id.toString(),
+                            'Assignment timeout auto-cancellation',
+                            session,
+                        );
+                        appointment.depositStatus = DepositStatus.REFUNDED;
+                        depositPayment!.refundedAt = new Date();
+                        await depositPayment!.save({ session });
+                    } else {
+                        appointment.depositStatus = DepositStatus.FORFEITED;
+                    }
+                }
+
+                const cancelledAt = Date.now();
+                appointment.appointmentStatus = AppointmentStatus.CANCELLED;
+                appointment.cancelledAt = cancelledAt;
+                appointment.cancellationActor = CancellationActor.SYSTEM;
+                appointment.cancellationReasonCode = CancellationReasonCode.ASSIGNMENT_TIMEOUT;
+                appointment.cancellationReason = 'Assignment timeout auto-cancellation';
+                await appointment.save({ session });
+
+                const scheduledAt = AppointmentTimeHelper.resolveStoredScheduledAt(appointment) ?? appointment.scheduledAt ?? appointment.date;
+                cancellationPayload = {
+                    appointmentId: appointment._id.toString(),
+                    assignmentTaskId: task._id.toString(),
+                    patientId: appointment.patientId?.toString?.() ?? '',
+                    patientEmail: appointment.patientEmail,
+                    date: scheduledAt,
+                    scheduledAt,
+                    timeSlot: appointment.timeSlot?.toString?.() ?? '',
+                    timeSlotLabel: 'Chua phan cong',
+                    hospitalName: appointment.hospitalName,
+                    reason: 'Tu dong huy do qua han phan cong bac si',
+                    actor: CancellationActor.SYSTEM,
+                    reasonCode: CancellationReasonCode.ASSIGNMENT_TIMEOUT,
+                    deadlineAt: task.deadlineAt,
+                    refundAmount,
+                    refundReason,
+                    shouldRefund,
+                    status: AppointmentStatus.CANCELLED,
+                };
+            });
+        } finally {
+            await session.endSession();
+        }
+
+        if (!cancellationPayload) {
+            return {
+                code: ResponseCode.SUCCESS,
+                message: 'Assignment timeout ignored',
+                data: { taskId, cancelled: false },
+            };
+        }
+
+        this.eventEmitter.emit('appointment.assignment.expired', {
+            taskId,
+            appointmentId: cancellationPayload.appointmentId,
+            deadlineAt: cancellationPayload.deadlineAt,
+            actor: CancellationActor.SYSTEM,
+            reasonCode: CancellationReasonCode.ASSIGNMENT_TIMEOUT,
+        });
+        this.eventEmitter.emit('notify.patient.appointment.cancelled', cancellationPayload);
+        this.eventEmitter.emit('mail.patient.appointment.cancelled', cancellationPayload);
+        this.eventEmitter.emit('socket.appointment.cancelled', cancellationPayload);
+
+        return {
+            code: ResponseCode.SUCCESS,
+            message: 'Appointment auto-cancelled after assignment timeout',
+            data: {
+                taskId,
+                appointmentId: cancellationPayload.appointmentId,
+                cancelled: true,
+                refundAmount,
+                refundReason,
+            },
+        };
+    }
+
+    private throwCancelBlocked(blockedReason: string, message: string): never {
+        throw new BadRequestException({
+            code: ResponseCode.ERROR,
+            message,
+            data: { blockedReason },
+        });
+    }
+
+    private assertCanCancelAppointment(appointment: AppointmentDocument, user?: AuthUser): void {
+        const isStaff = user?.role === RoleEnum.ADMIN || user?.role === RoleEnum.RECEPTIONIST;
+        const isOwner =
+            user?.role === RoleEnum.PATIENT &&
+            Boolean(user.patientId) &&
+            appointment.patientId?.toString?.() === user.patientId;
+        if (!isStaff && !isOwner) {
+            throw new ForbiddenException('You do not have permission to cancel this appointment');
+        }
+    }
+
+    private assertCanViewDepositStatus(appointment: Pick<Appointment, 'patientId'>, user?: AuthUser): void {
+        const isStaff = user?.role === RoleEnum.ADMIN || user?.role === RoleEnum.RECEPTIONIST;
+        const isOwner =
+            user?.role === RoleEnum.PATIENT &&
+            Boolean(user.patientId) &&
+            appointment.patientId?.toString?.() === user.patientId;
+        if (!isStaff && !isOwner) {
+            throw new ForbiddenException('You do not have permission to view this appointment deposit status');
+        }
+    }
+
+    private getCancelRefundRate(): number {
+        const configuredRate = Number(this.config.get<string>('APPOINTMENT_CANCEL_REFUND_RATE') ?? 1);
+        return Number.isFinite(configuredRate) ? Math.min(1, Math.max(0, configuredRate)) : 1;
     }
 
     async confirmAppointment(id: string) {

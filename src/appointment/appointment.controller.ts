@@ -7,6 +7,7 @@ import { AppointmentBookingService } from "./appointment-booking.service";
 import { AppointmentRescheduleService } from "./appointment-reschedule.service";
 import { AppointmentService } from "./appointment.service";
 import { AppointmentBookingDto, AppointmentBookingRequestDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
+import { AppointmentCancelDto } from './dto/appointment-cancel.dto';
 import { AppointmentRescheduleDto } from './dto/appointment-reschedule.dto';
 
 @Controller('appointment')
@@ -113,6 +114,13 @@ export class AppointmentController {
         return await this.appointmentService.completeAppointment(dto);
   }
 
+    @Get(':appointmentId/deposit-status')
+    @UseGuards(JwtAuthGuard)
+    async getDepositStatus(@Param('appointmentId') appointmentId: string, @Req() req: any) {
+        // Polling is read-only; authorization is enforced against the linked appointment owner.
+        return this.appointmentService.getDepositStatus(appointmentId, req.user as AuthUser);
+    }
+
   @Get(':id')
     async getAppointmentById(@Param('id') id: string) {
         // Validate ObjectId
@@ -135,32 +143,24 @@ export class AppointmentController {
         @Body() dto: AppointmentRescheduleDto,
         @Req() req: any,
     ) {
-        try {
-            const result = await this.appointmentRescheduleService.rescheduleAppointment(
-                {
-                    ...dto,
-                    appointmentId,
-                },
-            );
-            return result;
-        } catch (error: any) {
-            throw new Error(`Failed to reschedule appointment: ${error.message}`);
-        }
+        const user = req.user as AuthUser;
+        // Pass JWT identity for audit logging; do not allow the caller to supply rescheduledBy.
+        return this.appointmentRescheduleService.rescheduleAppointment({
+            ...dto,
+            appointmentId,
+            rescheduledBy: user?.email ?? user?.accountId ?? undefined,
+        });
     }
 
     @Patch('/cancel')
     @UseGuards(JwtAuthGuard)
-    async cancelAppointment(@Body() dto: { appointmentId: string; reason?: string }, @Req() req: any) {
-        try {
-            // Cancellation timing checks are centralized in the service against scheduledAt.
-            const result = await this.appointmentService.cancelAppointment(
-                dto.appointmentId,
-                dto.reason
-            );
-            return result;
-        } catch (error: any) {
-            throw new Error(`Failed to cancel appointment: ${error.message}`);
-        }
+    async cancelAppointment(@Body() dto: AppointmentCancelDto, @Req() req: any) {
+        // Cancellation timing and visit lifecycle checks are centralized in the service.
+        return this.appointmentService.cancelAppointment(
+            dto.appointmentId,
+            dto.reason,
+            req.user as AuthUser,
+        );
     }
 
     @Patch(':id/confirm')

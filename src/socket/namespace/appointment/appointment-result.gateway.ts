@@ -1,18 +1,19 @@
 import { OnEvent } from '@nestjs/event-emitter';
 import { WebSocketGateway } from '@nestjs/websockets';
-import { JwtService } from '@nestjs/jwt';
 import type { AppointmentEnriched } from 'src/appointment/schemas/appointment-enriched';
+import type { AppointmentRescheduledEnriched } from 'src/appointment/listenners/reschedule.listener';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode } from 'src/common/enum/reponse-code.enum';
 import { SocketEventsEnum } from 'src/common/enum/socket-events.enum';
 import { BaseGateway } from '../../base/base.gateway';
+import { PresenceService } from '../../presence.service';
 import { SocketRoomService } from '../../socket.service';
 
 @WebSocketGateway({ cors: true, namespace: '/appointment' })
 export class AppointmentGateway extends BaseGateway {
 
-   constructor(socketRoomService: SocketRoomService, jwtService: JwtService) {
-        super(socketRoomService, jwtService);
+  constructor(socketRoomService: SocketRoomService, presenceService: PresenceService) {
+      super(socketRoomService, presenceService);
     }
 
   @OnEvent('socket.appointment.success')
@@ -75,6 +76,19 @@ export class AppointmentGateway extends BaseGateway {
     }
   }
 
+  @OnEvent('socket.appointment.rescheduled')
+  handleRescheduled(payload: AppointmentRescheduledEnriched) {
+    const res: DataResponse = {
+      code: ResponseCode.SUCCESS,
+      message: 'Appointment rescheduled',
+      data: payload,
+    };
+    this.emitToRoom(payload.patientEmail, SocketEventsEnum.APPOINTMENT_RESCHEDULED, res);
+    if (payload.doctorEmail) {
+      this.emitToRoom(payload.doctorEmail, SocketEventsEnum.APPOINTMENT_RESCHEDULED, res);
+    }
+  }
+
   @OnEvent('socket.appointment.cancelled')
   handleAppointmentCancelled(payload: {
     appointmentId: string;
@@ -87,6 +101,10 @@ export class AppointmentGateway extends BaseGateway {
     reason?: string;
     refundAmount?: number;
     shouldRefund?: boolean;
+    actor?: string;
+    reasonCode?: string;
+    assignmentTaskId?: string;
+    deadlineAt?: number;
   }) {
     const res: DataResponse = {
       code: ResponseCode.SUCCESS,
