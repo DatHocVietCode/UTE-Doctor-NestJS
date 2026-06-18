@@ -5,7 +5,6 @@ jest.mock('src/appointment/schemas/appointment.schema', () => ({
   Appointment: class Appointment {},
 }));
 jest.mock('src/profile/schema/profile.schema', () => ({ Profile: class Profile {} }));
-jest.mock('src/patient/patient.service', () => ({ PatientService: class PatientService {} }));
 jest.mock('src/visit/visit.service', () => ({ VisitService: class VisitService {} }));
 
 import {
@@ -66,18 +65,16 @@ function buildService(options: {
     findById: jest.fn().mockReturnValue(leanChain({ name: options.profileName ?? 'Le Tan' })),
   };
 
-  const patientService: any = { findByAccountId: jest.fn() };
   const visitService: any = { getVisitById: jest.fn().mockResolvedValue(visit) };
 
   const service = new PatientVitalSignService(
     vitalSignModel,
     appointmentModel,
     profileModel,
-    patientService,
     visitService,
   );
 
-  return { service, vitalSignModel, appointmentModel, profileModel, patientService, visitService, visit };
+  return { service, vitalSignModel, appointmentModel, profileModel, visitService, visit };
 }
 
 const receptionist = {
@@ -234,9 +231,8 @@ describe('PatientVitalSignService.createForVisit', () => {
 });
 
 describe('PatientVitalSignService.getHealthSummaryForAccount', () => {
-  it('throws PATIENT_NOT_FOUND when the account has no patient profile', async () => {
-    const { service, patientService } = buildService();
-    patientService.findByAccountId.mockResolvedValue(null);
+  it('throws PATIENT_NOT_FOUND when the JWT carries no patientId', async () => {
+    const { service } = buildService();
 
     expect.assertions(2);
     try {
@@ -251,20 +247,19 @@ describe('PatientVitalSignService.getHealthSummaryForAccount', () => {
   });
 
   it('returns a 200-style empty summary when there are no measurements', async () => {
-    const { service, patientService, vitalSignModel } = buildService();
-    const patientId = new Types.ObjectId();
-    patientService.findByAccountId.mockResolvedValue({ _id: patientId });
+    const { service, vitalSignModel } = buildService();
+    const patientId = new Types.ObjectId().toString();
     vitalSignModel.find.mockReturnValue({
       sort: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
       exec: jest.fn().mockResolvedValue([]),
     });
 
-    const res = await service.getHealthSummaryForAccount({ accountId: 'acc-1' } as any);
+    const res = await service.getHealthSummaryForAccount({ accountId: 'acc-1', patientId } as any);
 
     expect(res.code).toBe(ResponseCode.SUCCESS);
     expect(res.data).toMatchObject({
-      patientId: patientId.toString(),
+      patientId,
       latest: null,
       history: [],
       overallStatus: OverallHealthStatus.UNEVALUATED,
@@ -272,9 +267,9 @@ describe('PatientVitalSignService.getHealthSummaryForAccount', () => {
     expect(typeof res.data!.generatedAt).toBe('number');
   });
 
-  it('queries only ACTIVE records and maps latest = history[0]', async () => {
-    const { service, patientService, vitalSignModel } = buildService();
-    patientService.findByAccountId.mockResolvedValue({ _id: new Types.ObjectId() });
+  it('queries only ACTIVE records for the JWT patient and maps latest = history[0]', async () => {
+    const { service, vitalSignModel } = buildService();
+    const patientId = new Types.ObjectId().toString();
 
     const docs = [
       {
@@ -305,10 +300,10 @@ describe('PatientVitalSignService.getHealthSummaryForAccount', () => {
     };
     vitalSignModel.find.mockReturnValue(findChain);
 
-    const res = await service.getHealthSummaryForAccount({ accountId: 'acc-1' } as any);
+    const res = await service.getHealthSummaryForAccount({ accountId: 'acc-1', patientId } as any);
 
     expect(vitalSignModel.find).toHaveBeenCalledWith(
-      expect.objectContaining({ recordState: VitalSignRecordState.ACTIVE }),
+      expect.objectContaining({ patientId, recordState: VitalSignRecordState.ACTIVE }),
     );
     expect(findChain.sort).toHaveBeenCalledWith({ measuredAt: -1, createdAt: -1 });
     expect(res.data!.history).toHaveLength(2);
@@ -319,8 +314,8 @@ describe('PatientVitalSignService.getHealthSummaryForAccount', () => {
   });
 
   it('clamps limit to the maximum of 50 and defaults to 10', async () => {
-    const { service, patientService, vitalSignModel } = buildService();
-    patientService.findByAccountId.mockResolvedValue({ _id: new Types.ObjectId() });
+    const { service, vitalSignModel } = buildService();
+    const patientId = new Types.ObjectId().toString();
     const findChain = {
       sort: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
@@ -328,10 +323,10 @@ describe('PatientVitalSignService.getHealthSummaryForAccount', () => {
     };
     vitalSignModel.find.mockReturnValue(findChain);
 
-    await service.getHealthSummaryForAccount({ accountId: 'acc-1' } as any, 999);
+    await service.getHealthSummaryForAccount({ accountId: 'acc-1', patientId } as any, 999);
     expect(findChain.limit).toHaveBeenCalledWith(50);
 
-    await service.getHealthSummaryForAccount({ accountId: 'acc-1' } as any, undefined);
+    await service.getHealthSummaryForAccount({ accountId: 'acc-1', patientId } as any, undefined);
     expect(findChain.limit).toHaveBeenLastCalledWith(10);
   });
 });

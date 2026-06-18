@@ -12,7 +12,6 @@ import { Appointment } from 'src/appointment/schemas/appointment.schema';
 import { DataResponse } from 'src/common/dto/data-respone';
 import { ResponseCode } from 'src/common/enum/reponse-code.enum';
 import { AuthUser } from 'src/common/interfaces/auth-user';
-import { PatientService } from 'src/patient/patient.service';
 import { Profile } from 'src/profile/schema/profile.schema';
 import { VisitStatus } from 'src/visit/enums/visit-status.enum';
 import { VisitService } from 'src/visit/visit.service';
@@ -54,7 +53,6 @@ export class PatientVitalSignService {
     private readonly appointmentModel: Model<any>,
     @InjectModel(Profile.name)
     private readonly profileModel: Model<any>,
-    private readonly patientService: PatientService,
     private readonly visitService: VisitService,
   ) {}
 
@@ -123,7 +121,6 @@ export class PatientVitalSignService {
   ): Promise<DataResponse<PatientHealthSummaryDto>> {
     const accountId = user?.accountId;
     const patientId = user?.patientId;
-    console.log('Resolving health summary for accountId:', accountId);
     if (!accountId) {
       throw new UnauthorizedException('Unable to identify user from token');
     }
@@ -136,17 +133,6 @@ export class PatientVitalSignService {
       });
     }
 
-    // // Resolve the patient authoritatively from the account; never trust a client-supplied id.
-    // const patient = await this.patientService.findByAccountId(accountId);
-    // if (!patient) {
-    //   throw new NotFoundException({
-    //     code: ResponseCode.PATIENT_NOT_FOUND,
-    //     message: 'Patient profile not found',
-    //     data: null,
-    //   });
-    // }
-
-    //const patientId = (patient as any)._id;
     const safeLimit = this.clampLimit(limit);
 
     const docs = await this.vitalSignModel
