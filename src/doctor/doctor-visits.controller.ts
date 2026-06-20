@@ -10,6 +10,7 @@ import {
     Param,
     Patch,
     Post,
+    Query,
     Req,
     UseGuards,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import { RoleGuard } from 'src/common/guards/role.guard';
 import { Roles } from 'src/common/guards/roles.decorator';
 import { AuthUser } from 'src/common/interfaces/auth-user';
 import { CompleteVisitDto } from 'src/visit/dto/complete-visit.dto';
+import { TodayVisitsQueryDto } from 'src/visit/dto/today-visits-query.dto';
 import { VisitStatus } from 'src/visit/enums/visit-status.enum';
 import { VisitService } from 'src/visit/visit.service';
 
@@ -30,14 +32,16 @@ export class DoctorVisitsController {
   constructor(private readonly visitService: VisitService) {}
 
   @Get('today')
-  async getToday(@Req() req: any) {
+  async getToday(@Req() req: any, @Query() query: TodayVisitsQueryDto) {
     const user = req.user as AuthUser | undefined;
     const doctorId = user?.doctorId;
     if (!doctorId) {
       throw new BadRequestException('Doctor identity missing from token');
     }
-    console.log(`Doctor ${doctorId} fetching today visits`);
-    const visits = await this.visitService.getTodayVisitsForDoctor(doctorId);
+    const visits = await this.visitService.getTodayVisitsForDoctor(
+      doctorId,
+      query.timezone,
+    );
     return {
       code: 'SUCCESS',
       message: 'Fetched today visits for doctor',

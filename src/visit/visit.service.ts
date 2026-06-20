@@ -21,6 +21,7 @@ import { TimeSlotLog, TimeSlotLogDocument } from 'src/timeslot/schemas/timeslot-
 import { CompleteVisitDto } from './dto/complete-visit.dto';
 import { VisitStatus } from './enums/visit-status.enum';
 import { Visit, VisitDocument } from './schemas/visit.schema';
+import { TimeHelper } from 'src/utils/helpers/time.helper';
 
 type ReceptionistVisitItem = {
   visitId: string;
@@ -53,25 +54,11 @@ export class VisitService {
     private readonly medicalEncounterService: MedicalEncounterService,
   ) {}
 
-  async getTodayVisitsForReceptionist(): Promise<ReceptionistVisitItem[]> {
-    const startOfDayUtc = Date.UTC(
-      new Date().getUTCFullYear(),
-      new Date().getUTCMonth(),
-      new Date().getUTCDate(),
-      0,
-      0,
-      0,
-      0,
-    );
-    const endOfDayUtc = Date.UTC(
-      new Date().getUTCFullYear(),
-      new Date().getUTCMonth(),
-      new Date().getUTCDate(),
-      23,
-      59,
-      59,
-      999,
-    );
+  async getTodayVisitsForReceptionist(
+    timezone?: string,
+  ): Promise<ReceptionistVisitItem[]> {
+    const range = TimeHelper.getIanaTimezoneDayRange(new Date(), timezone);
+    this.logTodayVisitRange('receptionist', range);
 
     const visits = await this.visitModel
       .aggregate([
@@ -87,8 +74,8 @@ export class VisitService {
         {
           $match: {
             'appointment.scheduledAt': {
-              $gte: startOfDayUtc,
-              $lte: endOfDayUtc,
+              $gte: range.startEpoch,
+              $lt: range.endEpoch,
             },
           },
         },
@@ -148,29 +135,15 @@ export class VisitService {
       ])
       .exec();
 
-      console.log("First visit:", visits[0]);
     return visits as ReceptionistVisitItem[];
   }
 
-  async getTodayVisitsForDoctor(doctorId: string): Promise<ReceptionistVisitItem[]> {
-    const startOfDayUtc = Date.UTC(
-      new Date().getUTCFullYear(),
-      new Date().getUTCMonth(),
-      new Date().getUTCDate(),
-      0,
-      0,
-      0,
-      0,
-    );
-    const endOfDayUtc = Date.UTC(
-      new Date().getUTCFullYear(),
-      new Date().getUTCMonth(),
-      new Date().getUTCDate(),
-      23,
-      59,
-      59,
-      999,
-    );
+  async getTodayVisitsForDoctor(
+    doctorId: string,
+    timezone?: string,
+  ): Promise<ReceptionistVisitItem[]> {
+    const range = TimeHelper.getIanaTimezoneDayRange(new Date(), timezone);
+    this.logTodayVisitRange(`doctor:${doctorId}`, range);
 
     const visits = await this.visitModel
       .aggregate([
@@ -192,8 +165,8 @@ export class VisitService {
         {
           $match: {
             'appointment.scheduledAt': {
-              $gte: startOfDayUtc,
-              $lte: endOfDayUtc,
+              $gte: range.startEpoch,
+              $lt: range.endEpoch,
             },
           },
         },
@@ -254,6 +227,23 @@ export class VisitService {
       .exec();
 
     return visits as ReceptionistVisitItem[];
+  }
+
+  private logTodayVisitRange(
+    audience: string,
+    range: {
+      timezone: string;
+      dateKey: string;
+      startEpoch: number;
+      endEpoch: number;
+    },
+  ) {
+    // Log the effective local day and UTC query bounds so midnight issues are diagnosable.
+    this.logger.log(
+      `Fetching today visits audience=${audience} timezone=${range.timezone} ` +
+        `localDate=${range.dateKey} utcRange=[${new Date(range.startEpoch).toISOString()}, ` +
+        `${new Date(range.endEpoch).toISOString()})`,
+    );
   }
 
   async getVisitById(visitId: string) {
