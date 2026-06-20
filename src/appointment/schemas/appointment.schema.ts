@@ -6,6 +6,7 @@ import { AssignmentStatus } from "../enums/assignment-status.enum";
 import { CancellationActor } from "../enums/cancellation-actor.enum";
 import { CancellationReasonCode } from "../enums/cancellation-reason-code.enum";
 import { DepositStatus } from "../enums/deposit-status.enum";
+import { NoShowSource } from "../enums/no-show-source.enum";
 import { ACTIVE_DOCTOR_SLOT_PARTIAL_FILTER } from "./appointment.index";
 import { PaymentCategory } from "../enums/payment-category.enum";
 import { ServiceType } from "../enums/service-type.enum";
@@ -125,6 +126,27 @@ export class Appointment {
 
     @Prop()
     cancellationReason?: string;
+
+    // No-show markers. Durable so the admin lifecycle can reconstruct the NO_SHOW node
+    // (the lifecycle is reconstructed from state, not an audit log) and distinguish a
+    // SYSTEM reconciliation from a manual staff action.
+    @Prop()
+    noShowAt?: number;
+
+    @Prop({ type: String, enum: CancellationActor })
+    noShowActor?: CancellationActor;
+
+    @Prop({ type: mongoose.Schema.Types.ObjectId, ref: 'Account' })
+    noShowMarkedByAccountId?: mongoose.Types.ObjectId;
+
+    @Prop({ type: String, enum: NoShowSource })
+    noShowSource?: NoShowSource;
+
+    // When the patient no-show email was sent. Null after a transition whose email was
+    // deferred (e.g. an out-of-hours startup run); a later in-business-hours reconciler
+    // pass sends it exactly once. In-app notification is created at transition time.
+    @Prop()
+    noShowNotifiedAt?: number;
 }
 
 export const AppointmentSchema = SchemaFactory.createForClass(Appointment);

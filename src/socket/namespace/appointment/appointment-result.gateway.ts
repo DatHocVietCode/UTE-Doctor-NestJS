@@ -89,6 +89,32 @@ export class AppointmentGateway extends BaseGateway {
     }
   }
 
+  @OnEvent('socket.appointment.no_show')
+  handleAppointmentNoShow(payload: {
+    appointmentId: string;
+    patientEmail: string;
+    doctorEmail?: string;
+    date: string | number | Date;
+    timeSlot?: string;
+    timeSlotLabel?: string;
+    hospitalName?: string;
+    reason?: string;
+    actor?: string;
+    source?: string;
+    depositStatus?: string;
+  }) {
+    const res: DataResponse = {
+      code: ResponseCode.SUCCESS,
+      message: 'Appointment marked as no-show',
+      data: payload,
+    };
+
+    this.emitToRoom(payload.patientEmail, SocketEventsEnum.APPOINTMENT_NO_SHOW, res);
+    if (payload.doctorEmail) {
+      this.emitToRoom(payload.doctorEmail, SocketEventsEnum.APPOINTMENT_NO_SHOW, res);
+    }
+  }
+
   @OnEvent('socket.appointment.cancelled')
   handleAppointmentCancelled(payload: {
     appointmentId: string;

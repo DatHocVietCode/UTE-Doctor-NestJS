@@ -1,11 +1,16 @@
 import { Body, Controller, Get, NotFoundException, Param, Patch, Post, Query, Req, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { Types } from "mongoose";
 import { ResponseCode } from "src/common/enum/reponse-code.enum";
+import { RoleEnum } from "src/common/enum/role.enum";
 import { JwtAuthGuard } from "src/common/guards/jws-auth.guard";
+import { RoleGuard } from "src/common/guards/role.guard";
+import { Roles } from "src/common/guards/roles.decorator";
 import { AuthUser } from "src/common/interfaces/auth-user";
 import { AppointmentBookingService } from "./appointment-booking.service";
 import { AppointmentRescheduleService } from "./appointment-reschedule.service";
 import { AppointmentService } from "./appointment.service";
+import { CancellationActor } from "./enums/cancellation-actor.enum";
+import { NoShowSource } from "./enums/no-show-source.enum";
 import { AppointmentBookingDto, AppointmentBookingRequestDto, CompleteAppointmentDto } from "./dto/appointment-booking.dto";
 import { AppointmentCancelDto } from './dto/appointment-cancel.dto';
 import { AppointmentRescheduleDto } from './dto/appointment-reschedule.dto';
@@ -166,6 +171,30 @@ export class AppointmentController {
     @Patch(':id/confirm')
     confirmAppointment(@Param('id') id: string) {
         return this.appointmentService.confirmAppointment(id);
+    }
+
+    // Manual staff fallback for clearing an obvious no-show before the next reconciler run.
+    // Thin: all eligibility/idempotency lives in the shared markAppointmentNoShow core.
+    @Patch(':appointmentId/no-show')
+    @UseGuards(JwtAuthGuard, RoleGuard)
+    @Roles(RoleEnum.RECEPTIONIST, RoleEnum.ADMIN)
+    async markNoShow(@Param('appointmentId') appointmentId: string, @Req() req: any) {
+        const user = req.user as AuthUser;
+        const result = await this.appointmentService.markAppointmentNoShow({
+            appointmentId,
+            actor: CancellationActor.STAFF,
+            source: NoShowSource.MANUAL,
+            markedByAccountId: user?.accountId,
+        });
+        return {
+            code: result.noShow || result.alreadyNoShow ? ResponseCode.SUCCESS : ResponseCode.ERROR,
+            message: result.alreadyNoShow
+                ? 'Appointment already marked as no-show'
+                : result.noShow
+                  ? 'Appointment marked as no-show'
+                  : `Appointment not eligible for no-show: ${result.reason ?? 'unknown'}`,
+            data: result,
+        };
     }
 
 
