@@ -33,6 +33,7 @@ import { SocketModule } from './socket/socket.module';
 import { TimeSlotModule } from './timeslot/timeslot.module';
 import { UserContextModule } from './user-context/user-context.module';
 import { OtpModule } from './utils/otp/otp.module';
+import { PatientHealthModule } from './patient-health/patient-health.module';
 import { VisitModule } from './visit/visit.module';
 @Module({
   imports: [
@@ -79,6 +80,8 @@ import { VisitModule } from './visit/visit.module';
 	DoctorPostModule,
     ChatModule,
     VisitModule,
+    // Patient health dashboard: vital-sign capture + read-only health summary
+    PatientHealthModule,
     // Billing module: creates draft billing after visit completion
     BillingModule,
     // Read-only admin appointment lifecycle (domain-first reconstruction)

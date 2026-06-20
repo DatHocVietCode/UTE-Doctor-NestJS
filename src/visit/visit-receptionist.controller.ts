@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   Patch,
+  Query,
   Req,
   UseGuards
 } from '@nestjs/common';
@@ -13,6 +14,7 @@ import { AuthUser } from 'src/common/interfaces/auth-user';
 import { VisitService } from './visit.service';
 import { JwtAuthGuard } from 'src/common/guards/jws-auth.guard';
 import { RoleGuard } from 'src/common/guards/role.guard';
+import { TodayVisitsQueryDto } from './dto/today-visits-query.dto';
 
 @Controller('receptionist/visits')
 @UseGuards(JwtAuthGuard, RoleGuard)
@@ -21,8 +23,10 @@ export class VisitReceptionistController {
   constructor(private readonly visitService: VisitService) {}
 
   @Get()
-  async getTodayVisits() {
-    const visits = await this.visitService.getTodayVisitsForReceptionist();
+  async getTodayVisits(@Query() query: TodayVisitsQueryDto) {
+    const visits = await this.visitService.getTodayVisitsForReceptionist(
+      query.timezone,
+    );
 
     return {
       code: 'SUCCESS',
