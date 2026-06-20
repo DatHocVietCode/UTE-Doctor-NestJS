@@ -211,7 +211,9 @@ function buildAssignmentPhase(bundle: LifecycleBundle, rootNodeId: string): Buil
 function buildConfirmationPhase(bundle: LifecycleBundle, rootNodeId: string): BuiltBranch {
   const appt = bundle.appointment;
   const status = appt.appointmentStatus;
-  if (status !== 'CONFIRMED' && status !== 'COMPLETED') {
+  // A NO_SHOW appointment was necessarily confirmed first, so it still shows the
+  // confirmation node before its terminal no-show node.
+  if (status !== 'CONFIRMED' && status !== 'COMPLETED' && status !== 'NO_SHOW') {
     return { nodes: [], edges: [] };
   }
 
@@ -282,6 +284,15 @@ function buildVisitPhase(bundle: LifecycleBundle, rootNodeId: string): BuiltBran
     push('cancelled', LifecycleEventType.VISIT_CANCELLED, 'Visit cancelled', {
       timestamp: normalizeTimestamp(visit.updatedAt),
       statusAfter: 'CANCELLED',
+      nodeStatus: NodeStatus.PARTIAL,
+    });
+    return { nodes, edges };
+  }
+
+  if (status === 'NO_SHOW') {
+    push('no_show', LifecycleEventType.VISIT_NO_SHOW, 'Visit no-show', {
+      timestamp: normalizeTimestamp(bundle.appointment?.noShowAt ?? visit.updatedAt),
+      statusAfter: 'NO_SHOW',
       nodeStatus: NodeStatus.PARTIAL,
     });
     return { nodes, edges };
@@ -624,6 +635,39 @@ function buildCancellationPhase(bundle: LifecycleBundle, rootNodeId: string): Bu
   return { nodes: [node], edges: [edge(rootNodeId, id, EdgeStatus.STRONG_LINK)] };
 }
 
+// ── NO-SHOW ─────────────────────────────────────────────────────────────---
+// Reconstructed from durable appointment markers (noShowAt/noShowActor) — there is no
+// audit-event log. Distinguishes a SYSTEM reconciliation from a manual staff action.
+function buildNoShowPhase(bundle: LifecycleBundle, rootNodeId: string): BuiltBranch {
+  const appt = bundle.appointment;
+  if (appt.appointmentStatus !== 'NO_SHOW' && !appt.noShowAt) {
+    return { nodes: [], edges: [] };
+  }
+  const apptId = String(appt._id);
+  const id = nodeId(LifecyclePhase.NO_SHOW, 'appointments', apptId, 'no_show');
+  const actorEnum = appt.noShowActor;
+  const actor =
+    !actorEnum || String(actorEnum).toUpperCase() === 'SYSTEM'
+      ? systemActor()
+      : actorFromStoredField(appt.noShowMarkedByAccountId, 'RECEPTIONIST', bundle.lookups);
+
+  const node = mkNode({
+    id,
+    phase: LifecyclePhase.NO_SHOW,
+    eventType: LifecycleEventType.APPOINTMENT_NO_SHOW,
+    label: 'Appointment no-show',
+    labelKey: 'lifecycle.noShow.marked',
+    timestamp: normalizeTimestamp(appt.noShowAt),
+    statusAfter: 'NO_SHOW',
+    actor,
+    sourceCollection: 'appointments',
+    sourceRecordId: apptId,
+    parentId: rootNodeId,
+    summary: { source: appt.noShowSource, depositStatus: appt.depositStatus },
+  });
+  return { nodes: [node], edges: [edge(rootNodeId, id, EdgeStatus.STRONG_LINK)] };
+}
+
 function buildReschedulePhase(bundle: LifecycleBundle, rootNodeId: string): BuiltBranch {
   const appt = bundle.appointment;
   // Reschedule overwrites schedule in place; the only durable signals are a
@@ -714,6 +758,7 @@ export function reconstructLifecycle(bundle: LifecycleBundle, now: number = Date
     buildSlotPhase(bundle, rootNodeId),
     buildCommunicationsPhase(bundle, rootNodeId),
     buildCancellationPhase(bundle, rootNodeId),
+    buildNoShowPhase(bundle, rootNodeId),
     buildReschedulePhase(bundle, rootNodeId),
   ];
   for (const b of branches) {

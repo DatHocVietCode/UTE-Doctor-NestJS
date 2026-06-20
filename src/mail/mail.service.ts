@@ -208,6 +208,36 @@ export class MailService {
     await this.sendMail(payload.patientEmail, "Thông báo hủy lịch khám - UTE Doctor", html);
   }
 
+  /** === NO-SHOW: PATIENT === */
+  async sendPatientNoShowMail(payload: {
+    patientEmail: string;
+    doctorName?: string;
+    date: string | number | Date;
+    timeSlot?: string;
+    timeSlotLabel?: string;
+    hospitalName?: string;
+    reason?: string;
+    depositStatus?: string;
+  }) {
+    const timeSlotName = payload.timeSlot
+      ? await emitTyped<string, string>(this.eventEmitter, 'timeslot.get.name.by.id', payload.timeSlot)
+      : (payload.timeSlotLabel ?? '');
+    const forfeitLine =
+      payload.depositStatus === 'FORFEITED'
+        ? '<p>Tiền cọc không được hoàn do bạn không đến khám theo lịch hẹn.</p>'
+        : '';
+    const html = `
+      <h2>Xin chào ${payload.patientEmail},</h2>
+      <p>Lịch khám của bạn đã được đánh dấu <b>"Không đến khám"</b> vì đã qua giờ hẹn mà không có mặt.</p>
+      ${payload.doctorName ? `<p><b>Bác sĩ:</b> ${payload.doctorName}</p>` : ''}
+      <p><b>Thời gian:</b> ${payload.date}${timeSlotName ? ` - ${timeSlotName}` : ''}</p>
+      ${payload.hospitalName ? `<p><b>Địa điểm:</b> ${payload.hospitalName}</p>` : ''}
+      ${forfeitLine}
+      <p>Nếu cần hỗ trợ hoặc đặt lại lịch, vui lòng liên hệ bộ phận hỗ trợ của UTE Doctor.</p>
+    `;
+    await this.sendMail(payload.patientEmail, 'Thông báo không đến khám - UTE Doctor', html);
+  }
+
   /** === RESCHEDULE: PATIENT === */
   async sendPatientRescheduleMail(payload: {
     patientEmail: string;
