@@ -35,3 +35,21 @@ A new ACTIVE Vital Sign that replaces an earlier one (which becomes SUPERSEDED),
 
 **Source**:
 Where a Vital Sign originated. MVP only emits `RECEPTIONIST_CHECK_IN`; the contract reserves `VISIT_INTAKE`, `MIGRATED`, `UNKNOWN` for later.
+
+## Appointment Lifecycle & No-Show
+
+**No-Show**:
+A terminal appointment outcome: the appointment was valid and `CONFIRMED` (doctor/slot assigned, Visit `CREATED`), its scheduled time passed by more than the grace period, and the patient never checked in. It is the patient's failure to attend — distinct from a cancellation (someone chose to call it off) and from a failure (booking/payment never completed). Represented by `AppointmentStatus.NO_SHOW` and `VisitStatus.NO_SHOW`.
+_Avoid_: cancelled (a no-show is not cancelled), expired (that word belongs to Assignment Timeout).
+
+**Assignment Timeout**:
+A terminal outcome for a **broad/unassigned** appointment whose receptionist assignment task passed its deadline before a doctor/slot was ever assigned. The system could not staff it — system fault. Resolves to `CANCELLED` with `reasonCode = ASSIGNMENT_TIMEOUT` and refunds a paid deposit. Strictly distinct from No-Show: timeout happens *before* assignment/Visit, No-Show happens *after* a confirmed appointment is missed.
+
+**Forfeiture**:
+Keeping a paid DICH_VU deposit because the loss was the patient's fault. A No-Show forfeits (`DepositStatus.FORFEITED`, no credit-wallet refund); an Assignment Timeout refunds. The deposit's purpose is to penalise non-attendance, so No-Show is the canonical forfeiture case.
+
+**Actionability (Overdue)**:
+Whether a patient may still act (cancel/reschedule) on an appointment. An appointment whose scheduled end + grace period has passed is **non-actionable** even before any reconciliation flips it to No-Show. Actionability is derived on read; it is not a stored status.
+
+**No-Show Reconciliation**:
+The idempotent backend process that transitions overdue confirmed appointments to No-Show. Runs on application startup (catch-up after restart/deploy) and daily at 06:00 Asia/Ho_Chi_Minh. It is a settlement job, not a realtime sweep, and it owns the No-Show side effects (notification/email), gated to business hours.
