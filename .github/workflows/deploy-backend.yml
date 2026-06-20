@@ -27,14 +27,18 @@ jobs:
 
           ssh-keyscan -H "${{ secrets.EC2_1_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Deploy on EC2-1
+      - name: Deploy EC2-1
         run: |
           ssh -o IdentitiesOnly=yes -i ~/.ssh/ute_doctor_deploy "${{ secrets.EC2_USER }}@${{ secrets.EC2_1_HOST }}" << 'EOF'
             set -e
 
+            echo "Deploy target:"
+            hostname
+            hostname -I
+
             cd ~/ute-doctor-be
 
-            echo "Pulling latest source on EC2-1..."
+            echo "Pulling latest source..."
             git fetch origin master
             git reset --hard origin/master
 
@@ -42,10 +46,13 @@ jobs:
             test -f .env
             test -f .env.production
 
-            echo "Validating docker compose for EC2-1..."
+            echo "EC2 compose env:"
+            cat .env
+
+            echo "Validating EC2-1 compose..."
             docker compose --env-file .env -f docker-compose.ec2-1.yml config --quiet
 
-            echo "Building and restarting EC2-1 services..."
+            echo "Deploying EC2-1 services..."
             docker compose --env-file .env -f docker-compose.ec2-1.yml up -d --build
 
             echo "Current EC2-1 containers:"
@@ -77,14 +84,18 @@ jobs:
 
           ssh-keyscan -H "${{ secrets.EC2_2_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Deploy on EC2-2
+      - name: Deploy EC2-2
         run: |
           ssh -o IdentitiesOnly=yes -i ~/.ssh/ute_doctor_deploy "${{ secrets.EC2_USER }}@${{ secrets.EC2_2_HOST }}" << 'EOF'
             set -e
 
+            echo "Deploy target:"
+            hostname
+            hostname -I
+
             cd ~/ute-doctor-be
 
-            echo "Pulling latest source on EC2-2..."
+            echo "Pulling latest source..."
             git fetch origin master
             git reset --hard origin/master
 
@@ -92,10 +103,16 @@ jobs:
             test -f .env
             test -f .env.production
 
-            echo "Validating docker compose for EC2-2..."
+            echo "EC2 compose env:"
+            cat .env
+
+            echo "Validating EC2-2 compose..."
             docker compose --env-file .env -f docker-compose.ec2-2.yml config --quiet
 
-            echo "Building and restarting API2..."
+            echo "Removing accidental infra containers if any..."
+            docker rm -f ute-doctor-mongodb ute-doctor-redis ute-doctor-rabbitmq 2>/dev/null || true
+
+            echo "Deploying EC2-2 API only..."
             docker compose --env-file .env -f docker-compose.ec2-2.yml up -d --build
 
             echo "Current EC2-2 containers:"
