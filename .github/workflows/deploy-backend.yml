@@ -32,7 +32,7 @@ jobs:
           ssh -o IdentitiesOnly=yes -i ~/.ssh/ute_doctor_deploy "${{ secrets.EC2_USER }}@${{ secrets.EC2_1_HOST }}" << 'EOF'
             set -e
 
-            echo "Deploy target:"
+            echo "Deploy target: EC2-1"
             hostname
             hostname -I
 
@@ -46,13 +46,16 @@ jobs:
             test -f .env
             test -f .env.production
 
-            echo "EC2 compose env:"
+            echo "Compose env:"
             cat .env
 
             echo "Validating EC2-1 compose..."
             docker compose --env-file .env -f docker-compose.ec2-1.yml config --quiet
 
-            echo "Deploying EC2-1 services..."
+            echo "Cleaning old API containers that may hold port 3001..."
+            docker rm -f ute-doctor-be-api-1 ute-doctor-api-1 2>/dev/null || true
+
+            echo "Building and restarting EC2-1 services..."
             docker compose --env-file .env -f docker-compose.ec2-1.yml up -d --build
 
             echo "Current EC2-1 containers:"
@@ -89,7 +92,7 @@ jobs:
           ssh -o IdentitiesOnly=yes -i ~/.ssh/ute_doctor_deploy "${{ secrets.EC2_USER }}@${{ secrets.EC2_2_HOST }}" << 'EOF'
             set -e
 
-            echo "Deploy target:"
+            echo "Deploy target: EC2-2"
             hostname
             hostname -I
 
@@ -103,16 +106,19 @@ jobs:
             test -f .env
             test -f .env.production
 
-            echo "EC2 compose env:"
+            echo "Compose env:"
             cat .env
 
             echo "Validating EC2-2 compose..."
             docker compose --env-file .env -f docker-compose.ec2-2.yml config --quiet
 
-            echo "Removing accidental infra containers if any..."
+            echo "Cleaning old API containers that may hold port 3001..."
+            docker rm -f ute-doctor-be-api-1 ute-doctor-api-1 ute-doctor-api-2 2>/dev/null || true
+
+            echo "Cleaning accidental infra containers on EC2-2..."
             docker rm -f ute-doctor-mongodb ute-doctor-redis ute-doctor-rabbitmq 2>/dev/null || true
 
-            echo "Deploying EC2-2 API only..."
+            echo "Building and restarting API2 only..."
             docker compose --env-file .env -f docker-compose.ec2-2.yml up -d --build
 
             echo "Current EC2-2 containers:"
