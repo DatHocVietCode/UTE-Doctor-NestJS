@@ -1,0 +1,72 @@
+services:
+  api-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ute-doctor-api-1
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      PORT: 3001
+      INSTANCE_NAME: api-1
+
+      # Dùng private IP của EC2 1 để đồng nhất với API2
+      MONGO_DB_URI: mongodb://${EC2_1_PRIVATE_IP}:27017/UTE_Doctor_refactor?replicaSet=rs0&directConnection=true
+
+      REDIS_HOST: ${EC2_1_PRIVATE_IP}
+      REDIS_PORT: 6379
+
+      RABBITMQ_URL: amqp://ute_doctor:ute_doctor_password@${EC2_1_PRIVATE_IP}:5672
+
+      # Chỉ bật scheduler ở API1 để tránh chạy cleanup/email 2 lần
+      ENABLE_SCHEDULER: "true"
+    ports:
+      - "0.0.0.0:3001:3001"
+    depends_on:
+      - mongodb
+      - redis
+      - rabbitmq
+
+  mongodb:
+    image: mongo:7
+    container_name: ute-doctor-mongodb
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    restart: unless-stopped
+    ports:
+      # Expose Mongo qua private IP để EC2 2 connect được
+      - "${EC2_1_PRIVATE_IP}:27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    container_name: ute-doctor-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    ports:
+      # Expose Redis qua private IP để API2 dùng chung realtime/presence/pubsub
+      - "${EC2_1_PRIVATE_IP}:6379:6379"
+    volumes:
+      - redis_data:/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: ute-doctor-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ute_doctor
+      RABBITMQ_DEFAULT_PASS: ute_doctor_password
+    ports:
+      # AMQP cho API2
+      - "${EC2_1_PRIVATE_IP}:5672:5672"
+
+      # Dashboard, optional. Nên chặn bằng Security Group.
+      - "${EC2_1_PRIVATE_IP}:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
+volumes:
+  mongo_data:
+  redis_data:
+  rabbitmq_data:
