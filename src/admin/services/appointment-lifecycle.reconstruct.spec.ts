@@ -56,6 +56,65 @@ describe('reconstructLifecycle', () => {
     expect(tree.reconstruction.strategy).toBe('DOMAIN_FIRST');
   });
 
+  it('reconstructs a NO_SHOW terminal node + VISIT_NO_SHOW from durable markers (SYSTEM)', () => {
+    const tree = reconstructLifecycle(
+      baseBundle({
+        appointment: {
+          _id: 'appt1',
+          appointmentStatus: 'NO_SHOW',
+          assignmentStatus: 'ASSIGNED',
+          paymentCategory: 'DICH_VU',
+          depositStatus: 'FORFEITED',
+          createdAt: new Date(500),
+          bookingDate: 500,
+          scheduledAt: 5000,
+          noShowAt: 9000,
+          noShowActor: 'SYSTEM',
+          noShowSource: 'DAILY_06AM',
+        },
+        visit: { _id: 'v1', status: 'NO_SHOW', createdAt: new Date(6000), updatedAt: new Date(9000) },
+      }),
+    );
+
+    const noShow = nodeOfType(tree, LifecycleEventType.APPOINTMENT_NO_SHOW);
+    expect(noShow).toBeDefined();
+    expect(noShow!.phase).toBe(LifecyclePhase.NO_SHOW);
+    expect(noShow!.timestamp).toBe(9000);
+    expect(noShow!.actor?.actorType).toBe(ActorType.SYSTEM);
+    expect(edgeTo(tree, noShow!.id)?.edgeStatus).toBe(EdgeStatus.STRONG_LINK);
+
+    // The forfeited deposit and the no-show visit also surface, and confirmation still shows.
+    expect(nodeOfType(tree, LifecycleEventType.DEPOSIT_FORFEITED)).toBeDefined();
+    expect(nodeOfType(tree, LifecycleEventType.VISIT_NO_SHOW)).toBeDefined();
+    expect(nodeOfType(tree, LifecycleEventType.APPOINTMENT_CONFIRMED)).toBeDefined();
+  });
+
+  it('attributes a manual NO_SHOW to a staff user, not the system', () => {
+    const tree = reconstructLifecycle(
+      baseBundle({
+        appointment: {
+          _id: 'appt1',
+          appointmentStatus: 'NO_SHOW',
+          assignmentStatus: 'ASSIGNED',
+          paymentCategory: 'BHYT',
+          depositStatus: 'NOT_REQUIRED',
+          createdAt: new Date(500),
+          bookingDate: 500,
+          scheduledAt: 5000,
+          noShowAt: 9000,
+          noShowActor: 'STAFF',
+          noShowMarkedByAccountId: 'acc-1',
+          noShowSource: 'MANUAL',
+        },
+        visit: { _id: 'v1', status: 'NO_SHOW', createdAt: new Date(6000), updatedAt: new Date(9000) },
+      }),
+    );
+
+    const noShow = nodeOfType(tree, LifecycleEventType.APPOINTMENT_NO_SHOW);
+    expect(noShow!.actor?.actorType).toBe(ActorType.USER);
+    expect(noShow!.actor?.actorId).toBe('acc-1');
+  });
+
   it('emits a DEPOSIT_PAID node with a STRONG_LINK edge when the deposit is paid', () => {
     const tree = reconstructLifecycle(
       baseBundle({

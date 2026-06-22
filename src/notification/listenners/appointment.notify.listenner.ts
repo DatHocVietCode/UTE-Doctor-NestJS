@@ -154,6 +154,61 @@ export class AppointmentNotificationListener {
     });
   }
 
+  @OnEvent('notify.appointment.no_show')
+  async handleAppointmentNoShow(payload: {
+    appointmentId?: string;
+    patientEmail: string;
+    doctorEmail?: string;
+    doctorName?: string;
+    date: string | number | Date;
+    scheduledAt?: number;
+    timeSlot?: string;
+    timeSlotLabel?: string;
+    hospitalName?: string;
+    reason?: string;
+    actor?: string;
+    source?: string;
+    depositStatus?: string;
+  }) {
+    const data = {
+      appointmentId: payload.appointmentId || 'appointment-no-show',
+      patientEmail: payload.patientEmail,
+      doctorEmail: payload.doctorEmail,
+      doctorName: payload.doctorName,
+      date: payload.date,
+      scheduledAt: payload.scheduledAt,
+      timeSlot: payload.timeSlot,
+      timeSlotLabel: payload.timeSlotLabel,
+      hospitalName: payload.hospitalName,
+      reason: payload.reason,
+      actor: payload.actor,
+      source: payload.source,
+      depositStatus: payload.depositStatus,
+    };
+
+    const patientRecipient = payload.patientEmail.trim().toLowerCase();
+    await this.publish({
+      type: 'APPOINTMENT_NO_SHOW',
+      data,
+      createdAt: Date.now(),
+      recipientEmail: patientRecipient,
+      recipientRole: 'PATIENT',
+      idempotencyKey: `APPOINTMENT_NO_SHOW:${data.appointmentId}:${patientRecipient}`,
+    });
+
+    if (payload.doctorEmail) {
+      const doctorRecipient = payload.doctorEmail.trim().toLowerCase();
+      await this.publish({
+        type: 'APPOINTMENT_NO_SHOW',
+        data: { ...data, patientEmail: payload.patientEmail },
+        createdAt: Date.now(),
+        recipientEmail: doctorRecipient,
+        recipientRole: 'DOCTOR',
+        idempotencyKey: `APPOINTMENT_NO_SHOW:${data.appointmentId}:${doctorRecipient}`,
+      });
+    }
+  }
+
   @OnEvent('notify.patient.appointment.cancelled')
   async handlePatientAppointmentCancelled(payload: {
     appointmentId?: string;

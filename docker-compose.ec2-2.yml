@@ -1,0 +1,28 @@
+services:
+  api-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ute-doctor-api-2
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      PORT: 3001
+      INSTANCE_NAME: api-2
+
+      # Trỏ về Mongo trên EC2 1
+      MONGO_DB_URI: mongodb://${EC2_1_PRIVATE_IP}:27017/UTE_Doctor_refactor?replicaSet=rs0&directConnection=true
+
+      # Trỏ về Redis trên EC2 1
+      REDIS_HOST: ${EC2_1_PRIVATE_IP}
+      REDIS_PORT: 6379
+
+      # Trỏ về RabbitMQ trên EC2 1
+      RABBITMQ_URL: amqp://ute_doctor:ute_doctor_password@${EC2_1_PRIVATE_IP}:5672
+
+      # Tắt scheduler ở API2 để tránh cleanup/email chạy trùng
+      ENABLE_SCHEDULER: "false"
+    ports:
+      # Vì là EC2 khác nên vẫn dùng 3001 được, không cần 3002
+      - "0.0.0.0:3001:3001"

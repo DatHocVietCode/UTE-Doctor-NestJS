@@ -4,6 +4,7 @@ import { Account, AccountSchema } from 'src/account/schemas/account.schema';
 import { RedisService } from 'src/common/redis/redis.service';
 import { PresenceService } from 'src/socket/presence.service';
 import { AppointmentCancelledNotificationHandler } from './handlers/appointment-cancelled-notification.handler';
+import { AppointmentNoShowNotificationHandler } from './handlers/appointment-no-show-notification.handler';
 import { AppointmentDoctorAssignedNotificationHandler } from './handlers/appointment-doctor-assigned-notification.handler';
 import { AppointmentRescheduledNotificationHandler } from './handlers/appointment-rescheduled-notification.handler';
 import { AppointmentSuccessNotificationHandler } from './handlers/appointment-success-notification.handler';
@@ -45,6 +46,7 @@ import {
     CoinExpiryNotificationHandler,
     AppointmentSuccessNotificationHandler,
     AppointmentCancelledNotificationHandler,
+    AppointmentNoShowNotificationHandler,
     AppointmentRescheduledNotificationHandler,
     PaymentSuccessNotificationHandler,
     AssignmentTaskCreatedNotificationHandler,

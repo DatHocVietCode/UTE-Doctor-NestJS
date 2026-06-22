@@ -87,6 +87,24 @@ export class MailListener {
         }
     }
 
+    @OnEvent('mail.patient.appointment.no_show')
+    async handlePatientNoShowMail(payload: {
+        patientEmail: string;
+        doctorName?: string;
+        date: string | number | Date;
+        timeSlot?: string;
+        timeSlotLabel?: string;
+        hospitalName?: string;
+        reason?: string;
+        depositStatus?: string;
+    }) {
+        try {
+            await this.mailService.sendPatientNoShowMail(payload);
+        } catch (error) {
+            this.logMailError('mail.patient.appointment.no_show', error);
+        }
+    }
+
     @OnEvent('mail.patient.appointment.rescheduled')
     async handlePatientRescheduleMail(payload: AppointmentRescheduledEnriched) {
         try {

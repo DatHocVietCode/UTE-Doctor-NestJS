@@ -12,6 +12,7 @@ export enum LifecyclePhase {
   SLOT = 'SLOT',
   COMMUNICATION = 'COMMUNICATION',
   CANCELLATION = 'CANCELLATION',
+  NO_SHOW = 'NO_SHOW',
   RESCHEDULE = 'RESCHEDULE',
   UNLINKED = 'UNLINKED',
 }
@@ -31,6 +32,7 @@ export const PHASE_ORDER: Record<LifecyclePhase, number> = {
   [LifecyclePhase.SLOT]: 8,
   [LifecyclePhase.COMMUNICATION]: 9,
   [LifecyclePhase.CANCELLATION]: 10,
-  [LifecyclePhase.RESCHEDULE]: 11,
-  [LifecyclePhase.UNLINKED]: 12,
+  [LifecyclePhase.NO_SHOW]: 11,
+  [LifecyclePhase.RESCHEDULE]: 12,
+  [LifecyclePhase.UNLINKED]: 13,
 };

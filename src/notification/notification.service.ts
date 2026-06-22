@@ -8,6 +8,7 @@ import type {
   NotificationType,
 } from './dto/notification-payload.dto';
 import { AppointmentCancelledNotificationHandler } from './handlers/appointment-cancelled-notification.handler';
+import { AppointmentNoShowNotificationHandler } from './handlers/appointment-no-show-notification.handler';
 import { AppointmentDoctorAssignedNotificationHandler } from './handlers/appointment-doctor-assigned-notification.handler';
 import { AppointmentRescheduledNotificationHandler } from './handlers/appointment-rescheduled-notification.handler';
 import { AppointmentSuccessNotificationHandler } from './handlers/appointment-success-notification.handler';
@@ -36,6 +37,7 @@ export class NotificationService {
     private readonly coinExpiryHandler: CoinExpiryNotificationHandler,
     private readonly appointmentSuccessHandler: AppointmentSuccessNotificationHandler,
     private readonly appointmentCancelledHandler: AppointmentCancelledNotificationHandler,
+    private readonly appointmentNoShowHandler: AppointmentNoShowNotificationHandler,
     private readonly appointmentRescheduledHandler: AppointmentRescheduledNotificationHandler,
     private readonly paymentSuccessHandler: PaymentSuccessNotificationHandler,
     private readonly assignmentTaskCreatedHandler: AssignmentTaskCreatedNotificationHandler,
@@ -48,6 +50,7 @@ export class NotificationService {
       COIN_EXPIRY_REMINDER: this.coinExpiryHandler,
       APPOINTMENT_SUCCESS: this.appointmentSuccessHandler,
       APPOINTMENT_CANCELLED: this.appointmentCancelledHandler,
+      APPOINTMENT_NO_SHOW: this.appointmentNoShowHandler,
       APPOINTMENT_RESCHEDULED: this.appointmentRescheduledHandler,
       PAYMENT_SUCCESS: this.paymentSuccessHandler,
       ASSIGNMENT_TASK_CREATED: this.assignmentTaskCreatedHandler,

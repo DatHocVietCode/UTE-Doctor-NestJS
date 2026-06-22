@@ -19,6 +19,23 @@ export type AppointmentCancelledDto = {
   deadlineAt?: number;
 };
 
+// Patient/doctor-facing: a confirmed appointment lapsed without check-in (no-show).
+export type AppointmentNoShowDto = {
+  appointmentId: string;
+  patientEmail: string;
+  doctorEmail?: string;
+  doctorName?: string;
+  date: string | number | Date;
+  scheduledAt?: number;
+  timeSlot?: string;
+  timeSlotLabel?: string;
+  hospitalName?: string;
+  reason?: string;
+  actor?: string;
+  source?: string;
+  depositStatus?: string;
+};
+
 export const NOTIFICATION_RECIPIENT_ROLES = [
   'PATIENT',
   'DOCTOR',
@@ -95,6 +112,7 @@ export type NotificationMap = {
   COIN_EXPIRY_REMINDER: CoinExpiryReminderEventPayload;
   APPOINTMENT_SUCCESS: AppointmentEnriched;
   APPOINTMENT_CANCELLED: AppointmentCancelledDto;
+  APPOINTMENT_NO_SHOW: AppointmentNoShowDto;
   APPOINTMENT_RESCHEDULED: AppointmentRescheduledNotificationDto;
   PAYMENT_SUCCESS: PaymentSuccessDto;
   ASSIGNMENT_TASK_CREATED: AssignmentTaskCreatedDto;

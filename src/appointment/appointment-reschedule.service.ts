@@ -60,6 +60,19 @@ export class AppointmentRescheduleService {
       );
     }
 
+    // A past appointment cannot be rescheduled; its time has already lapsed (it is a no-show
+    // candidate, not a reschedule candidate). Prefer the slot end snapshot when available.
+    const originBoundary =
+      typeof appointment.endTime === 'number' && Number.isFinite(appointment.endTime)
+        ? appointment.endTime
+        : AppointmentTimeHelper.resolveStoredScheduledAt(appointment);
+    if (originBoundary != null && originBoundary < Date.now()) {
+      this.throwBlocked(
+        'APPOINTMENT_TIME_PASSED',
+        'Cannot reschedule an appointment whose scheduled time has already passed',
+      );
+    }
+
     // --- 2. Visit lifecycle guard: reschedule is allowed only while Visit.status === CREATED ---
     const visit = await this.visitModel
       .findOne({ appointmentId: appointment._id })

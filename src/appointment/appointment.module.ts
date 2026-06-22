@@ -21,6 +21,7 @@ import { AppointmentBookingService } from "./appointment-booking.service";
 import { AppointmentRescheduleService } from './appointment-reschedule.service';
 import { AppointmentController } from "./appointment.controller";
 import { AppointmentService } from "./appointment.service";
+import { NoShowReconcilerService } from "./no-show-reconciler.service";
 import { BookingListener } from "./listenners/booking.listenner";
 import { CancelListener } from "./listenners/cancel.listener";
 import { RescheduleListener } from "./listenners/reschedule.listener";
@@ -51,7 +52,7 @@ import { Appointment, AppointmentSchema } from "./schemas/appointment.schema";
     // AppointmentAssignmentTaskController must precede AppointmentController so its
     // static `assignment-tasks` routes are matched before AppointmentController's `:id`.
     controllers: [AppointmentAssignmentTaskController, AppointmentController],
-      providers: [AppointmentService, AppointmentBookingService, AppointmentRescheduleService, AppointmentAssignmentTaskService, AssignmentSlaScheduler, RedisService, BookingListener, CancelListener, RescheduleListener],
+      providers: [AppointmentService, AppointmentBookingService, AppointmentRescheduleService, AppointmentAssignmentTaskService, AssignmentSlaScheduler, NoShowReconcilerService, RedisService, BookingListener, CancelListener, RescheduleListener],
       exports: [AppointmentService, AppointmentBookingService, AppointmentAssignmentTaskService]
 })
 export class AppointmentModule {}

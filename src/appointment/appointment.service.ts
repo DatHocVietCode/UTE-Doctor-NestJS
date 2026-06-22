@@ -29,10 +29,28 @@ import { AssignmentTaskStatus } from './enums/assignment-task-status.enum';
 import { CancellationActor } from './enums/cancellation-actor.enum';
 import { CancellationReasonCode } from './enums/cancellation-reason-code.enum';
 import { DepositStatus } from './enums/deposit-status.enum';
+import { NoShowSource } from './enums/no-show-source.enum';
 import { PaymentCategory } from './enums/payment-category.enum';
+import { NO_SHOW_BATCH_LIMIT, NoShowConfig, resolveNoShowConfig } from './no-show.config';
 import { Appointment, AppointmentDocument } from "./schemas/appointment.schema";
 import { AppointmentAssignmentTask, AppointmentAssignmentTaskDocument } from "./schemas/appointment-assignment-task.schema";
 import { AppointmentTimeHelper } from "./utils/appointment-time.helper";
+
+export interface MarkNoShowOptions {
+    appointmentId: string;
+    // SYSTEM for the reconciler, STAFF for the manual receptionist/admin action.
+    actor: CancellationActor;
+    source: NoShowSource;
+    // Staff account id when actor is STAFF; omitted for SYSTEM.
+    markedByAccountId?: string;
+}
+
+export interface MarkNoShowResult {
+    noShow: boolean;
+    alreadyNoShow?: boolean;
+    reason?: string;
+    appointmentId: string;
+}
 
 @Injectable()
 export class AppointmentService {
@@ -265,8 +283,16 @@ export class AppointmentService {
 
         const totalPages = Math.ceil(total / limit);
 
+        // Derive actionability so the FE hides cancel/reschedule for past or terminal
+        // appointments immediately — independent of when the no-show reconciler runs.
+        const now = Date.now();
+        const data = appointments.map((appointment) => ({
+            ...(appointment as any),
+            actionable: this.isAppointmentActionable(appointment as any, now),
+        })) as unknown as AppointmentDto[];
+
         return {
-            data: appointments,
+            data,
             total,
             page,
             limit,
@@ -431,11 +457,22 @@ export class AppointmentService {
         const currentTime = Date.now();
         const hoursUntilAppointment = (appointmentTime - currentTime) / (1000 * 60 * 60);
 
-        if (!isAwaitingAssignment && hoursUntilAppointment <= 24) {
-            this.throwCancelBlocked(
-                'APPOINTMENT_NOT_CANCELABLE',
-                `Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${hoursUntilAppointment.toFixed(1)}`,
-            );
+        if (!isAwaitingAssignment) {
+            // A past appointment is no longer cancellable; it is a no-show, not a cancellation.
+            // Surface a clear reason instead of the misleading "within 24 hours" (which a negative
+            // hours-remaining would otherwise trip).
+            if (this.isScheduleElapsed(appointment, currentTime)) {
+                this.throwCancelBlocked(
+                    'APPOINTMENT_TIME_PASSED',
+                    'Cannot cancel an appointment whose scheduled time has already passed',
+                );
+            }
+            if (hoursUntilAppointment <= 24) {
+                this.throwCancelBlocked(
+                    'APPOINTMENT_NOT_CANCELABLE',
+                    `Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${hoursUntilAppointment.toFixed(1)}`,
+                );
+            }
         }
 
         const timeSlotId = appointment.timeSlot;
@@ -492,11 +529,19 @@ export class AppointmentService {
                     this.throwCancelBlocked('APPOINTMENT_NOT_CANCELABLE', 'Invalid appointment date');
                 }
                 const freshHoursUntilAppointment = (freshScheduledAt - Date.now()) / (1000 * 60 * 60);
-                if (!isAwaitingAssignment && freshHoursUntilAppointment <= 24) {
-                    this.throwCancelBlocked(
-                        'APPOINTMENT_NOT_CANCELABLE',
-                        `Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${freshHoursUntilAppointment.toFixed(1)}`,
-                    );
+                if (!isAwaitingAssignment) {
+                    if (this.isScheduleElapsed(freshAppointment, Date.now())) {
+                        this.throwCancelBlocked(
+                            'APPOINTMENT_TIME_PASSED',
+                            'Cannot cancel an appointment whose scheduled time has already passed',
+                        );
+                    }
+                    if (freshHoursUntilAppointment <= 24) {
+                        this.throwCancelBlocked(
+                            'APPOINTMENT_NOT_CANCELABLE',
+                            `Cannot cancel appointment within 24 hours of scheduled time. Hours remaining: ${freshHoursUntilAppointment.toFixed(1)}`,
+                        );
+                    }
                 }
 
                 const depositPayments = await this.paymentModel
@@ -955,6 +1000,263 @@ export class AppointmentService {
     private getCancelRefundRate(): number {
         const configuredRate = Number(this.config.get<string>('APPOINTMENT_CANCEL_REFUND_RATE') ?? 1);
         return Number.isFinite(configuredRate) ? Math.min(1, Math.max(0, configuredRate)) : 1;
+    }
+
+    // ── No-show lifecycle ──────────────────────────────────────────────────
+    private _noShowConfig?: NoShowConfig;
+    private get noShowConfig(): NoShowConfig {
+        if (!this._noShowConfig) {
+            this._noShowConfig = resolveNoShowConfig((key) => this.config.get(key));
+        }
+        return this._noShowConfig;
+    }
+
+    /** The overdue boundary: (endTime ?? scheduledAt) + grace. */
+    private noShowBoundary(appointment: Pick<Appointment, 'endTime' | 'scheduledAt' | 'date'>): number | null {
+        const base =
+            typeof appointment.endTime === 'number' && Number.isFinite(appointment.endTime)
+                ? appointment.endTime
+                : AppointmentTimeHelper.resolveStoredScheduledAt(appointment);
+        return base == null ? null : base + this.noShowConfig.graceMs;
+    }
+
+    /** True once an appointment's scheduled end + grace has passed. */
+    isScheduleElapsed(appointment: Pick<Appointment, 'endTime' | 'scheduledAt' | 'date'>, now: number = Date.now()): boolean {
+        const boundary = this.noShowBoundary(appointment);
+        return boundary != null && boundary < now;
+    }
+
+    /**
+     * Whether a patient may still act (cancel/reschedule) on an appointment.
+     * Past confirmed/pending appointments are non-actionable even before the
+     * reconciler flips them to NO_SHOW. Broad appointments awaiting assignment keep
+     * their placeholder schedule and stay actionable.
+     */
+    isAppointmentActionable(
+        appointment: Pick<Appointment, 'appointmentStatus' | 'assignmentStatus' | 'endTime' | 'scheduledAt' | 'date'>,
+        now: number = Date.now(),
+    ): boolean {
+        if (![AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED].includes(appointment.appointmentStatus)) {
+            return false;
+        }
+        if (appointment.assignmentStatus === AssignmentStatus.AWAITING_ASSIGNMENT) {
+            return true;
+        }
+        return !this.isScheduleElapsed(appointment, now);
+    }
+
+    private isWithinNoShowEmailHours(now: number): boolean {
+        const offsetMs = AppointmentTimeHelper.DEFAULT_OFFSET_MINUTES * 60_000;
+        const localHour = new Date(now + offsetMs).getUTCHours();
+        const { emailHourStart, emailHourEnd } = this.noShowConfig;
+        return localHour >= emailHourStart && localHour < emailHourEnd;
+    }
+
+    /** Coarse prefilter for the reconciler; the transactional core re-checks full eligibility. */
+    async findNoShowCandidateIds(now: number = Date.now(), limit: number = NO_SHOW_BATCH_LIMIT): Promise<string[]> {
+        const graceMs = this.noShowConfig.graceMs;
+        const docs = await this.appointmentModel
+            .find({
+                appointmentStatus: AppointmentStatus.CONFIRMED,
+                doctorId: { $exists: true, $ne: null },
+                timeSlot: { $exists: true, $ne: null },
+                $expr: { $lt: [{ $add: [{ $ifNull: ['$endTime', '$scheduledAt'] }, graceMs] }, now] },
+            })
+            .limit(limit)
+            .select('_id')
+            .lean()
+            .exec();
+        return docs.map((d) => String(d._id));
+    }
+
+    /**
+     * Shared NO_SHOW transition core used by both the reconciler (actor SYSTEM) and the
+     * manual staff endpoint (actor STAFF). Idempotent: already-NO_SHOW is a safe no-op;
+     * every eligibility rule lives here, not in the callers.
+     */
+    async markAppointmentNoShow(options: MarkNoShowOptions, now: number = Date.now()): Promise<MarkNoShowResult> {
+        const { appointmentId, actor, source } = options;
+        if (!Types.ObjectId.isValid(appointmentId)) {
+            throw new NotFoundException('Appointment not found');
+        }
+        const markedByAccountId =
+            options.markedByAccountId && Types.ObjectId.isValid(options.markedByAccountId)
+                ? new Types.ObjectId(options.markedByAccountId)
+                : undefined;
+        const emitEmailNow = source === NoShowSource.MANUAL || this.isWithinNoShowEmailHours(now);
+
+        let alreadyNoShow = false;
+        let blockedReason: string | undefined;
+        let transitionedId: Types.ObjectId | null = null;
+
+        const session = await this.appointmentModel.db.startSession();
+        try {
+            await session.withTransaction(async () => {
+                const appointment = await this.appointmentModel.findById(appointmentId).session(session);
+                if (!appointment) {
+                    blockedReason = 'NOT_FOUND';
+                    return;
+                }
+                if (appointment.appointmentStatus === AppointmentStatus.NO_SHOW) {
+                    alreadyNoShow = true;
+                    return;
+                }
+                if (appointment.appointmentStatus !== AppointmentStatus.CONFIRMED) {
+                    blockedReason = 'NOT_CONFIRMED';
+                    return;
+                }
+                if (!appointment.doctorId || !appointment.timeSlot) {
+                    blockedReason = 'NOT_ASSIGNED';
+                    return;
+                }
+                if (!this.isScheduleElapsed(appointment, now)) {
+                    blockedReason = 'NOT_OVERDUE';
+                    return;
+                }
+
+                const visit = await this.visitModel.findOne({ appointmentId: appointment._id }).session(session).exec();
+                if (!visit) {
+                    blockedReason = 'NO_VISIT';
+                    return;
+                }
+                if (visit.status !== VisitStatus.CREATED) {
+                    blockedReason = `VISIT_${visit.status}`;
+                    return;
+                }
+
+                const encounterExists = await this.medicalEncounterModel
+                    .exists({ $or: [{ visitId: visit._id }, { appointmentId: appointment._id }] })
+                    .session(session);
+                if (encounterExists) {
+                    blockedReason = 'ENCOUNTER_EXISTS';
+                    return;
+                }
+
+                const billing = await this.billingModel
+                    .findOne({ visitId: visit._id })
+                    .session(session)
+                    .select('_id')
+                    .lean()
+                    .exec();
+                if (billing) {
+                    blockedReason = 'BILLING_EXISTS';
+                    return;
+                }
+
+                // Forfeit a verified paid DICH_VU deposit (patient fault); no refund, no slot
+                // release (the slot time has passed), no billing.
+                if (
+                    appointment.paymentCategory === PaymentCategory.DICH_VU &&
+                    appointment.depositStatus === DepositStatus.PAID
+                ) {
+                    appointment.depositStatus = DepositStatus.FORFEITED;
+                }
+                appointment.appointmentStatus = AppointmentStatus.NO_SHOW;
+                appointment.noShowAt = now;
+                appointment.noShowActor = actor;
+                appointment.noShowSource = source;
+                if (markedByAccountId) {
+                    appointment.noShowMarkedByAccountId = markedByAccountId;
+                }
+                if (emitEmailNow) {
+                    appointment.noShowNotifiedAt = now;
+                }
+                await appointment.save({ session });
+
+                visit.status = VisitStatus.NO_SHOW;
+                await visit.save({ session });
+
+                transitionedId = appointment._id;
+            });
+        } finally {
+            await session.endSession();
+        }
+
+        if (alreadyNoShow) {
+            return { noShow: false, alreadyNoShow: true, appointmentId };
+        }
+        if (!transitionedId) {
+            return { noShow: false, reason: blockedReason, appointmentId };
+        }
+
+        const fresh = await this.appointmentModel.findById(transitionedId).exec();
+        if (fresh) {
+            const payload = await this.buildNoShowPayload(fresh);
+            // In-app notification + realtime list refresh always; email only when in-hours/manual.
+            this.eventEmitter.emit('notify.appointment.no_show', payload);
+            this.eventEmitter.emit('socket.appointment.no_show', payload);
+            if (emitEmailNow) {
+                this.eventEmitter.emit('mail.patient.appointment.no_show', payload);
+            }
+        }
+        return { noShow: true, appointmentId };
+    }
+
+    /**
+     * Deferred patient-email pass. A transition whose email was suppressed (e.g. an
+     * out-of-hours startup run leaves noShowNotifiedAt unset) gets exactly one email from
+     * the next in-business-hours reconciler pass. Idempotent via a conditional update.
+     */
+    async processDeferredNoShowEmails(now: number = Date.now()): Promise<number> {
+        if (!this.isWithinNoShowEmailHours(now)) {
+            return 0;
+        }
+        const pending = await this.appointmentModel
+            .find({
+                appointmentStatus: AppointmentStatus.NO_SHOW,
+                noShowAt: { $ne: null },
+                $or: [{ noShowNotifiedAt: { $exists: false } }, { noShowNotifiedAt: null }],
+            })
+            .limit(NO_SHOW_BATCH_LIMIT)
+            .exec();
+
+        let sent = 0;
+        for (const appt of pending) {
+            const res = await this.appointmentModel.updateOne(
+                { _id: appt._id, $or: [{ noShowNotifiedAt: { $exists: false } }, { noShowNotifiedAt: null }] },
+                { $set: { noShowNotifiedAt: now } },
+            );
+            if (res.modifiedCount !== 1) {
+                continue;
+            }
+            const payload = await this.buildNoShowPayload(appt);
+            this.eventEmitter.emit('mail.patient.appointment.no_show', payload);
+            sent++;
+        }
+        return sent;
+    }
+
+    private async buildNoShowPayload(appointment: AppointmentDocument): Promise<Record<string, unknown>> {
+        const doctorProfile = appointment.doctorId
+            ? await this.doctorModel.findById(appointment.doctorId).populate('profileId', 'name email').lean()
+            : null;
+        const doctorEmail = (doctorProfile as any)?.profileId?.email as string | undefined;
+        const doctorName = (doctorProfile as any)?.profileId?.name as string | undefined;
+        const timeSlotDoc = appointment.timeSlot
+            ? await this.timeSlotLogModel.findById(appointment.timeSlot).lean()
+            : null;
+        const timeSlotLabel =
+            (timeSlotDoc as any)?.label ?? `${(timeSlotDoc as any)?.start ?? ''}-${(timeSlotDoc as any)?.end ?? ''}`;
+        const scheduledAt = AppointmentTimeHelper.resolveStoredScheduledAt(appointment) ?? appointment.scheduledAt;
+
+        return {
+            appointmentId: appointment._id.toString(),
+            patientId: appointment.patientId?.toString?.() ?? '',
+            patientEmail: appointment.patientEmail,
+            doctorEmail,
+            doctorName,
+            date: scheduledAt,
+            scheduledAt,
+            timeSlot: appointment.timeSlot?.toString?.() ?? '',
+            timeSlotLabel,
+            hospitalName: appointment.hospitalName,
+            reason: 'Khong den kham theo lich hen (no-show)',
+            actor: appointment.noShowActor ?? CancellationActor.SYSTEM,
+            reasonCode: 'NO_SHOW',
+            source: appointment.noShowSource,
+            depositStatus: appointment.depositStatus,
+            status: AppointmentStatus.NO_SHOW,
+        };
     }
 
     async confirmAppointment(id: string) {

@@ -1,6 +1,7 @@
 import type { AppointmentEnriched } from 'src/appointment/schemas/appointment-enriched';
 import type {
   AppointmentCancelledDto,
+  AppointmentNoShowDto,
   AppointmentDoctorAssignedDto,
   AppointmentRescheduledNotificationDto,
   AssignmentTaskCreatedDto,
@@ -179,6 +180,44 @@ export function buildAppointmentCancelledNotification(
       reasonCode: nullableString(payload.reasonCode),
       assignmentTaskId: nullableString(payload.assignmentTaskId),
       deadlineAt: epochNumber(payload.deadlineAt),
+    }),
+  };
+}
+
+export function buildAppointmentNoShowNotification(
+  payload: AppointmentNoShowDto,
+  recipientRole: NotificationRecipientRole,
+  timeRange?: string,
+): NotificationTemplate {
+  const doctor = recipientRole === 'DOCTOR';
+  return {
+    title: doctor
+      ? 'Bệnh nhân không đến khám'
+      : 'Bạn đã không đến khám theo lịch hẹn',
+    message: doctor
+      ? 'Bệnh nhân đã không đến khám và lịch khám được đánh dấu không đến khám.'
+      : 'Lịch khám của bạn đã được đánh dấu "Không đến khám" vì đã qua giờ hẹn mà không có mặt.',
+    titleKey: doctor
+      ? 'notification.doctor.appointmentNoShow.title'
+      : 'notification.patient.appointmentNoShow.title',
+    messageKey: doctor
+      ? 'notification.doctor.appointmentNoShow.message'
+      : 'notification.patient.appointmentNoShow.message',
+    data: withoutUndefined({
+      appointmentId: nullableString(payload.appointmentId),
+      appointmentDate: epochNumber(payload.scheduledAt ?? payload.date),
+      scheduledAt: epochNumber(payload.scheduledAt ?? payload.date),
+      timeRange: nullableString(timeRange ?? payload.timeSlotLabel),
+      timeSlotId: nullableString(payload.timeSlot),
+      hospitalName: nullableString(payload.hospitalName),
+      patientEmail: nullableString(payload.patientEmail),
+      doctorEmail: nullableString(payload.doctorEmail),
+      doctorName: nullableString(payload.doctorName),
+      reason: nullableString(payload.reason),
+      actor: nullableString(payload.actor),
+      source: nullableString(payload.source),
+      reasonCode: 'NO_SHOW',
+      depositStatus: nullableString(payload.depositStatus),
     }),
   };
 }
