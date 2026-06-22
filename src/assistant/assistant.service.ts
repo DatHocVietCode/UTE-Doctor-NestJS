@@ -114,11 +114,21 @@ export class AssistantService {
       }
 
       const data = await response.json();
+      const imagePredictions = Array.isArray(data?.image_predictions)
+        ? data.image_predictions
+            .map((item: { label?: unknown; confidence?: unknown }) => ({
+              label: String(item?.label ?? '').trim(),
+              confidence: Number(item?.confidence ?? 0),
+            }))
+            .filter((item: { label: string; confidence: number }) => item.label.length > 0 && Number.isFinite(item.confidence))
+        : undefined;
+
       return {
         reply: String(data?.reply ?? '').trim() || this.buildFallbackResponse(payload.mode).reply,
         mode: payload.mode,
-        source: 'python-service',
+        source: data?.source === 'image-classifier' ? 'image-classifier' : 'python-service',
         suggestions: Array.isArray(data?.suggestions) ? data.suggestions.slice(0, 4) : this.getSuggestions(payload.mode),
+        imagePredictions,
         warning: typeof data?.warning === 'string' ? data.warning : undefined,
       };
     } finally {

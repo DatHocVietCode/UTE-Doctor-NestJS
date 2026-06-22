@@ -47,7 +47,11 @@ export class AssistantChatRequestDto {
 export type AssistantChatResponseDto = {
   reply: string;
   mode: AssistantMode;
-  source: 'python-service' | 'fallback';
+  source: 'python-service' | 'fallback' | 'image-classifier';
   suggestions: string[];
+  imagePredictions?: {
+    label: string;
+    confidence: number;
+  }[];
   warning?: string;
 };
