@@ -25,6 +25,14 @@ export type AssignmentCompletedEvent = {
   timeSlotId: string;
   scheduledAt: number;
   patientEmail?: string;
+  // Optional human-readable context, used only to build the patient notification text.
+  // Time fields remain epoch ms on the contract.
+  doctorName?: string;
+  hospitalName?: string;
+  startTime?: number;
+  endTime?: number;
+  serviceType?: string;
+  specialty?: string;
 };
 
 // Emitted by AssignmentSlaScheduler when a PENDING task nears its deadline.
@@ -255,6 +263,12 @@ export class AssignmentNotificationListener {
         timeSlotId: payload.timeSlotId,
         scheduledAt: payload.scheduledAt,
         patientEmail: payload.patientEmail,
+        doctorName: payload.doctorName,
+        hospitalName: payload.hospitalName,
+        startTime: payload.startTime,
+        endTime: payload.endTime,
+        serviceType: payload.serviceType,
+        specialty: payload.specialty,
       },
       createdAt: Date.now(),
       recipientEmail,

@@ -1,9 +1,21 @@
 import { MailerService } from "@nestjs-modules/mailer";
 import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
+import { AssignmentStatus } from "src/appointment/enums/assignment-status.enum";
+import { ServiceType } from "src/appointment/enums/service-type.enum";
 import type { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
 import { emitTyped } from "src/utils/helpers/event.helper";
+import {
+  DEFAULT_LOCATION_FALLBACK,
+  formatVietnamTimeRange,
+} from "src/utils/helpers/human-time.helper";
 import type { CoinExpiryReminderEventPayload } from 'src/wallet/coin/coin-expiry-reminder/dto/coin-expiry-reminder.dto';
+
+const SERVICE_TYPE_LABELS: Record<ServiceType, string> = {
+  [ServiceType.KHAM_BHYT]: 'Khám bảo hiểm y tế',
+  [ServiceType.KHAM_DICH_VU]: 'Khám dịch vụ',
+  [ServiceType.KHAM_ONLINE]: 'Khám trực tuyến',
+};
 
 @Injectable()
 export class MailService {
@@ -62,39 +74,103 @@ export class MailService {
 
   /** === BOOKING SUCCESS: PATIENT === */
   async sendPatientBookingSuccessMail(payload: AppointmentEnriched) {
-    let timeSlotName = '';
-    timeSlotName = await emitTyped<string, string>(
-        this.eventEmitter,
-        'timeslot.get.name.by.id',
-        payload.timeSlot!._id.toString()
+    // A broad (unassigned) appointment reuses this mail once a receptionist assigns
+    // the doctor/slot — surface that explicitly so the patient understands who/when/where.
+    const isDoctorAssignment = payload.assignmentStatus === AssignmentStatus.ASSIGNED;
+    // Time fields are epoch ms on the contract; format ONLY for the readable body.
+    const timeText = formatVietnamTimeRange(
+      payload.startTime,
+      payload.endTime,
+      payload.scheduledAt ?? payload.date,
     );
+    const slotName = await this.safeTimeSlotName(payload.timeSlot);
+    const greetingName = payload.patientName || payload.patientEmail;
+
+    const subject = isDoctorAssignment
+      ? 'Bác sĩ đã được phân công cho lịch khám của bạn - UTE Doctor'
+      : 'Xác nhận lịch khám - UTE Doctor';
+    const intro = isDoctorAssignment
+      ? 'Lễ tân đã phân công bác sĩ cho lịch khám của bạn. Thông tin chi tiết:'
+      : 'Lịch khám của bạn đã được xác nhận thành công!';
+
     const html = `
-      <h2>Xin chào ${payload.patientEmail},</h2>
-      <p>Lịch hẹn của bạn đã được xác nhận thành công!</p>
-      <p><b>Bác sĩ:</b> ${payload.doctorName}</p>
-      <p><b>Thời gian:</b> ${payload.date} - ${timeSlotName}</p>
-      <p>Địa điểm: ${payload.hospitalName}</p>
+      <h2>Xin chào ${greetingName},</h2>
+      <p>${intro}</p>
+      <p><b>Bác sĩ:</b> ${payload.doctorName || 'Sẽ được cập nhật'}</p>
+      <p><b>Thời gian khám:</b> ${timeText}${slotName ? ` (${slotName})` : ''}</p>
+      <p><b>Địa điểm:</b> ${payload.hospitalName || DEFAULT_LOCATION_FALLBACK}</p>
+      ${this.serviceTypeLine(payload.serviceType)}
+      <p>Vui lòng đến trước giờ hẹn 10–15 phút và mang theo giấy tờ tùy thân để làm thủ tục.</p>
       <p>Cảm ơn bạn đã tin tưởng UTE Doctor!</p>
     `;
-    await this.sendMail(payload.patientEmail, "Xác nhận lịch hẹn - UTE Doctor", html);
+    await this.sendMail(payload.patientEmail, subject, html);
   }
 
   /** === BOOKING SUCCESS: DOCTOR === */
   async sendDoctorBookingSuccessMail(payload: AppointmentEnriched) {
-    let timeSlotName = '';
-    timeSlotName = await emitTyped<string, string>(
-        this.eventEmitter,
-        'timeslot.get.name.by.id',
-        payload.timeSlot!._id.toString() 
+    const timeText = formatVietnamTimeRange(
+      payload.startTime,
+      payload.endTime,
+      payload.scheduledAt ?? payload.date,
     );
+    const slotName = await this.safeTimeSlotName(payload.timeSlot);
     const html = `
-      <h2>Xin chào bác sĩ ${payload.doctorName},</h2>
+      <h2>Xin chào bác sĩ ${payload.doctorName || ''},</h2>
       <p>Bạn có lịch hẹn mới!</p>
-      <p><b>Bệnh nhân:</b> ${payload.patientEmail}</p>
-      <p><b>Thời gian:</b> ${payload.date} - ${timeSlotName}</p>
-      <p>Địa điểm: ${payload.hospitalName}</p>
+      <p><b>Bệnh nhân:</b> ${payload.patientName || payload.patientEmail}</p>
+      <p><b>Thời gian khám:</b> ${timeText}${slotName ? ` (${slotName})` : ''}</p>
+      <p><b>Địa điểm:</b> ${payload.hospitalName || DEFAULT_LOCATION_FALLBACK}</p>
     `;
     await this.sendMail(payload.doctorEmail!, "Lịch hẹn mới - UTE Doctor", html); // When booking is successful, doctor email is guaranteed
+  }
+
+  /** Build the optional "service type" line, omitted when the value is unknown. */
+  private serviceTypeLine(serviceType?: ServiceType): string {
+    if (!serviceType) {
+      return '';
+    }
+    const label = SERVICE_TYPE_LABELS[serviceType] ?? serviceType;
+    return `<p><b>Loại dịch vụ:</b> ${label}</p>`;
+  }
+
+  /**
+   * Resolve a time-slot display name without ever crashing the mail flow.
+   * The enriched payload may carry `timeSlot` as a populated object ({ _id }),
+   * a raw ObjectId, or be absent entirely (broad bookings) — all handled here.
+   */
+  private async safeTimeSlotName(timeSlot: unknown): Promise<string | null> {
+    const id = this.extractTimeSlotId(timeSlot);
+    if (!id) {
+      return null;
+    }
+    try {
+      const name = await emitTyped<string, string>(
+        this.eventEmitter,
+        'timeslot.get.name.by.id',
+        id,
+      );
+      return typeof name === 'string' && name.trim() ? name.trim() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private extractTimeSlotId(timeSlot: unknown): string | null {
+    if (!timeSlot) {
+      return null;
+    }
+    if (typeof timeSlot === 'string') {
+      return timeSlot.trim() || null;
+    }
+    const asAny = timeSlot as { _id?: { toString(): string }; toString?: () => string };
+    if (asAny._id) {
+      return asAny._id.toString();
+    }
+    if (typeof asAny.toString === 'function') {
+      const str = asAny.toString();
+      return /^[a-f0-9]{24}$/i.test(str) ? str : null;
+    }
+    return null;
   }
 
   /** === SHIFT CANCELLATION: PATIENT === */
