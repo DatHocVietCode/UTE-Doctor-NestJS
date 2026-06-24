@@ -1,4 +1,5 @@
 import type { AppointmentEnriched } from 'src/appointment/schemas/appointment-enriched';
+import { formatVietnamTimeRange } from 'src/utils/helpers/human-time.helper';
 import type {
   AppointmentCancelledDto,
   AppointmentNoShowDto,
@@ -262,17 +263,39 @@ export function buildAppointmentRescheduledNotification(
 export function buildAppointmentDoctorAssignedNotification(
   payload: AppointmentDoctorAssignedDto,
 ): NotificationTemplate {
+  const doctorName = nullableString(payload.doctorName);
+  const hospitalName = nullableString(payload.hospitalName);
+  const scheduledAt = epochNumber(payload.scheduledAt);
+  const startTime = epochNumber(payload.startTime);
+  const endTime = epochNumber(payload.endTime);
+
+  // Format epoch -> readable text for the message ONLY; data keeps epoch (contract).
+  const timeKnown =
+    scheduledAt !== null || (startTime !== null && endTime !== null);
+  const timeText = formatVietnamTimeRange(startTime, endTime, scheduledAt);
+
+  const doctorPart = doctorName ? `Bác sĩ ${doctorName}` : 'Bác sĩ';
+  const timePart = timeKnown ? ` lúc ${timeText}` : '';
+  const locationPart = hospitalName ? ` tại ${hospitalName}` : '';
+  const message = `${doctorPart} sẽ khám cho bạn${timePart}${locationPart}.`;
+
   return {
     title: 'Bác sĩ đã được phân công',
-    message: 'Bạn có thông báo phân công bác sĩ.',
+    message,
     titleKey: 'notification.patient.doctorAssigned.title',
     messageKey: 'notification.patient.doctorAssigned.message',
     data: withoutUndefined({
       appointmentId: nullableString(payload.appointmentId),
       doctorId: nullableString(payload.doctorId),
+      doctorName,
       timeSlotId: nullableString(payload.timeSlotId),
-      appointmentDate: epochNumber(payload.scheduledAt),
-      scheduledAt: epochNumber(payload.scheduledAt),
+      appointmentDate: scheduledAt,
+      scheduledAt,
+      startTime,
+      endTime,
+      hospitalName,
+      serviceType: nullableString(payload.serviceType),
+      specialty: nullableString(payload.specialty),
       patientEmail: nullableString(payload.patientEmail),
     }),
   };
