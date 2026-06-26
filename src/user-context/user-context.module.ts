@@ -4,6 +4,7 @@ import { MongooseModule } from "@nestjs/mongoose";
 import { Doctor, DoctorSchema } from "src/doctor/schema/doctor.schema";
 import { Patient, PatientSchema } from "src/patient/schema/patient.schema";
 import { Profile, ProfileSchema } from "src/profile/schema/profile.schema";
+import { Receptionist, ReceptionistSchema } from "src/receptionist/schema/receptionist.schema";
 import { UserContextService } from "./user-context.service";
 
 @Module({
@@ -11,6 +12,7 @@ import { UserContextService } from "./user-context.service";
      MongooseModule.forFeature([{ name: Patient.name, schema: PatientSchema }]),
     MongooseModule.forFeature([{ name: Doctor.name, schema: DoctorSchema }]),
     MongooseModule.forFeature([{ name: Profile.name, schema: ProfileSchema }]),
+    MongooseModule.forFeature([{ name: Receptionist.name, schema: ReceptionistSchema }]),
   ],
   providers: [UserContextService],
   exports: [UserContextService],

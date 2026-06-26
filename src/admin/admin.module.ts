@@ -13,7 +13,10 @@ import { Notification, NotificationSchema } from 'src/notification/schemas/notif
 import { Doctor, DoctorSchema } from 'src/doctor/schema/doctor.schema';
 import { Patient, PatientSchema } from 'src/patient/schema/patient.schema';
 import { Account, AccountSchema } from 'src/account/schemas/account.schema';
+import { DoctorModule } from 'src/doctor/doctor.module';
+import { ReceptionistModule } from 'src/receptionist/receptionist.module';
 import { AdminAppointmentController } from './admin-appointment.controller';
+import { AdminUserController } from './admin-user.controller';
 import { AppointmentLifecycleService } from './services/appointment-lifecycle.service';
 import { LifecycleDetailService } from './services/lifecycle-detail.service';
 
@@ -36,8 +39,10 @@ import { LifecycleDetailService } from './services/lifecycle-detail.service';
       { name: Patient.name, schema: PatientSchema },
       { name: Account.name, schema: AccountSchema },
     ]),
+    DoctorModule,
+    ReceptionistModule,
   ],
-  controllers: [AdminAppointmentController],
+  controllers: [AdminAppointmentController, AdminUserController],
   providers: [AppointmentLifecycleService, LifecycleDetailService],
 })
 export class AdminModule {}

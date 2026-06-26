@@ -41,5 +41,6 @@ export class LoginUserResDto {
   id: string;
   patientId?: string | null;
   doctorId?: string | null;
+  receptionistId?: string | null;
   profileId?: string | null;
 }

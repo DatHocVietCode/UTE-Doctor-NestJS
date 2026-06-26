@@ -163,6 +163,7 @@ export class AuthService {
             dataRes.data.id = user._id.toString();
             dataRes.data.patientId = userCtx.patientId ?? undefined;
             dataRes.data.doctorId = userCtx.doctorId ?? undefined;
+            dataRes.data.receptionistId = userCtx.receptionistId ?? undefined;
             dataRes.data.profileId = userCtx.profileId ? userCtx.profileId.toString() : undefined;
         }
 
@@ -309,6 +310,7 @@ export class AuthService {
         // từ userContext
         patientId: ctx.patientId ?? null,
         doctorId: ctx.doctorId ?? null,
+        receptionistId: ctx.receptionistId ?? null,
         profileId: ctx.profileId ? ctx.profileId.toString() : null
     };
 

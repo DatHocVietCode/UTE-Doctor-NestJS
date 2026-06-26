@@ -5,6 +5,7 @@ import Fuse from 'fuse.js';
 import mongoose, { Model, Types } from 'mongoose';
 import { Express } from 'express';
 import { DataResponse } from 'src/common/dto/data-respone';
+import { StaffCreationResponse } from 'src/common/dto/staff-creation-response';
 import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { Profile, ProfileDocument } from 'src/profile/schema/profile.schema';
 import { Account, AccountDocument } from 'src/account/schemas/account.schema';
@@ -105,113 +106,139 @@ export class DoctorService {
     };
   }
 
-  async createWithAccount(createDoctorDto: CreateDoctorDto, avatar?: Express.Multer.File) {
-    const dataRes: DataResponse<any> = { code: rc.PENDING, message: '', data: null };
+  // Admin-only provisioning: creates the full Account -> Profile -> Doctor chain atomically
+  // (Mongo transaction, so a mid-step failure leaves NO partial records). The account is
+  // created ACTIVE so the doctor can log in immediately with the emailed credentials.
+  async createWithAccount(
+    createDoctorDto: CreateDoctorDto,
+    avatar?: Express.Multer.File,
+  ): Promise<DataResponse<StaffCreationResponse>> {
+    const dataRes: DataResponse<StaffCreationResponse> = { code: rc.PENDING, message: '', data: null };
 
-    let profileDoc: any = null;
-    let accountDoc: any = null;
-    let savedDoctor: any = null;
-
-    try {
-      // check email uniqueness
-      const email = createDoctorDto.profile?.email;
-      if (!email) throw new Error('Doctor email is required');
-      const exists = await this.accountModel.exists({ email });
-      if (exists) throw new Error('Account with this email already exists');
-
-      // If avatar file provided, upload to Cloudinary first
-      let uploadedAvatarUrl: string | undefined;
-      if (avatar) {
-        uploadedAvatarUrl = await this.cloudinaryService.uploadFileBuffer(
-          avatar.buffer,
-          avatar.mimetype,
-          'profiles',
-        );
-      }
-
-      // create profile
-      profileDoc = await this.profileModel.create({
-        name: createDoctorDto.profile.name,
-        address: createDoctorDto.profile.address ?? '',
-        phone: createDoctorDto.profile.phone ?? '',
-        email: createDoctorDto.profile.email,
-        gender: createDoctorDto.profile.gender ?? '',
-        dob: createDoctorDto.profile.dob ? DateTimeHelper.toUtcDate(createDoctorDto.profile.dob) : null,
-        avatarUrl: uploadedAvatarUrl ?? createDoctorDto.profile.avatarUrl ?? '',
-      });
-
-      // generate random password
-      const rawPassword = crypto.randomBytes(6).toString('hex');
-      const hashed = await bcrypt.hash(rawPassword, 10);
-
-      // create account
-      accountDoc = await this.accountModel.create({
-        email: email,
-        password: hashed,
-        role: RoleEnum.DOCTOR,
-        profileId: profileDoc._id,
-        status: AccountStatusEnum.INACTIVE,
-      } as any);
-
-      // prepare doctor fields
-      const doctorPayload: any = {
-        profileId: profileDoc._id,
-        accountId: accountDoc._id,
-        doctorName: createDoctorDto.doctorName,
-        chuyenKhoaId: createDoctorDto.specialty ? new Types.ObjectId(createDoctorDto.specialty) : undefined,
-        bio: createDoctorDto.bio ?? undefined,
-        academic: createDoctorDto.academic ?? undefined,
-        achievements: createDoctorDto.achievements ?? undefined,
-        yearsOfExperience: createDoctorDto.yearsOfExperience ?? undefined,
-      };
-      if (createDoctorDto.degree) {
-        doctorPayload.degree = Array.isArray(createDoctorDto.degree) ? createDoctorDto.degree : [createDoctorDto.degree];
-      }
-
-      const doctorDoc = new this.doctorModel(doctorPayload);
-      savedDoctor = await doctorDoc.save();
-
-      // send email with raw password (let errors propagate to trigger rollback)
-      await this.mailService.sendAccountCreatedMail({ toEmail: email, password: rawPassword });
-
-      console.log('[DoctorService]: Created doctor with account password', rawPassword);
-
-      dataRes.code = rc.SUCCESS;
-      dataRes.message = 'Doctor created successfully';
-      dataRes.data = savedDoctor;
-      return dataRes;
-    } catch (error) {
-      // rollback created resources
-      const cleanupErrors: string[] = [];
-      try {
-        if (savedDoctor && savedDoctor._id) {
-          await this.doctorModel.deleteOne({ _id: savedDoctor._id });
-        }
-      } catch (e) {
-        cleanupErrors.push(`doctor:${e.message}`);
-      }
-      try {
-        if (accountDoc && accountDoc._id) {
-          await this.accountModel.deleteOne({ _id: accountDoc._id });
-        }
-      } catch (e) {
-        cleanupErrors.push(`account:${e.message}`);
-      }
-      try {
-        if (profileDoc && profileDoc._id) {
-          await this.profileModel.deleteOne({ _id: profileDoc._id });
-        }
-      } catch (e) {
-        cleanupErrors.push(`profile:${e.message}`);
-      }
-
-      console.error('[DoctorService] Rollback cleanup errors:', cleanupErrors);
-
-      dataRes.code = rc.ERROR;
-      dataRes.message = error.message || 'Error creating doctor';
-      dataRes.data = { cleanupErrors: cleanupErrors.length ? cleanupErrors : undefined };
-      return dataRes;
+    const email = createDoctorDto.profile?.email;
+    if (!email) {
+      return { code: rc.ERROR, message: 'Doctor email is required', data: null };
     }
+
+    // Fail fast with a clean message on duplicate email; the unique email index is the
+    // race-safe backstop (a concurrent insert throws inside the transaction -> rollback).
+    const exists = await this.accountModel.exists({ email });
+    if (exists) {
+      return { code: rc.ERROR, message: 'Account with this email already exists', data: null };
+    }
+
+    // Upload avatar (external side effect) BEFORE opening the transaction. An orphaned
+    // Cloudinary image on a later failure is acceptable and non-critical.
+    let uploadedAvatarUrl: string | undefined;
+    if (avatar) {
+      uploadedAvatarUrl = await this.cloudinaryService.uploadFileBuffer(
+        avatar.buffer,
+        avatar.mimetype,
+        'profiles',
+      );
+    }
+
+    const rawPassword = crypto.randomBytes(6).toString('hex');
+    const hashed = await bcrypt.hash(rawPassword, 10);
+
+    // Assigned inside the transaction closure; the success path below only runs if the
+    // transaction committed without throwing (definite-assignment via `!`).
+    let profileDoc!: ProfileDocument;
+    let accountDoc!: AccountDocument;
+    let savedDoctor!: DoctorDocument;
+
+    const session = await this.doctorModel.db.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const [profile] = await this.profileModel.create(
+          [
+            {
+              name: createDoctorDto.profile.name,
+              address: createDoctorDto.profile.address ?? '',
+              phone: createDoctorDto.profile.phone ?? '',
+              email: createDoctorDto.profile.email,
+              gender: createDoctorDto.profile.gender ?? '',
+              dob: createDoctorDto.profile.dob ? DateTimeHelper.toUtcDate(createDoctorDto.profile.dob) : null,
+              avatarUrl: uploadedAvatarUrl ?? createDoctorDto.profile.avatarUrl ?? '',
+            },
+          ],
+          { session },
+        );
+        profileDoc = profile;
+
+        const [account] = await this.accountModel.create(
+          [
+            {
+              email,
+              password: hashed,
+              role: RoleEnum.DOCTOR,
+              profileId: profile._id,
+              status: AccountStatusEnum.ACTIVE,
+            },
+          ],
+          { session },
+        );
+        accountDoc = account;
+
+        const doctorPayload: any = {
+          profileId: profile._id,
+          accountId: account._id,
+          doctorName: createDoctorDto.doctorName,
+          chuyenKhoaId: createDoctorDto.specialty ? new Types.ObjectId(createDoctorDto.specialty) : undefined,
+          bio: createDoctorDto.bio ?? undefined,
+          academic: createDoctorDto.academic ?? undefined,
+          achievements: createDoctorDto.achievements ?? undefined,
+          yearsOfExperience: createDoctorDto.yearsOfExperience ?? undefined,
+        };
+        if (createDoctorDto.degree) {
+          doctorPayload.degree = Array.isArray(createDoctorDto.degree) ? createDoctorDto.degree : [createDoctorDto.degree];
+        }
+        const [doctor] = await this.doctorModel.create([doctorPayload], { session });
+        savedDoctor = doctor;
+      });
+    } catch (error: any) {
+      // Transaction auto-rolled back — no partial Account/Profile/Doctor records remain.
+      console.error('[DoctorService] createWithAccount transaction failed:', error?.message);
+      return { code: rc.ERROR, message: error?.message || 'Error creating doctor', data: null };
+    } finally {
+      await session.endSession();
+    }
+
+    const profile = profileDoc;
+    const account = accountDoc;
+    const doctor = savedDoctor;
+
+    // Records are committed. Email the credentials best-effort: a mail failure must NOT
+    // roll back the DB records (admin can resend / reset later).
+    let emailSent = true;
+    try {
+      await this.mailService.sendAccountCreatedMail({ toEmail: email, password: rawPassword });
+    } catch (mailErr: any) {
+      emailSent = false;
+      console.error('[DoctorService] Failed to send account-created mail:', mailErr?.message);
+    }
+
+    dataRes.code = rc.SUCCESS;
+    dataRes.message = 'Doctor created successfully';
+    dataRes.data = {
+      account: {
+        id: account._id.toString(),
+        email: account.email,
+        role: account.role,
+        status: account.status,
+      },
+      profile: {
+        id: profile._id.toString(),
+        fullName: profile.name,
+        phone: profile.phone,
+      },
+      doctor: {
+        id: doctor._id.toString(),
+        specialtyId: doctor.chuyenKhoaId ? doctor.chuyenKhoaId.toString() : undefined,
+      },
+      emailSent,
+    };
+    return dataRes;
   }
 
 
