@@ -212,7 +212,11 @@ export class DoctorService {
     // roll back the DB records (admin can resend / reset later).
     let emailSent = true;
     try {
-      await this.mailService.sendAccountCreatedMail({ toEmail: email, password: rawPassword });
+      await this.mailService.sendAccountCreatedMail({
+        toEmail: email,
+        password: rawPassword,
+        role: RoleEnum.DOCTOR,
+      });
     } catch (mailErr: any) {
       emailSent = false;
       console.error('[DoctorService] Failed to send account-created mail:', mailErr?.message);

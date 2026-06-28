@@ -1,4 +1,5 @@
 import { MailService } from './mail.service';
+import { RoleEnum } from 'src/common/enum/role.enum';
 
 // 2026-06-22T02:30:00Z === 09:30 / 03:00:00Z === 10:00 in Asia/Ho_Chi_Minh (UTC+7).
 const SCHEDULED_AT = Date.UTC(2026, 5, 22, 2, 30, 0);
@@ -30,6 +31,42 @@ function bookingPayload(overrides: Record<string, any> = {}) {
     ...overrides,
   };
 }
+
+describe('MailService.sendAccountCreatedMail', () => {
+  it('uses the doctor credential subject and keeps the temporary password in the body', async () => {
+    const { service, mailerService } = makeMailService();
+
+    await service.sendAccountCreatedMail({
+      toEmail: 'doctor@hospital.test',
+      password: 'temp-pass-1',
+      role: RoleEnum.DOCTOR,
+    });
+
+    expect(mailerService.sendMail).toHaveBeenCalledTimes(1);
+    const sent = mailerService.sendMail.mock.calls[0][0];
+    expect(sent.subject).toBe('UTE Doctor - Thông tin tài khoản bác sĩ');
+    expect(sent.html).toContain('Tài khoản bác sĩ của bạn đã được tạo.');
+    expect(sent.html).toContain('doctor@hospital.test');
+    expect(sent.html).toContain('temp-pass-1');
+  });
+
+  it('uses the receptionist credential subject and role-specific body title', async () => {
+    const { service, mailerService } = makeMailService();
+
+    await service.sendAccountCreatedMail({
+      toEmail: 'receptionist@hospital.test',
+      password: 'temp-pass-2',
+      role: RoleEnum.RECEPTIONIST,
+    });
+
+    expect(mailerService.sendMail).toHaveBeenCalledTimes(1);
+    const sent = mailerService.sendMail.mock.calls[0][0];
+    expect(sent.subject).toBe('UTE Doctor - Thông tin tài khoản lễ tân');
+    expect(sent.html).toContain('Tài khoản lễ tân của bạn đã được tạo.');
+    expect(sent.html).toContain('receptionist@hospital.test');
+    expect(sent.html).toContain('temp-pass-2');
+  });
+});
 
 describe('MailService.sendPatientBookingSuccessMail', () => {
   it('formats the appointment time from epoch and never prints a raw epoch', async () => {

@@ -82,10 +82,17 @@ describe('ReceptionistService.createWithAccount', () => {
     await service.createWithAccount(baseDto() as any);
 
     const accountPayload = accountModel.create.mock.calls[0][0][0];
+    const mailPayload = mailService.sendAccountCreatedMail.mock.calls[0][0];
     expect(accountPayload.role).toBe(RoleEnum.RECEPTIONIST);
     expect(accountPayload.status).toBe(AccountStatusEnum.ACTIVE);
     expect(typeof accountPayload.password).toBe('string');
     expect(accountPayload.password.length).toBeGreaterThan(20);
+    expect(mailPayload).toMatchObject({
+      toEmail: 'anna@hospital.test',
+      role: RoleEnum.RECEPTIONIST,
+    });
+    expect(mailPayload.password).toHaveLength(12);
+    expect(mailPayload.password).not.toBe(accountPayload.password);
   });
 
   it('rejects a duplicate email and creates no records', async () => {

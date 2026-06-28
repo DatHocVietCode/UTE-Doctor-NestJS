@@ -3,6 +3,7 @@ import { Injectable } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { AssignmentStatus } from "src/appointment/enums/assignment-status.enum";
 import { ServiceType } from "src/appointment/enums/service-type.enum";
+import { RoleEnum } from "src/common/enum/role.enum";
 import type { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
 import { emitTyped } from "src/utils/helpers/event.helper";
 import {
@@ -15,6 +16,19 @@ const SERVICE_TYPE_LABELS: Record<ServiceType, string> = {
   [ServiceType.KHAM_BHYT]: 'Khám bảo hiểm y tế',
   [ServiceType.KHAM_DICH_VU]: 'Khám dịch vụ',
   [ServiceType.KHAM_ONLINE]: 'Khám trực tuyến',
+};
+
+type StaffAccountCreatedRole = RoleEnum.DOCTOR | RoleEnum.RECEPTIONIST;
+
+const ACCOUNT_CREATED_MAIL_COPY: Record<StaffAccountCreatedRole, { subject: string; intro: string }> = {
+  [RoleEnum.DOCTOR]: {
+    subject: 'UTE Doctor - Thông tin tài khoản bác sĩ',
+    intro: 'Tài khoản bác sĩ của bạn đã được tạo.',
+  },
+  [RoleEnum.RECEPTIONIST]: {
+    subject: 'UTE Doctor - Thông tin tài khoản lễ tân',
+    intro: 'Tài khoản lễ tân của bạn đã được tạo.',
+  },
 };
 
 @Injectable()
@@ -46,17 +60,22 @@ export class MailService {
     }
   }
 
-  async sendAccountCreatedMail(payload: { toEmail: string; password: string }) {
-    const { toEmail, password } = payload;
+  async sendAccountCreatedMail(payload: {
+    toEmail: string;
+    password: string;
+    role?: StaffAccountCreatedRole;
+  }) {
+    const { toEmail, password, role = RoleEnum.DOCTOR } = payload;
+    const copy = ACCOUNT_CREATED_MAIL_COPY[role];
     const html = `
       <h2>Xin chào,</h2>
-      <p>Tài khoản bác sĩ của bạn đã được tạo.</p>
+      <p>${copy.intro}</p>
       <p><b>Email:</b> ${toEmail}</p>
       <p><b>Mật khẩu tạm thời:</b> <code>${password}</code></p>
       <p>Vui lòng đăng nhập và đổi mật khẩu sau khi đăng nhập lần đầu.</p>
     `;
 
-    await this.sendMail(toEmail, 'Tài khoản bác sĩ - UTE Doctor', html);
+    await this.sendMail(toEmail, copy.subject, html);
   }
 
   /** === OTP === */

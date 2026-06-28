@@ -145,7 +145,11 @@ export class ReceptionistService {
 		// roll back the DB records (admin can resend / reset later).
 		let emailSent = true;
 		try {
-			await this.mailService.sendAccountCreatedMail({ toEmail: email, password: rawPassword });
+			await this.mailService.sendAccountCreatedMail({
+				toEmail: email,
+				password: rawPassword,
+				role: RoleEnum.RECEPTIONIST,
+			});
 		} catch (mailErr: any) {
 			emailSent = false;
 			console.error('[ReceptionistService] Failed to send account-created mail:', mailErr?.message);
