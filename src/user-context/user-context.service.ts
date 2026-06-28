@@ -6,6 +6,7 @@ import { RoleEnum } from "src/common/enum/role.enum";
 import { Doctor } from "src/doctor/schema/doctor.schema";
 import { Patient } from "src/patient/schema/patient.schema";
 import { Profile } from "src/profile/schema/profile.schema";
+import { Receptionist } from "src/receptionist/schema/receptionist.schema";
 
 @Injectable()
 export class UserContextService {
@@ -13,6 +14,7 @@ export class UserContextService {
     @InjectModel(Patient.name) private patientModel: Model<Patient>,
     @InjectModel(Doctor.name) private doctorModel: Model<Doctor>,
     @InjectModel(Profile.name) private profileModel: Model<Profile>,
+    @InjectModel(Receptionist.name) private receptionistModel: Model<Receptionist>,
   ) {}
 
   async getUserContext(account: AccountDocument) {
@@ -30,6 +32,11 @@ export class UserContextService {
         ? await this.doctorModel.findOne({ profileId: account.profileId }).lean() as (Doctor & { _id: string }) | null
         : null;
 
+    const receptionist =
+    account.role === RoleEnum.RECEPTIONIST
+        ? await this.receptionistModel.findOne({ profileId: account.profileId }).lean() as (Receptionist & { _id: string }) | null
+        : null;
+
 
     return {
       accountId: account._id.toString(),
@@ -37,6 +44,7 @@ export class UserContextService {
       profileId: account.profileId ?? null,
       patientId: patient?._id ?? null,
       doctorId: doctor?._id ?? null,
+      receptionistId: receptionist?._id ?? null,
       profile: profile ? {
         name: profile.name,
         phone: profile.phone,
