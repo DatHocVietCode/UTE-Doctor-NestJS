@@ -6,6 +6,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { existsSync } from 'fs';
 import { readFile } from 'fs/promises';
 import { resolve } from 'path';
 import { AskAppointmentBookingGuideDto } from './dto/ask-appointment-booking-guide.dto';
@@ -73,11 +74,27 @@ export class AppointmentBookingGuideService {
       return this.guideCache;
     }
 
+    const cwd = process.cwd();
+    const configuredGuidePath = this.configService
+      .get<string>('APPOINTMENT_BOOKING_GUIDE_PATH')
+      ?.trim();
     const guidePath = resolve(
-      process.cwd(),
-      this.configService.get<string>('APPOINTMENT_BOOKING_GUIDE_PATH') ||
-        GUIDE_RELATIVE_PATH,
+      cwd,
+      configuredGuidePath || GUIDE_RELATIVE_PATH,
     );
+    const guideExists = existsSync(guidePath);
+
+    // Keep the runtime asset path visible in Docker/EC2 logs without exposing secrets.
+    this.logger.log(
+      `Appointment booking guide load check: cwd=${cwd}; path=${guidePath}; exists=${guideExists}`,
+    );
+
+    if (!guideExists) {
+      this.logger.error(
+        `Appointment booking guide file is missing: cwd=${cwd}; path=${guidePath}`,
+      );
+      throw this.buildGuideConfigurationException('GUIDE_NOT_FOUND');
+    }
 
     try {
       const guide = await readFile(guidePath, 'utf8');
@@ -87,18 +104,30 @@ export class AppointmentBookingGuideService {
       this.guideCache = guide;
       return guide;
     } catch (error) {
+      const errorCode =
+        error instanceof Error && 'code' in error
+          ? String((error as NodeJS.ErrnoException).code)
+          : undefined;
       this.logger.error(
-        `Unable to load appointment booking guide from ${guidePath}`,
+        `Unable to load appointment booking guide: cwd=${cwd}; path=${guidePath}; exists=${guideExists}`,
         error instanceof Error ? error.stack : undefined,
       );
-      throw new InternalServerErrorException({
-        answer:
-          'Không thể tải tài liệu hướng dẫn đặt lịch. Vui lòng thử lại sau hoặc liên hệ bộ phận hỗ trợ.',
-        source: APPOINTMENT_BOOKING_GUIDE_SOURCE,
-        scope: APPOINTMENT_BOOKING_GUIDE_SCOPE,
-        error: 'APPOINTMENT_BOOKING_GUIDE_UNAVAILABLE',
-      });
+      throw this.buildGuideConfigurationException(
+        errorCode === 'ENOENT' ? 'GUIDE_NOT_FOUND' : 'CONFIGURATION_ERROR',
+      );
     }
+  }
+
+  private buildGuideConfigurationException(
+    error: 'GUIDE_NOT_FOUND' | 'CONFIGURATION_ERROR',
+  ): InternalServerErrorException {
+    return new InternalServerErrorException({
+      answer:
+        'Không thể tải tài liệu hướng dẫn đặt lịch. Vui lòng thử lại sau hoặc liên hệ bộ phận hỗ trợ.',
+      source: APPOINTMENT_BOOKING_GUIDE_SOURCE,
+      scope: APPOINTMENT_BOOKING_GUIDE_SCOPE,
+      error,
+    });
   }
 
   private normalizeQuestion(question: string): string {

@@ -1,5 +1,11 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import {
+  InternalServerErrorException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { AppointmentBookingGuideService } from './appointment-booking-guide.service';
 import {
   APPOINTMENT_BOOKING_GUIDE_SCOPE,
@@ -17,9 +23,28 @@ const createService = (values: Record<string, string | undefined> = {}) => {
   };
 };
 
+const originalCwd = process.cwd();
+const tempDirs: string[] = [];
+
+const useTempCwd = async (): Promise<string> => {
+  const tempDir = await mkdtemp(join(tmpdir(), 'booking-guide-'));
+  tempDirs.push(tempDir);
+  process.chdir(tempDir);
+  return tempDir;
+};
+
 describe('AppointmentBookingGuideService', () => {
-  afterEach(() => {
+  afterEach(async () => {
     jest.restoreAllMocks();
+    process.chdir(originalCwd);
+    await Promise.all(
+      tempDirs.splice(0).map((tempDir) =>
+        rm(tempDir, {
+          recursive: true,
+          force: true,
+        }),
+      ),
+    );
   });
 
   it('loads the Vietnamese appointment booking guide from disk', async () => {
@@ -28,6 +53,43 @@ describe('AppointmentBookingGuideService', () => {
     await expect(service.loadGuide()).resolves.toContain(
       'Hướng dẫn đặt lịch khám trong Doctor+',
     );
+  });
+
+  it('resolves the default guide path from the runtime working directory', async () => {
+    const tempRoot = await useTempCwd();
+    const guideDir = join(tempRoot, 'docs', 'ai');
+    await mkdir(guideDir, { recursive: true });
+    await writeFile(
+      join(guideDir, 'appointment-booking-guide.md'),
+      'Guide loaded from runtime cwd',
+      'utf8',
+    );
+    const { service } = createService();
+
+    await expect(service.loadGuide()).resolves.toBe(
+      'Guide loaded from runtime cwd',
+    );
+  });
+
+  it('returns GUIDE_NOT_FOUND when the runtime guide file is missing', async () => {
+    await useTempCwd();
+    const { service } = createService();
+    let thrown: unknown;
+
+    try {
+      await service.loadGuide();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(InternalServerErrorException);
+    expect(
+      (thrown as InternalServerErrorException).getResponse(),
+    ).toMatchObject({
+      error: 'GUIDE_NOT_FOUND',
+      source: APPOINTMENT_BOOKING_GUIDE_SOURCE,
+      scope: APPOINTMENT_BOOKING_GUIDE_SCOPE,
+    });
   });
 
   it('returns a clear configuration error when OPENAI_API_KEY is missing', async () => {
