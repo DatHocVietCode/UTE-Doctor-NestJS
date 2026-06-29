@@ -36,6 +36,7 @@ RUN apk add --no-cache \
 
 COPY --from=prod-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/docs ./docs
 COPY --chown=node:node package*.json ./
 COPY --chown=node:node public ./public
 
