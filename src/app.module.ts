@@ -20,6 +20,7 @@ import { AdminModule } from './admin/admin.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AppointmentModule } from './appointment/appointment.module';
+import { AssistantModule } from './assistant/assistant.module';
 import { AuthModule } from './auth/auth.module';
 import { ChatModule } from './chat/chat.module';
 import { CloudinaryModule } from './cloudinary/cloudinary.module';
@@ -67,6 +68,7 @@ import { VisitModule } from './visit/visit.module';
     OrchestrationModule,
 	  ShiftModule,
     AppointmentModule,
+    AssistantModule,
     PaymentModule,
     NotificationModule,
     TimeSlotModule,
