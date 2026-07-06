@@ -1,332 +1,350 @@
 # AGENTS.md
 
-This document summarizes the repository for humans and agentic tooling.
+Common repository guidance for humans and agentic tooling.
 
-## Project Structure
+Keep this file lightweight. It should contain stable, cross-cutting rules only.
 
-Top-level:
-- `src/` NestJS application source
-- `test/` Jest e2e tests and config
-- `public/` Static assets served by the app
-- `dist/` Build output (generated)
-- `migration-*.js` Data migration scripts
-- `README*.md`, `MIGRATION_GUIDE.md`, `SCHEMA_CATALOG.md`, `CLOUDINARY_SETUP.md` Project docs
-- `api-contract/README_CHAT_ARCHITECTURE.md` Chat architecture migration overview for FE/BE integration
-- `package.json`, `tsconfig*.json`, `eslint.config.mjs`, `.prettierrc` Tooling configs
+Feature-specific behavior, API contracts, business rules, migration notes, and ticket-specific decisions belong in `/docs` or `api-contract/`, not here.
 
-Key files in `src/`:
-- `src/main.ts` App bootstrap (CORS, pipes, static assets, global prefix)
-- `src/app.module.ts` Root module wiring
-- `src/app.controller.ts`, `src/app.service.ts` Base controller/service
+## Project Overview
 
-Feature modules (folders in `src/`):
-- `account`
-- `admin`
-- `appointment`
-- `auth`
-- `chat`
-- `chuyen-khoa`
-- `cloudinary`
-- `common`
-- `database`
-- `doctor`
-- `mail`
-- `medicine`
-- `news`
-- `notification`
-- `orchestration`
-- `patient`
-- `payment`
-- `post`
-- `prescription`
-- `profile`
-- `receptionist`
-- `review`
-- `shift`
-- `socket`
-- `tiep-tan`
-- `timeslot`
-- `user-context`
-- `utils`
-- `wallet`
+This repository is a NestJS backend application written in TypeScript.
 
-Common module layout patterns (varies by feature):
-- `*.module.ts`, `*.controller.ts`, `*.service.ts`
-- `dto/` request/response DTOs
-- `schemas/` Mongoose schemas
-- `enums/` or `enum/` domain enums
-- `listeners/` or `listenners/` event listeners
+Top-level structure:
 
-## How to Run
+- `src/` — application source code
+- `test/` — Jest e2e tests and config
+- `public/` — static assets
+- `dist/` — generated build output
+- `docs/` — feature notes, investigation reports, ticket plans, and business/domain documentation
+- `api-contract/` — FE/BE API contract submodule
+- `package.json`, `tsconfig*.json`, `eslint.config.mjs`, `.prettierrc` — tooling config
 
-Prerequisites:
-- Node.js + npm
-- MongoDB connection string
-- Environment variables (loaded from `.env` and optionally `.env.local`)
+Common source layout:
+
+- `*.module.ts`
+- `*.controller.ts`
+- `*.service.ts`
+- `dto/`
+- `schemas/`
+- `enums/` or `enum/`
+- `listeners/` or `listenners/`
+
+## Common Commands
 
 Install dependencies:
+
 ```bash
 npm install
 ```
 
-Development:
+Run development server:
+
 ```bash
 npm run start:dev
 ```
 
 Build:
+
 ```bash
 npm run build
 ```
 
-Production:
-```bash
-npm run start:prod
-```
+Run tests:
 
-Environment variables used in the repo (names only; values are sensitive):
-- `MONGO_DB_URI`, `PORT`
-- `JWT_SECRET`, `JWT_REFRESH_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN`
-- `MAIL_USER`, `MAIL_PASS`, `MAIL_HOST`, `MAIL_PORT`, `MAIL_FROM`
-- `OTP_EXPIRES`
-- `VN_PAY_TMNCODE`, `VN_PAY_HASHSECRET`, `VN_PAY_RETURNURL`
-- `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
-- `REDIS_HOST`, `REDIS_PORT`, `REDIS_DB`, `REDIS_PASSWORD`
-- `RABBITMQ_URL`, `RABBITMQ_ENABLED`
-- `CHAT_WRITE_MODE`, `CHAT_REALTIME_MODE`, `CHAT_QUEUE_MAX_RETRY`
-
-## How to Test
-
-Unit tests:
 ```bash
 npm run test
 ```
 
-Watch mode:
+Run tests in watch mode:
+
 ```bash
 npm run test:watch
 ```
 
-Coverage:
+Run coverage:
+
 ```bash
 npm run test:cov
 ```
 
-E2E tests:
+Run e2e tests:
+
 ```bash
 npm run test:e2e
 ```
 
-## Architecture Overview
+## Architecture Notes
 
-- Framework: NestJS (TypeScript) with a modular, feature-based structure.
-- HTTP App bootstrap in `src/main.ts`: global prefix `api`; CORS; global `ValidationPipe` (whitelist, transform, forbid non-whitelisted); static assets from `public/`.
-- Config: `@nestjs/config` with `.env` and `.env.local`.
-- Database: MongoDB via `@nestjs/mongoose` with async config from `MONGO_DB_URI`.
-- Auth: JWT via `@nestjs/jwt` (global module) and auth/account modules.
-- Events: `@nestjs/event-emitter` for domain events.
-- Real-time: WebSockets via `@nestjs/platform-socket.io` (`socket` module).
-- Integrations: Cloudinary, mailer (nodemailer), payment (VNPay), PDF generation (puppeteer), etc.
+- Framework: NestJS with modular feature-based structure.
+- Database: MongoDB via Mongoose.
+- Auth: JWT-based authentication.
+- Events: `@nestjs/event-emitter` is used for domain events where asynchronous side effects are needed.
+- Realtime: Socket.IO is used for realtime features.
+- Config: environment variables are loaded through Nest config.
 
-## Socket Architecture
+Treat source code as the source of truth for current behavior.
 
-- Socket.IO middleware handles authentication only.
-- Gateways handle connection lifecycle and namespace event routing only.
-- Services own business logic, including Redis-backed presence tracking.
-- Presence tracking uses `user:{userId}:devices` SET plus `online_users` for multi-device, multi-instance support.
-- TTL is a fallback safety net; the device set remains the source of truth.
-- Prefer reusable services and avoid duplicating JWT parsing or Redis commands in gateway handlers.
-- Future socket features such as notifications or booking sync should build on the same middleware -> gateway -> service split.
+Treat `/docs` and `api-contract/` as required context when investigating feature behavior or FE/BE contract behavior.
 
-Socket connection flow guidance (FE + BE):
-- Old flow (deprecated as global rule): connect -> `JOIN_ROOM` -> `ROOM_JOINED` -> business events.
-- New flow (current): connect with `handshake.auth.token` -> middleware auth gate -> gateway lifecycle/presence -> business events.
-- `JOIN_ROOM` remains required only for email-room namespaces (`/appointment`, `/payment/vnpay`, `/patient-profile`, `/notification`).
-- `/chat` should use chat-specific room events (`CHAT_JOIN_USER`, `CHAT_JOIN_CONVERSATION`) instead of relying on `JOIN_ROOM` as a handshake gate.
-- FE clients should emit `heartbeat` every 25-30 seconds on long-lived connections to refresh Redis presence TTL.
+## Scope Control
 
-## Coding Conventions (Inferred)
+Before starting work, identify:
 
-- Language: TypeScript throughout.
-- Nest conventions: Files named with `.module.ts`, `.controller.ts`, `.service.ts` and co-located per feature module.
-- DTOs & Validation: DTO classes in `dto/` use `class-validator` decorators; validated via global `ValidationPipe`.
-- Schemas: Mongoose schemas organized under `schemas/` within modules.
-- Enums: Domain enums under `enums/` or `enum/`.
-- Imports: Mix of relative and absolute `src/...` imports.
-- Testing: Unit tests use `*.spec.ts` (configured in Jest); e2e tests live in `test/*.e2e-spec.ts`.
-- Formatting/Linting: Prettier prefers single quotes and trailing commas; ESLint uses `typescript-eslint` and `eslint-plugin-prettier`.
+- What is in scope.
+- What is out of scope.
+- Whether the task is investigation only, planning only, implementation, or verification.
 
-## Refactoring Goals
+Do not implement code unless the user explicitly asks for implementation.
 
-- Simplify architecture by removing unnecessary event-driven patterns
-- Prefer direct service-to-service calls over event emitters unless truly asynchronous
-- Standardize authentication using JWT
-- Remove passing userId/email manually in request body or params
-- Separate reward points (`coin`) from monetary value (`credit`) to avoid financial ambiguity
+If the user asks for investigation or planning only, write reports/plans only.
+
+## Search Before Concluding
+
+For investigation tasks:
+
+- Search source code before making claims.
+- Search tests when behavior may already be covered.
+- Search `/docs` and `api-contract/` when the task involves business behavior, FE/BE contracts, socket payloads, payment, notification, scheduling, or lifecycle state.
+- Treat `/docs` as context, but treat current source code as the source of truth for current behavior.
+- Do not say “not found”, “not implemented”, or “no references” unless relevant repository-wide searches were performed.
+
+## Evidence-First Investigation
+
+A useful investigation traces actual behavior, not just possible causes.
+
+Always identify relevant:
+
+- Entrypoints: controller, service, listener, consumer, scheduler, gateway, or job.
+- State changes.
+- Database writes.
+- Events emitted.
+- Async/background side effects.
+- Notifications or realtime emissions.
+- Payment/refund/wallet effects, when relevant.
+- Query/read paths used by the user-facing screen.
+- Existing tests and missing test coverage.
+
+Prefer concrete file paths, class names, function names, and line numbers where available.
+
+Do not present a root cause without code evidence.
+
+## Compare Against Reference Flow
+
+When a similar working flow exists, trace both flows.
+
+Use a side-by-side comparison:
+
+| Step | Reference Flow | Investigated Flow | Gap | Evidence |
+|---|---|---|---|---|
+
+The comparison should explain:
+
+- What the working/reference flow does.
+- What the investigated flow does.
+- Which side effects or state transitions differ.
+- Why that difference explains the user-visible symptom.
+
+Do not stop at hypothesis ranking. Hypotheses are only useful if they lead to traced evidence.
+
+## Ambiguity and Terminology Handling
+
+Do not silently choose default interpretations for domain, contract, or product behavior.
+
+When user terminology does not map cleanly to backend terminology:
+
+1. List the candidate backend flows.
+2. Trace each candidate enough to determine whether it matches the observed symptoms.
+3. Use observed side effects to rank the best-matching flow.
+4. Clearly separate:
+   - confirmed code behavior,
+   - recommended interpretation,
+   - unresolved product/domain questions.
+
+If one candidate flow uniquely explains the observed symptoms, state the root cause for that candidate clearly.
+
+Do not let terminology ambiguity turn an evidence-backed technical root cause into vague speculation.
+
+For planning-only tasks:
+
+- You may recommend the safest implementation direction.
+- Label product/domain assumptions explicitly.
+- Provide an alternate plan if the assumption is rejected.
+
+For implementation tasks:
+
+- If ambiguity affects user-facing behavior, contract semantics, permissions, money, or lifecycle state, stop and ask before changing code.
+
+## Root Cause Standard
+
+A valid root cause must include:
+
+- The exact code path where the problem happens.
+- The missing or incorrect state transition, write, event, query condition, or side effect.
+- Why other observed behavior can still work.
+- Why the user-visible symptom follows from the code behavior.
+- Evidence that rules out weaker hypotheses.
+
+Example standard:
+
+> Notification works because flow A emits event X.  
+> Refund works because flow A emits event Y.  
+> The screen remains stale because query Z reads stored field Q, and flow A never updates Q.
+
+## Implementation Plan Quality
+
+A useful implementation plan must be actionable.
+
+Include:
+
+- Recommended fix path.
+- Why it is preferred.
+- Minimal safe alternative.
+- Files/classes/functions likely to change.
+- Tests to add or update.
+- Regression risks.
+- Contract or FE-impact notes.
+- Open questions that block implementation, if any.
+
+Avoid producing only:
+
+- hypothesis lists,
+- rank-only conclusions,
+- vague “check service logic” steps,
+- purely conditional plans with no recommended path.
+
+If the investigation found a concrete code gap, the plan must say how to close that gap.
+
+## Shared Logic Preference
+
+When fixing lifecycle/state-machine bugs, prefer reusing or extracting shared transition logic instead of duplicating partial behavior across flows.
+
+Before adding new logic, check whether an existing canonical flow already performs the correct transition.
+
+A good plan should explicitly decide between:
+
+- reusing/extracting existing canonical logic,
+- applying a minimal localized fix,
+- adding a new domain path.
+
+Explain the tradeoff.
+
+## Coding Rules
+
+- Follow existing NestJS module/controller/service patterns.
+- Keep DTO validation with `class-validator`.
+- Use existing schemas, enums, and shared utilities where possible.
+- Prefer consistent user identity from authenticated request context instead of manually passing userId/email through request bodies.
+- Do not introduce duplicate business logic if an existing service already owns the behavior.
+- Keep comments concise and explain intent, fallback behavior, or invariants. Do not restate obvious code.
 
 ## Authentication Rules
 
-- All protected endpoints must use JWT guard
-- User identity must be extracted from request context (req.user)
-- Do NOT pass userId/email manually between layers
+- Protected endpoints must use JWT guard.
+- User identity should come from `req.user` or the established auth context.
+- Do not trust user identity passed manually from request body or params unless the endpoint explicitly requires admin-style lookup behavior.
 
-## Execution Simulation Rules
+## Time Handling Rules
 
-- After implementing changes:
-  - Simulate running `npm run start:dev`
-  - Simulate API calls for modified endpoints
-  - Predict possible runtime errors
+- Prefer ISO 8601 datetime values with timezone for incoming API payloads.
+- Convert datetime values to UTC before business logic.
+- Store durable schedule timestamps as UTC-safe values, preferably epoch milliseconds where the domain already follows that pattern.
+- Avoid mixing local date strings into business logic.
+- When touching existing time-sensitive logic, inspect current docs and migration notes before changing behavior.
 
-## User Normalization Rules
+## API Contract Rules
 
-- All user data must be normalized to AuthUser at entry points (HTTP, WebSocket)
-- Do NOT pass raw JWT payload deeper into the system
-- Always use a consistent user shape across layers
+- `api-contract/` is a separate submodule and is the source of truth for FE integration contracts.
+- Do not duplicate full API contracts inside this file.
+- When a change affects FE payloads, endpoint behavior, socket payloads, or response shape, update the contract in `api-contract/` as required by the task.
+- If `api-contract/` is edited, commit and push the submodule separately when the workflow requires it.
 
-## Datetime Rules
+## Documentation Rules
 
-- NEVER accept datetime values without timezone information.
-- All incoming datetime values must be ISO 8601 with timezone (`Z` or `+/-HH:mm`).
-- ALWAYS convert datetime to UTC before business logic.
-- ALWAYS store datetime as epoch milliseconds in persistence models when possible.
-- NEVER mix local time strings in business logic.
-- For temporary backward compatibility only, legacy datetime without timezone may fallback to `Asia/Ho_Chi_Minh` and must log `[TimeWarning]`.
-- Register Shift MUST use `startTime` and `endTime` (ISO with timezone); NEVER use `YYYY-MM-DD` date-only payload for scheduling APIs.
+Use `/docs` for:
 
-## Time Handling Strategy
+- Ticket investigation reports.
+- Root-cause analysis.
+- Implementation plans.
+- Feature-specific business rules.
+- Migration notes.
+- Contract explanations that are too detailed for this file.
 
-- All appointment schedule times are stored as epoch milliseconds in UTC.
-- `scheduledAt` is the single source of truth for an appointment's scheduled time.
-- `startTime` and `endTime` are snapshot fields persisted at booking/reschedule time.
-- `shift` and `timeSlot` remain reference data only and must not be used to compute appointment time after booking.
-- Frontend is responsible for timezone rendering; APIs return UTC epoch values.
-- During migration, legacy records may fall back to `date`, but new writes must populate `scheduledAt`.
+Suggested ticket structure:
 
-## Commenting Rule
+```text
+docs/ticket-<ticket-id>/
+  INVESTIGATION.md
+  PLAN.md
+  TEST_PLAN.md
+```
 
-- From now on, every code change must include concise comments for new or modified logic blocks when the behavior is not immediately obvious.
-- Prefer comments that explain intent, fallback behavior, or invariants rather than restating the code.
+If no ticket ID exists, use a descriptive folder name.
 
-## Payment TTL Rules
+## Investigation Report Template
 
-- Redis slot-lock TTL and pending booking expiration MUST match VNPay expiry window.
-- Source of truth is `VN_PAY_EXPIRE_MINUTES` (default 15).
-- Do NOT hardcode independent TTL values for booking lock/pending cleanup.
+Use this structure when writing investigation reports:
 
-## Wallet Domain Separation Rules
+```md
+# Investigation Report
 
-- `Credit` is financial value (money-equivalent) and must be used for payment/refund accounting.
-- `Coin` is reward value and must only be used as discount, never as full payment.
-- Coin discount policy is percentage-based with per-transaction cap.
-- Coin ledger must support expiration (`expiresAt`) and expired coin must be excluded from available balance.
-- Coin cannot be converted to credit and cannot be withdrawn.
-- Booking APIs must return amount breakdown (`originalAmount`, `discountAmount`, `finalAmount`) for FE display consistency.
-- Refund flows (cancel/shift-cancel) should credit `CreditWallet`, not `CoinWallet`.
+## 1. Scope
 
-## Chat Messaging Migration Rules
+## 2. Reproduction / Simulation
 
-- Chat message pipeline is migrating incrementally to queue-based processing; keep backward compatibility at every phase.
-- Queue name for message-created events is `chat.message.created`.
-- Default mode is dual-write (`CHAT_WRITE_MODE=dual`):
-  - Gateway writes message to MongoDB (safe path)
-  - Gateway also publishes event to RabbitMQ for validation/observability
-- Worker mode (`CHAT_WRITE_MODE=worker`) is asynchronous:
-  - Gateway publishes message event and ACKs early
-  - Consumer persists message, updates conversation snapshot, and handles retries
-- Realtime fanout mode:
-  - `CHAT_REALTIME_MODE=direct`: gateway emits socket events directly (legacy-safe)
-  - `CHAT_REALTIME_MODE=redis`: worker publishes to Redis channel and gateway fans out from pub/sub
-- Keep `clientMessageId` idempotency protection enabled (unique sparse index + duplicate skip in worker).
-- Typing/presence events are realtime-only and must not go through RabbitMQ.
+## 3. Symptom
 
-## API Contract Submodule Rules
+## 4. Expected Behavior
 
-- `api-contract/` is a separate submodule and the source of truth for FE integration contracts.
-- After ANY edit in `api-contract/` (for example `api-contract/api.md`), you MUST commit and push that submodule immediately.
-- Do NOT delay contract-submodule push until BE root changes are ready; FE integration depends on latest submodule state.
-- When sharing updates with FE, always provide the pushed submodule branch and latest commit hash.
+## 5. Candidate Flows / Terminology Mapping
 
-## Unified Notification Architecture Rules
+## 6. Current Investigated Flow
 
-- Notification realtime must use one socket event: `NOTIFICATION_RECEIVED`.
-- Preferred notification namespace for FE bell/realtime center is `/notification`.
-- Payload contract must be typed discriminated union (`NotificationPayload`) with:
-  - `type`
-  - `data` (domain DTO, no flattening)
-  - `createdAt` (epoch ms UTC)
-  - `recipientEmail`
-  - `idempotencyKey`
-- Notification processing flow must be asynchronous:
-  - domain listener -> RabbitMQ queue `notification.jobs`
-  - queue consumer -> notification handler registry
-  - handler -> Mongo persistence + Redis publish
-  - socket bridge -> emit `NOTIFICATION_RECEIVED`
-- Avoid switch-case in notification processing and FE rendering; use handler registry pattern keyed by `type`.
-- Keep backward compatibility for old domain-specific socket events temporarily, but treat them as deprecated.
+## 7. Reference Flow
 
-## Billing and Medication Dispensing Rules
+## 8. Side-by-Side Comparison
 
-### Data Model Separation
-- **Encounter Prescriptions** (clinical intent): Doctor issues prescriptions during visit completion. Each prescription item includes:
-  - `medicineId`, `name`, `quantity` (original doctor input)
-  - `prescribedQty` (normalized prescription quantity)
-  - `unitPriceSnapshot` (medicine price at time of prescription, for billing reference only)
-  - `estimatedLineTotal` (prescribedQty * unitPriceSnapshot, for clinical reference)
-- **Billing Medications** (financial fulfillment): Snapshot of medicines and actual dispensing at billing finalization. Each medication includes:
-  - `medicineId`, `medicineName`
-  - `prescribedQty` (from doctor order)
-  - `dispensedQty` (receptionist-confirmed quantity actually dispensed, initially defaults to prescribedQty)
-  - `unitPrice` (snapshot from billing creation, never changes after FINALIZED)
-  - `source` (CLINIC or OUTSIDE_PURCHASE)
-  - `lineTotal` (dispensedQty * unitPrice if source=CLINIC, else 0)
-- **Immutability Rule**: After billing status becomes FINALIZED, medications[] snapshot is immutable. Doctor edits to encounter prescriptions must NOT affect finalized billing.
+| Step | Reference Flow | Investigated Flow | Gap | Evidence |
+|---|---|---|---|---|
 
-### Draft Billing Creation (after visit completion)
-- Billing draft is created automatically when doctor completes visit (via `domain.visit.completed` event).
-- Medications[] populated from encounter prescriptions with defaults:
-  - dispensedQty = prescribedQty
-  - source = CLINIC
-  - lineTotal = prescribedQty * unitPrice (from snapshot)
-- This is NOT yet authoritative billing; it is a draft for receptionist refinement.
+## 9. Root Cause
 
-### Receptionist Fulfillment Workflow
-- Receptionist accesses draft billing and can adjust medication fulfillment before finalization:
-  - Change `dispensedQty` per medicine (e.g., ran out, patient declined, etc.)
-  - Change `source` to OUTSIDE_PURCHASE if patient bought medicine outside clinic
-  - Adjust consultation fee if required (optional, not automated)
-- During finalization, receptionist provides fulfillment input:
-  ```
-  {
-    medications: [
-      { medicineId, dispensedQty, source },
-      ...
-    ]
-  }
-  ```
+## 10. Confirmed Gaps
 
-### Billing Finalization
-- Receptionist initiates finalization with fulfillment input.
-- System applies fulfillment to medications[], recalculating lineTotal:
-  - If source = OUTSIDE_PURCHASE: lineTotal = 0 (patient paid outside, no clinic revenue)
-  - If dispensedQty = 0: lineTotal = 0 (not dispensed)
-  - Otherwise: lineTotal = dispensedQty * unitPrice
-- Medication fee recomputed as sum of medications[].lineTotal
-- Total amount, insurance, deposit, credit, coin, and final payable recalculated
-- Billing status transitions to FINALIZED (immutable snapshot created)
-- Payment created and can proceed
+## 11. Ruled-Out Hypotheses
 
-### Scope Limitations (Intentional Non-Implementation)
-- **No inventory management**: Do not track clinic stock levels or implement reservation logic.
-- **No pharmacy transaction ledger**: Do not create transaction history for partial dispense tracking.
-- **No stock allocation algorithms**: Dispense decision is receptionist manual choice only, not system-driven.
-- Billing workflow scope is limited to receptionist-controlled fulfillment for financial accuracy, not inventory.
+## 12. Recommended Implementation Plan
 
-### Price Snapshot Immutability
-- `unitPriceSnapshot` in encounter prescriptions created at visit completion time.
-- `unitPrice` in billing.medications[] frozen at draft creation time.
-- Future changes to Medicine.unitPrice do NOT affect historical encounters or finalized billings.
-- This prevents pricing drift and audit disputes.
+## 13. Minimal Safe Alternative
 
-Notes:
-- Some folders and filenames are in kebab-case, including Vietnamese names (e.g., `chuyen-khoa`, `tiep-tan`).
-- There is mixed usage of single and double quotes in the codebase; lint/format settings indicate the preferred style is single quotes.
+## 14. Test Plan
+
+## 15. Risks / Open Questions
+```
+
+## Testing Rules
+
+After implementation, run the most relevant tests when possible.
+
+At minimum, identify:
+
+- Unit tests to add or update.
+- E2E or integration tests to add or update.
+- Manual verification steps.
+- Runtime risks that tests may not catch.
+
+If tests cannot be run, state what was not run and why.
+
+## Final Response Rules
+
+When finishing a task, summarize:
+
+- What was investigated or changed.
+- Key evidence.
+- Root cause or confirmed gap.
+- Recommended implementation direction.
+- Files changed, if any.
+- Tests run or not run.
+- Remaining uncertainty.
+
+Do not include hidden scratch notes, leaked tool-call tags, or unfinished TODOs in final output.
