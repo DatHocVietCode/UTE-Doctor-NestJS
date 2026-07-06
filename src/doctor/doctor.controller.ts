@@ -10,6 +10,9 @@ import { UpdateDoctorDto } from 'src/doctor/dto/update-doctor.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import * as multer from 'multer';
 import { JwtAuthGuard } from 'src/common/guards/jws-auth.guard';
+import { RoleGuard } from 'src/common/guards/role.guard';
+import { Roles } from 'src/common/guards/roles.decorator';
+import { RoleEnum } from 'src/common/enum/role.enum';
 import { AuthUser } from 'src/common/interfaces/auth-user';
 
 @Controller('doctors')
@@ -21,7 +24,12 @@ export class DoctorController {
       return this.doctorService.findActiveDoctors(query);
     }
 
+  // Admin-only. Doctor provisioning was previously public; the canonical route is now
+  // POST /admin/doctors (AdminUserController) but this endpoint stays for compatibility,
+  // locked behind the same admin guard. Both delegate to DoctorService.createWithAccount.
   @Post()
+  @UseGuards(JwtAuthGuard, RoleGuard)
+  @Roles(RoleEnum.ADMIN)
   @UseInterceptors(FileInterceptor('avatar', { storage: multer.memoryStorage() }))
   async createDoctor(
     @Body() body: any,

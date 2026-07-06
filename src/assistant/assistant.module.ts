@@ -1,10 +1,23 @@
 import { Module } from '@nestjs/common';
+import { ChuyenKhoaModule } from 'src/chuyen-khoa/chuyenkhoa.module';
+import { DoctorModule } from 'src/doctor/doctor.module';
 import { AssistantController } from './assistant.controller';
+import { AssistantAvailabilityService } from './assistant-availability.service';
+import { AppointmentBookingGuideService } from './appointment-booking-guide.service';
+import { AvailabilityIntentParser } from './availability-intent.parser';
+import { AvailabilityLookupService } from './availability-lookup.service';
 import { AssistantService } from './assistant.service';
 
 @Module({
+  imports: [DoctorModule, ChuyenKhoaModule],
   controllers: [AssistantController],
-  providers: [AssistantService],
-  exports: [AssistantService],
+  providers: [
+    AppointmentBookingGuideService,
+    AssistantAvailabilityService,
+    AvailabilityIntentParser,
+    AvailabilityLookupService,
+	AssistantService
+  ],
+	exports: [AssistantService],
 })
 export class AssistantModule {}

@@ -1,7 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import moment from 'moment';
 import { GlobalConfig, HashAlgorithm, VNPay } from 'vnpay';
-import { VNPAY_EXPIRE_MINUTES } from './vnpay-timeout.config';
+import { VNPAY_EXPIRE_MINUTES, VNPAY_TIMEZONE, VNPAY_UTC_OFFSET_HOURS } from './vnpay-timeout.config';
 
 export type PaymentResultStatus = 'COMPLETED' | 'FAILED';
 
@@ -20,6 +20,8 @@ export interface VnpayReturnResult {
 
 @Injectable()
 export class VnPayPaymentService {
+  private readonly logger = new Logger(VnPayPaymentService.name);
+
   private vnpay = new VNPay({
     tmnCode: process.env.VN_PAY_TMNCODE!,
     secureSecret: process.env.VN_PAY_HASHSECRET!,
@@ -33,34 +35,50 @@ export class VnPayPaymentService {
       // VNPay expects a stable reference; billingId is now the canonical txnRef for payment callbacks.
       const ipAddr = this.extractIPv4(ip);
       const amountVnd = Math.max(0, Math.floor(amount || 0));
+      const returnUrl = process.env.VN_PAY_RETURNURL!;
+
+      // VNPay's gateway runs on Vietnam time (UTC+7). Format the timestamps with an explicit
+      // offset so they are correct regardless of the server/container timezone (EC2 Docker = UTC).
+      const nowVn = moment().utcOffset(VNPAY_UTC_OFFSET_HOURS);
+      const createDate = nowVn.format('YYYYMMDDHHmmss');
+      const expireDate = nowVn
+        .clone()
+        .add(VNPAY_EXPIRE_MINUTES, 'minutes')
+        .format('YYYYMMDDHHmmss');
 
       const paymentParams = {
         vnp_Amount: amountVnd,
         vnp_IpAddr: ipAddr,
         vnp_TxnRef: txnRef,
         vnp_OrderInfo: orderInfo ?? `Thanh toan hoa don ${txnRef}`,
-        vnp_ReturnUrl: process.env.VN_PAY_RETURNURL!,
-        vnp_CreateDate: Number(moment().format("YYYYMMDDHHmmss")),
-        vnp_ExpireDate: Number(moment().add(VNPAY_EXPIRE_MINUTES, "minutes").format("YYYYMMDDHHmmss")),
+        vnp_ReturnUrl: returnUrl,
+        vnp_CreateDate: Number(createDate),
+        vnp_ExpireDate: Number(expireDate),
         vnp_CurrCode: "VND" as GlobalConfig['vnp_CurrCode'],
         vnp_Locale: "vn" as GlobalConfig['vnp_Locale'],
         vnp_OrderType: "other" as GlobalConfig['vnp_OrderType'],
         vnp_BankCode: "NCB"
       };
 
-      console.log("VNPay Parameters:", paymentParams);
-      
+      // Diagnostic log: never logs the hash secret; the secure hash is computed inside
+      // buildPaymentUrl AFTER every param above is finalized.
+      this.logger.log(
+        `Building VNPay URL | txnRef=${txnRef} | amountVnd=${amountVnd} | returnUrl=${returnUrl} | ` +
+          `createDate=${createDate} | expireDate=${expireDate} | expireMinutes=${VNPAY_EXPIRE_MINUTES} | ` +
+          `tz=${VNPAY_TIMEZONE} (UTC+${VNPAY_UTC_OFFSET_HOURS}) | serverUtcOffsetMin=${moment().utcOffset()}`,
+      );
+
       const url = this.vnpay.buildPaymentUrl(paymentParams);
 
       if (!url) {
         throw new Error('buildPaymentUrl returned empty URL');
       }
 
-      console.log("Generated VnPay URL:", url);
+      this.logger.debug(`Generated VNPay URL | txnRef=${txnRef} | url=${url}`);
       return url;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      console.error("❌ VNPay Payment Error:", error);
+      this.logger.error(`VNPay payment URL error | txnRef=${txnRef} | ${errorMsg}`);
       throw new BadRequestException(`Failed to create payment URL: ${errorMsg}`);
     }
   }

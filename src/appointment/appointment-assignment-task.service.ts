@@ -429,7 +429,7 @@ export class AppointmentAssignmentTaskService {
     // --- 1. Load + validate task (ownership/state) ---
     const task = await this.taskModel
       .findById(taskId)
-      .select('status acceptedByReceptionistId appointmentId')
+      .select('status acceptedByReceptionistId appointmentId specialty')
       .lean();
     if (!task) {
       this.throwBlocked('TASK_NOT_FOUND', 'Assignment task not found', true);
@@ -589,6 +589,13 @@ export class AppointmentAssignmentTaskService {
       timeSlotId: input.timeSlotId,
       scheduledAt: window.scheduledAt,
       patientEmail: finalAppt.patientEmail,
+      // Optional human-readable context for the patient notification text (epoch stays epoch).
+      doctorName: payload.doctorName ?? undefined,
+      hospitalName: finalAppt.hospitalName || undefined,
+      startTime: window.startTime,
+      endTime: window.endTime,
+      serviceType: finalAppt.serviceType,
+      specialty: task!.specialty ?? undefined,
     });
 
     this.logger.log(`[Assignment] task=${taskId} assigned doctor=${input.doctorId} slot=${input.timeSlotId}`);

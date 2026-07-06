@@ -68,6 +68,7 @@ import { VisitModule } from './visit/visit.module';
     OrchestrationModule,
 	  ShiftModule,
     AppointmentModule,
+    AssistantModule,
     PaymentModule,
     NotificationModule,
     TimeSlotModule,

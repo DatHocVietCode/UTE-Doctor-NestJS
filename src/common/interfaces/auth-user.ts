@@ -6,6 +6,7 @@ export interface AuthUser {
   role?: RoleEnum | string;
   patientId?: string | null;
   doctorId?: string | null;
+  receptionistId?: string | null;
   profileId?: string | null;
   sub?: string;
   iat?: number;

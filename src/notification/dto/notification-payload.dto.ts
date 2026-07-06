@@ -88,12 +88,20 @@ export type AssignmentTaskExpiredDto = {
 };
 
 // Patient-facing: a receptionist assigned a doctor/slot to a broad appointment.
+// Time fields stay epoch ms (contract); the extra context fields are optional and
+// only used to build readable notification text.
 export type AppointmentDoctorAssignedDto = {
   appointmentId: string;
   doctorId: string;
   timeSlotId: string;
   scheduledAt: number;
   patientEmail?: string;
+  doctorName?: string;
+  hospitalName?: string;
+  startTime?: number;
+  endTime?: number;
+  serviceType?: string;
+  specialty?: string;
 };
 
 export type AppointmentRescheduledNotificationDto = {
