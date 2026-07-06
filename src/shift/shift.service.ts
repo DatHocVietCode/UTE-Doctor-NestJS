@@ -3,6 +3,8 @@ import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { AppointmentStatus } from "src/appointment/enums/Appointment-status.enum";
+import { CancellationActor } from "src/appointment/enums/cancellation-actor.enum";
+import { CancellationReasonCode } from "src/appointment/enums/cancellation-reason-code.enum";
 import { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
 import { Appointment, AppointmentDocument } from "src/appointment/schemas/appointment.schema";
 import { DataResponse } from "src/common/dto/data-respone";
@@ -480,11 +482,32 @@ export class ShiftService {
         console.log(`[ShiftService] Có ${affectedAppointments.length} lịch hẹn bị ảnh hưởng bởi hủy ca.`);
 
         for (const appt of affectedAppointments) {
+          const appointmentId = appt._id?.toString?.() ?? String(appt._id);
+          const appointmentCancelUpdate = await this.appointmentModel.updateOne(
+            {
+              _id: appt._id,
+              appointmentStatus: { $in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED] },
+            },
+            {
+              $set: {
+                appointmentStatus: AppointmentStatus.CANCELLED,
+                cancelledAt: Date.now(),
+                cancellationActor: CancellationActor.DOCTOR,
+                cancellationReasonCode: CancellationReasonCode.DOCTOR_SHIFT_CANCELLED,
+                cancellationReason: reason || 'Doctor shift cancelled',
+              },
+            },
+          );
+          if (appointmentCancelUpdate.matchedCount !== 1) {
+            console.warn(`[ShiftService] Skip side effects for appointment ${appointmentId}: cancellation update did not match an active appointment`);
+            continue;
+          }
+
           const shiftDateText = Number.isFinite(shift.startTimeEpoch)
             ? this.getShiftDateKeyFromEpoch(shift.startTimeEpoch)
             : (DateTimeHelper.toUtcDateOnlyString(shift.date) ?? String(shift.date));
           const payload = {
-            appointmentId: appt._id?.toString?.() ?? String(appt._id),
+            appointmentId,
             patientEmail: appt.patientEmail,
             doctorEmail: user?.email,
             doctorName: (appt as any).doctorId?.doctorName ?? undefined,
@@ -513,7 +536,7 @@ export class ShiftService {
           }
 
           this.eventEmitter.emit('wallet.refund.shift.cancelled', {
-            appointmentId: appt._id?.toString?.() ?? String(appt._id),
+            appointmentId,
             patientId: appt.patientId?.toString?.() ?? String(appt.patientId),
             refundAmount,
             reason: `Hoàn tiền do bác sĩ hủy ca${reason ? `: ${reason}` : ''}`,

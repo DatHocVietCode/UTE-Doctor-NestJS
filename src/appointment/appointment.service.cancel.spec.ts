@@ -63,7 +63,7 @@ function createAppointment(overrides: Record<string, any> = {}) {
   };
 }
 
-function createDepositPayment(overrides: Record<string, any> = {}) {
+function createDepositPayment(overrides: Record<string, any> = {}): any {
   return {
     status: PaymentFlowStatusEnum.SUCCESS,
     save: jest.fn().mockResolvedValue(undefined),
@@ -243,7 +243,7 @@ function createTimeoutService(input: {
 async function expectBlocked(service: AppointmentService, blockedReason: string) {
   await expect(service.cancelAppointment(appointmentId, undefined, patientUser)).rejects.toMatchObject({
     response: { data: { blockedReason } },
-  } as BadRequestException);
+  } as unknown as BadRequestException);
 }
 
 describe('AppointmentService.cancelAppointment', () => {

@@ -146,6 +146,29 @@ describe('notification audience ownership', () => {
     });
   });
 
+  it('shift cancellation notification keeps the affected appointment id', async () => {
+    const publisher = { publish: jest.fn().mockResolvedValue(undefined) };
+    const listener = new AppointmentNotificationListener(publisher as any);
+
+    await listener.handlePatientShiftCancelled({
+      appointmentId: 'appt-1',
+      patientEmail: 'Patient@X.com',
+      doctorName: 'Dr Smith',
+      date: '2026-06-15',
+      timeSlot: 'slot-1',
+      hospitalName: 'UTE Clinic',
+      reason: 'doctor unavailable',
+    });
+
+    expect(publisher.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'APPOINTMENT_CANCELLED',
+        data: expect.objectContaining({ appointmentId: 'appt-1' }),
+        idempotencyKey: 'APPOINTMENT_CANCELLED:appt-1:patient@x.com',
+      }),
+    );
+  });
+
   it('cancel appointment stores patient and doctor role-specific content', async () => {
     const { write, redis, eventEmitter } = createHandlerMocks();
     const handler = new AppointmentCancelledNotificationHandler(
