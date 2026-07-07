@@ -1,11 +1,19 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/common/guards/jws-auth.guard';
+import { DataResponse } from 'src/common/dto/data-respone';
+import { ResponseCode } from 'src/common/enum/reponse-code.enum';
 import { AppointmentBookingGuideService } from './appointment-booking-guide.service';
 import { AppointmentBookingGuideResponse } from './appointment-booking-guide.types';
 import { AssistantAvailabilityService } from './assistant-availability.service';
 import { AssistantAvailabilityResponse } from './availability.types';
+import { AssistantService } from './assistant.service';
 import { AskAvailabilityDto } from './dto/ask-availability.dto';
 import { AskAppointmentBookingGuideDto } from './dto/ask-appointment-booking-guide.dto';
+import {
+  AssistantChatRequestDto,
+  AssistantChatResponseDto,
+  AssistantMode,
+} from './dto/assistant-chat.dto';
 
 @Controller('/assistant')
 export class AssistantController {
