@@ -18,7 +18,7 @@ export class DoctorPostService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-  async create(dto: CreateDoctorPostDto, file: Express.Multer.File) {
+  async create(dto: CreateDoctorPostDto, file?: Express.Multer.File) {
     if (!file || !file.mimetype.startsWith('video/')) {
       throw new BadRequestException('File must be a video');
     }
