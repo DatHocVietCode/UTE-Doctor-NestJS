@@ -1,12 +1,19 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { AppointmentStatus } from "src/appointment/enums/Appointment-status.enum";
+import { CancellationActor } from "src/appointment/enums/cancellation-actor.enum";
+import { CancellationReasonCode } from "src/appointment/enums/cancellation-reason-code.enum";
+import { DepositStatus } from "src/appointment/enums/deposit-status.enum";
+import { PaymentCategory } from "src/appointment/enums/payment-category.enum";
 import { AppointmentEnriched } from "src/appointment/schemas/appointment-enriched";
 import { Appointment, AppointmentDocument } from "src/appointment/schemas/appointment.schema";
 import { DataResponse } from "src/common/dto/data-respone";
 import { ResponseCode as rc } from "src/common/enum/reponse-code.enum";
+import { PaymentFlowStatusEnum, PaymentPurposeEnum } from "src/payment/enums/payment-flow.enum";
+import { Payment, PaymentDocument } from "src/payment/schemas/payment.schema";
 import { TimeSlotDto } from "src/timeslot/dtos/timeslot.dto";
 import { TimeSlotStatusEnum } from "src/timeslot/enums/timeslot-status.enum";
 import { TimeSlotData } from "src/timeslot/schemas/timeslot-data.schema";
@@ -14,6 +21,7 @@ import { TimeSlotLog } from "src/timeslot/schemas/timeslot-log.schema";
 import { DateTimeHelper } from "src/utils/helpers/datetime.helper";
 import { emitTyped } from "src/utils/helpers/event.helper";
 import { TimeHelper } from "src/utils/helpers/time.helper";
+import { CreditService } from "src/wallet/credit/credit.service";
 import { RegisterShiftDto } from "./dto/register-shift.dto";
 import { ShiftStatusEnum } from "./enums/shift-status.enum";
 import { Shift } from "./schema/shift.schema";
@@ -26,6 +34,9 @@ export class ShiftService {
     @InjectModel(TimeSlotLog.name) private readonly timeSlotLogModel: Model<TimeSlotLog>,
     @InjectModel(TimeSlotData.name) private readonly timeSlotDataModel: Model<TimeSlotData>,
     @InjectModel(Appointment.name) private readonly appointmentModel: Model<AppointmentDocument>,
+    @InjectModel(Payment.name) private readonly paymentModel: Model<PaymentDocument>,
+    private readonly creditService: CreditService,
+    private readonly config: ConfigService,
   ) {}
 
   async registerShift(dto: RegisterShiftDto): Promise<DataResponse> {
@@ -480,11 +491,32 @@ export class ShiftService {
         console.log(`[ShiftService] Có ${affectedAppointments.length} lịch hẹn bị ảnh hưởng bởi hủy ca.`);
 
         for (const appt of affectedAppointments) {
+          const appointmentId = appt._id?.toString?.() ?? String(appt._id);
+          const appointmentCancelUpdate = await this.appointmentModel.updateOne(
+            {
+              _id: appt._id,
+              appointmentStatus: { $in: [AppointmentStatus.PENDING, AppointmentStatus.CONFIRMED] },
+            },
+            {
+              $set: {
+                appointmentStatus: AppointmentStatus.CANCELLED,
+                cancelledAt: Date.now(),
+                cancellationActor: CancellationActor.DOCTOR,
+                cancellationReasonCode: CancellationReasonCode.DOCTOR_SHIFT_CANCELLED,
+                cancellationReason: reason || 'Doctor shift cancelled',
+              },
+            },
+          );
+          if (appointmentCancelUpdate.matchedCount !== 1) {
+            console.warn(`[ShiftService] Skip side effects for appointment ${appointmentId}: cancellation update did not match an active appointment`);
+            continue;
+          }
+
           const shiftDateText = Number.isFinite(shift.startTimeEpoch)
             ? this.getShiftDateKeyFromEpoch(shift.startTimeEpoch)
             : (DateTimeHelper.toUtcDateOnlyString(shift.date) ?? String(shift.date));
           const payload = {
-            appointmentId: appt._id?.toString?.() ?? String(appt._id),
+            appointmentId,
             patientEmail: appt.patientEmail,
             doctorEmail: user?.email,
             doctorName: (appt as any).doctorId?.doctorName ?? undefined,
@@ -500,24 +532,7 @@ export class ShiftService {
           // Push socket to patient (and optionally doctor room)
           this.eventEmitter.emit('socket.shift.cancelled', payload);
 
-          // Refund must follow charged amount and never exceed original consultation fee.
-          const originalConsultationFee = Math.max(0, Math.floor(appt.consultationFee ?? 0));
-          const chargedAmount = typeof (appt as any).paymentAmount === 'number'
-            ? Math.max(0, Math.min(Math.floor((appt as any).paymentAmount), originalConsultationFee))
-            : originalConsultationFee;
-          const refundAmount = chargedAmount;
-
-          if (refundAmount <= 0) {
-            console.warn(`[ShiftService] Skip refund for appointment ${payload.appointmentId}: refund amount is 0`);
-            continue;
-          }
-
-          this.eventEmitter.emit('wallet.refund.shift.cancelled', {
-            appointmentId: appt._id?.toString?.() ?? String(appt._id),
-            patientId: appt.patientId?.toString?.() ?? String(appt.patientId),
-            refundAmount,
-            reason: `Hoàn tiền do bác sĩ hủy ca${reason ? `: ${reason}` : ''}`,
-          });
+          await this.refundShiftCancelledAppointment(appt, appointmentId, reason);
         }
 
         // Gửi thông báo + email cho bác sĩ về việc hủy ca
@@ -795,6 +810,72 @@ export class ShiftService {
       console.error("[ShiftService] Lỗi khi xử lý doctor.update-schedule:", error);
       return false;
     }
+  }
+
+  private async refundShiftCancelledAppointment(appt: any, appointmentId: string, reason: string): Promise<void> {
+    const paidDepositAmount = Math.max(0, Math.floor(appt.depositPaidAmount ?? 0));
+    const hasVerifiedPaidDeposit =
+      appt.paymentCategory === PaymentCategory.DICH_VU &&
+      appt.depositStatus === DepositStatus.PAID &&
+      paidDepositAmount > 0;
+    if (!hasVerifiedPaidDeposit) {
+      console.warn(`[ShiftService] Skip refund for appointment ${appointmentId}: no verified paid DICH_VU deposit`);
+      return;
+    }
+
+    const session = await this.appointmentModel.db.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const depositPayment = await this.paymentModel
+          .findOne({
+            appointmentId: appt._id,
+            purpose: PaymentPurposeEnum.APPOINTMENT_DEPOSIT,
+          })
+          .session(session)
+          .exec();
+
+        if (!depositPayment || depositPayment.status !== PaymentFlowStatusEnum.SUCCESS) {
+          console.warn(`[ShiftService] Skip refund for appointment ${appointmentId}: paid deposit payment evidence is missing or not successful`);
+          return;
+        }
+
+        const refundAmount = Math.max(0, Math.floor(paidDepositAmount * this.getCancelRefundRate()));
+        if (refundAmount <= 0) {
+          await this.appointmentModel.updateOne(
+            { _id: appt._id },
+            { $set: { depositStatus: DepositStatus.FORFEITED } },
+            { session },
+          );
+          console.warn(`[ShiftService] Skip refund for appointment ${appointmentId}: refund amount is 0`);
+          return;
+        }
+
+        await this.creditService.refundAppointmentCancellation(
+          appt.patientId?.toString?.() ?? String(appt.patientId),
+          refundAmount,
+          appointmentId,
+          `Hoàn tiền do bác sĩ hủy ca${reason ? `: ${reason}` : ''}`,
+          session,
+        );
+        await this.appointmentModel.updateOne(
+          { _id: appt._id },
+          { $set: { depositStatus: DepositStatus.REFUNDED } },
+          { session },
+        );
+        depositPayment.refundedAt = new Date();
+        await depositPayment.save({ session });
+      });
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  private getCancelRefundRate(): number {
+    const configuredRate = Number(this.config.get<string>('APPOINTMENT_CANCEL_REFUND_RATE') ?? 1);
+    if (!Number.isFinite(configuredRate)) {
+      return 1;
+    }
+    return Math.min(1, Math.max(0, configuredRate));
   }
 
   private getUtcDayEpochRangeFromDateOnly(input: string): { startEpoch: number; endEpoch: number; dateKey: string } {

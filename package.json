@@ -20,6 +20,7 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "seed:receptionist": "ts-node scripts/seed-receptionist.ts",
     "seed:vital-signs": "ts-node scripts/seed-vital-signs.ts",
+    "seed:sync-doctor-accounts": "ts-node scripts/sync-doctor-accounts.ts",
     "migrate:appointment-indexes": "ts-node scripts/migrate-appointment-indexes.ts"
   },
   "dependencies": {

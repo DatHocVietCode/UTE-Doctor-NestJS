@@ -6,6 +6,7 @@ import { ResponseCode as rc } from 'src/common/enum/reponse-code.enum';
 import { CoinExpiryReminderSchedulerService } from './coin-expiry-reminder/coin-expiry-reminder.scheduler.service';
 import { CoinExpiryReminderService } from './coin-expiry-reminder/coin-expiry-reminder.service';
 import { COIN_DEFAULT_EXPIRE_DAYS, COIN_EXPIRY_DAYS, COIN_REWARD_RATE } from './coin-reward.config';
+import { calculateCoinDiscountLimit, DEFAULT_COIN_DISCOUNT_CAP, DEFAULT_COIN_DISCOUNT_RATE } from './coin-discount-policy';
 import { CoinSummaryBreakdownItemDto, CoinSummaryResponseDto } from './coin-summary-response.dto';
 import { CoinSpendAllocation, CoinSpendAllocationDocument } from './schemas/coin-spend-allocation.schema';
 import { CoinTransaction, CoinTransactionDocument } from './schemas/coin-transaction.schema';
@@ -88,8 +89,8 @@ export class CoinService {
 		originalAmount: number,
 		useCoin = false,
 		requestedCoins?: number,
-		discountRate = 0.1,
-		discountCap = 30000,
+		discountRate = DEFAULT_COIN_DISCOUNT_RATE,
+		discountCap = DEFAULT_COIN_DISCOUNT_CAP,
 	): Promise<{ availableCoin: number; discountAmount: number; maxApplicableDiscount: number }> {
 		const safeAmount = Math.max(0, Math.floor(originalAmount || 0));
 		const availableCoin = await this.getAvailableCoinBalance(patientId);
@@ -98,8 +99,7 @@ export class CoinService {
 			return { availableCoin, discountAmount: 0, maxApplicableDiscount: 0 };
 		}
 
-		const rateLimit = Math.floor(safeAmount * discountRate);
-		const maxApplicableDiscount = Math.max(0, Math.min(safeAmount, discountCap, rateLimit));
+		const maxApplicableDiscount = calculateCoinDiscountLimit(safeAmount, discountRate, discountCap);
 
 		const requestLimit = requestedCoins && requestedCoins > 0 ? Math.floor(requestedCoins) : Number.MAX_SAFE_INTEGER;
 		const discountAmount = Math.max(0, Math.min(maxApplicableDiscount, availableCoin, requestLimit));

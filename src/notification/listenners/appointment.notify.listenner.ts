@@ -103,6 +103,7 @@ export class AppointmentNotificationListener {
 
   @OnEvent('notify.patient.shift.cancelled')
   async handlePatientShiftCancelled(payload: {
+    appointmentId?: string;
     patientEmail: string;
     doctorName?: string;
     date: string;
@@ -111,10 +112,11 @@ export class AppointmentNotificationListener {
     reason?: string;
   }) {
     const recipientEmail = payload.patientEmail.trim().toLowerCase();
+    const appointmentId = payload.appointmentId || 'shift-cancelled';
     await this.publish({
       type: 'APPOINTMENT_CANCELLED',
       data: {
-        appointmentId: 'shift-cancelled',
+        appointmentId,
         patientEmail: payload.patientEmail,
         date: payload.date,
         timeSlot: payload.timeSlot,
@@ -124,7 +126,9 @@ export class AppointmentNotificationListener {
       createdAt: Date.now(),
       recipientEmail,
       recipientRole: 'PATIENT',
-      idempotencyKey: `APPOINTMENT_CANCELLED:shift:${recipientEmail}:${payload.date}:${payload.timeSlot}`,
+      idempotencyKey: payload.appointmentId
+        ? `APPOINTMENT_CANCELLED:${appointmentId}:${recipientEmail}`
+        : `APPOINTMENT_CANCELLED:shift:${recipientEmail}:${payload.date}:${payload.timeSlot}`,
     });
   }
 
