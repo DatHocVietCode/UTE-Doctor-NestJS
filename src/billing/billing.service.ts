@@ -12,6 +12,7 @@ import { Medicine, MedicineDocument } from 'src/medicine/schema/medicine.schema'
 import { MedicalEncounter, MedicalEncounterDocument } from 'src/patient/schema/medical-record.schema';
 import { PaymentService } from 'src/payment/payment.service';
 import { Visit, VisitDocument } from 'src/visit/schemas/visit.schema';
+import { calculateCoinDiscountLimit } from 'src/wallet/coin/coin-discount-policy';
 import { WalletService } from 'src/wallet/wallet.service';
 import { Billing, BillingDocument, BillingStatus, MedicationSource } from './billing.schema';
 
@@ -56,6 +57,112 @@ export class BillingService {
     const afterCoin = afterCredit - (billing.coinUsed ?? 0);
 
     return Math.max(0, Math.floor(afterCoin));
+  }
+
+  private normalizeAppliedAmount(amount: number | undefined): number {
+    return Math.max(0, Math.floor(amount || 0));
+  }
+
+  private getPayableBeforeWalletAdjustments(
+    billing: Pick<Billing, 'totalAmount' | 'insuranceAmount' | 'depositUsed'>,
+  ): number {
+    return Math.max(
+      0,
+      Math.floor((billing.totalAmount ?? 0) - (billing.insuranceAmount ?? 0) - (billing.depositUsed ?? 0)),
+    );
+  }
+
+  private getRemainingPayableAfterCredit(
+    billing: Pick<Billing, 'totalAmount' | 'insuranceAmount' | 'depositUsed' | 'creditUsed'>,
+  ): number {
+    return Math.max(
+      0,
+      Math.floor(this.getPayableBeforeWalletAdjustments(billing) - (billing.creditUsed ?? 0)),
+    );
+  }
+
+  private getRemainingPayableAfterCoin(
+    billing: Pick<Billing, 'totalAmount' | 'insuranceAmount' | 'depositUsed' | 'coinUsed'>,
+  ): number {
+    return Math.max(
+      0,
+      Math.floor(this.getPayableBeforeWalletAdjustments(billing) - (billing.coinUsed ?? 0)),
+    );
+  }
+
+  private getBillingCoinCap(billing: Pick<Billing, 'totalAmount' | 'insuranceAmount' | 'depositUsed'>): number {
+    return calculateCoinDiscountLimit(this.getPayableBeforeWalletAdjustments(billing));
+  }
+
+  private assertCreditWithinPayable(
+    billing: Pick<Billing, 'totalAmount' | 'insuranceAmount' | 'depositUsed' | 'coinUsed'>,
+    creditUsed: number,
+    fieldName: 'creditToUse' | 'creditUsed',
+  ) {
+    const remainingPayableAfterCoin = this.getRemainingPayableAfterCoin(billing);
+    if (creditUsed > remainingPayableAfterCoin) {
+      const suffix = fieldName === 'creditUsed' ? ' after coin' : '';
+      throw new BadRequestException(
+        `${fieldName} cannot exceed remaining payable${suffix} (${remainingPayableAfterCoin})`,
+      );
+    }
+  }
+
+  private assertCoinWithinPayableAndCap(
+    billing: Pick<Billing, 'totalAmount' | 'insuranceAmount' | 'depositUsed' | 'creditUsed'>,
+    coinUsed: number,
+    fieldName: 'coinToUse' | 'coinUsed',
+  ) {
+    const remainingPayableAfterCredit = this.getRemainingPayableAfterCredit(billing);
+    if (coinUsed > remainingPayableAfterCredit) {
+      const suffix = fieldName === 'coinUsed' ? ' after credit' : '';
+      throw new BadRequestException(
+        `${fieldName} cannot exceed remaining payable${suffix} (${remainingPayableAfterCredit})`,
+      );
+    }
+
+    const coinCap = this.getBillingCoinCap(billing);
+    if (coinUsed > coinCap) {
+      throw new BadRequestException(`${fieldName} cannot exceed coin discount cap (${coinCap})`);
+    }
+  }
+
+  private async assertWalletBalancesForBilling(
+    patientId: string,
+    billing: Pick<Billing, 'totalAmount' | 'insuranceAmount' | 'depositUsed'>,
+    input: { creditUsed: number; coinUsed: number },
+  ) {
+    if (input.creditUsed <= 0 && input.coinUsed <= 0) {
+      return;
+    }
+
+    const walletSummary = await this.walletService.getWalletSummaryByPatientId(
+      patientId,
+      this.getPayableBeforeWalletAdjustments(billing),
+    );
+
+    if (walletSummary.availableCredit < input.creditUsed) {
+      throw new BadRequestException(`Insufficient credit. Balance: ${walletSummary.availableCredit}`);
+    }
+    if (walletSummary.availableCoins < input.coinUsed) {
+      throw new BadRequestException(`Insufficient coin. Balance: ${walletSummary.availableCoins}`);
+    }
+  }
+
+  private async assertStoredWalletAdjustmentsForBilling(billing: BillingDocument, patientId?: string) {
+    const creditUsed = this.normalizeAppliedAmount(billing.creditUsed);
+    const coinUsed = this.normalizeAppliedAmount(billing.coinUsed);
+
+    this.assertCreditWithinPayable(billing, creditUsed, 'creditUsed');
+    this.assertCoinWithinPayableAndCap(billing, coinUsed, 'coinUsed');
+
+    if ((creditUsed > 0 || coinUsed > 0) && !patientId) {
+      throw new BadRequestException('Associated visit or patient not found');
+    }
+
+    if (patientId) {
+      await this.assertWalletBalancesForBilling(patientId, billing, { creditUsed, coinUsed });
+    }
   }
 
   async createDraftBilling(visitId: string) {
@@ -194,24 +301,8 @@ export class BillingService {
 
     const patientId = visit.patientId.toString();
 
-    const remainingPayableBefore = Math.max(
-      0,
-      Math.floor(
-        (billing.totalAmount ?? 0) -
-          (billing.insuranceAmount ?? 0) -
-          (billing.depositUsed ?? 0) -
-          (billing.coinUsed ?? 0),
-      ),
-    );
-
-    if (normalized > remainingPayableBefore) {
-      throw new BadRequestException(`creditToUse cannot exceed remaining payable (${remainingPayableBefore})`);
-    }
-
-    const walletSummary = await this.walletService.getWalletSummaryByPatientId(patientId);
-    if (walletSummary.availableCredit < normalized) {
-      throw new BadRequestException(`Insufficient credit. Balance: ${walletSummary.availableCredit}`);
-    }
+    this.assertCreditWithinPayable(billing, normalized, 'creditToUse');
+    await this.assertWalletBalancesForBilling(patientId, billing, { creditUsed: normalized, coinUsed: 0 });
 
     // Set (replace) creditUsed and recompute finalPayable from base values
     billing.creditUsed = normalized;
@@ -251,24 +342,8 @@ export class BillingService {
 
     const patientId = visit.patientId.toString();
 
-    const remainingPayableAfterCredit = Math.max(
-      0,
-      Math.floor(
-        (billing.totalAmount ?? 0) -
-          (billing.insuranceAmount ?? 0) -
-          (billing.depositUsed ?? 0) -
-          (billing.creditUsed ?? 0),
-      ),
-    );
-
-    if (normalized > remainingPayableAfterCredit) {
-      throw new BadRequestException(`coinToUse cannot exceed remaining payable (${remainingPayableAfterCredit})`);
-    }
-
-    const walletSummary = await this.walletService.getWalletSummaryByPatientId(patientId);
-    if (walletSummary.availableCoins < normalized) {
-      throw new BadRequestException(`Insufficient coin. Balance: ${walletSummary.availableCoins}`);
-    }
+    this.assertCoinWithinPayableAndCap(billing, normalized, 'coinToUse');
+    await this.assertWalletBalancesForBilling(patientId, billing, { creditUsed: 0, coinUsed: normalized });
 
     billing.coinUsed = normalized;
     billing.finalPayable = this.recomputeFinalPayable(billing);
@@ -329,11 +404,8 @@ export class BillingService {
           billing.paymentCategory = paymentCategory ?? PaymentCategory.DICH_VU;
           billing.insuranceAmount = isBHYT ? billing.totalAmount * coverageRate : 0;
 
-          const afterInsurance = billing.totalAmount - billing.insuranceAmount;
-          const afterDeposit = afterInsurance - (billing.depositUsed ?? 0);
-          const afterCredit = afterDeposit - (billing.creditUsed ?? 0);
-          const afterCoin = afterCredit - (billing.coinUsed ?? 0);
-          billing.finalPayable = Math.max(0, Math.floor(afterCoin));
+          await this.assertStoredWalletAdjustmentsForBilling(billing, visit?.patientId?.toString());
+          billing.finalPayable = this.recomputeFinalPayable(billing);
 
           billing.status = BillingStatus.FINALIZED;
           await billing.save({ session });
@@ -434,7 +506,7 @@ export class BillingService {
     const { billing, patientId } = await this.resolveBillingPatientId(billingId);
     const summary = await this.walletService.getWalletSummaryByPatientId(
       patientId,
-      billing.finalPayable ?? billing.totalAmount ?? 0,
+      this.getPayableBeforeWalletAdjustments(billing),
     );
 
     this.logger.log(

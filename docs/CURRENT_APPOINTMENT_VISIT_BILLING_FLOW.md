@@ -660,12 +660,16 @@ Current behavior:
 - If `source = OUTSIDE_PURCHASE` or `dispensedQty = 0`, `lineTotal = 0`.
 - Otherwise `lineTotal = dispensedQty * unitPrice`.
 - `medicationFee`, `totalAmount`, `insuranceAmount`, and `finalPayable` are recomputed.
+- Stored `creditUsed` and `coinUsed` are revalidated after fulfillment recalculation before payment creation.
+- Credit must still fit remaining payable after Coin and available credit balance.
+- Coin must still fit remaining payable after Credit, available coin balance, and the shared 10% / 30,000 coin discount cap.
 - Billing moves to `FINALIZED`.
 - `PaymentService.createPaymentForBilling()` creates or returns the active billing payment.
 
 Payment creation:
 
 - Payment is created with `billingId`, `amount = billing.finalPayable`, `method = QR` by default, `status = PENDING`, `idempotencyKey = PAYMENT:{billingId}:ACTIVE`, and `expireAt`.
+- If `finalPayable = 0`, the payment record is still the wallet-settlement checkpoint; QR is not required and the receptionist should complete it through manual settlement.
 - Payment has a unique `billingId` index.
 
 Response:
@@ -724,18 +728,22 @@ Payment schema relation:
 QR/VNPay behavior:
 
 - QR URL generation uses `billingId` as canonical VNPay transaction reference.
+- QR payment is only for `finalPayable > 0`; zero-payable billing rejects QR with `No QR payment is required because this billing is fully covered.`
+- A QR request for zero-payable billing must not create a new pending payment record.
 - VNPay callback resolves by `billingId`.
 - On successful callback, `PaymentService.markPaymentSuccessByBillingId()` is called.
 
 Cash behavior:
 
 - `POST /receptionist/payments/:paymentId/mark-paid` marks the existing payment as success with channel `CASH`.
+- For `finalPayable = 0`, the same endpoint is the manual wallet settlement action: collect no cash, revalidate wallet values, deduct Credit/Coin once, and mark Payment/Billing complete.
 
 Payment success transaction:
 
 - Validates payment exists and is not expired.
 - Billing must be `FINALIZED` or `PAID`.
 - If already completed, it remains idempotent and returns success.
+- Before first wallet mutation, revalidates stored `creditUsed` and `coinUsed` against remaining payable, the Coin cap, and current wallet balances.
 - Deducts `billing.creditUsed` from CreditWallet only at payment success.
 - Deducts `billing.coinUsed` from CoinWallet only at payment success.
 - Rewards coin based on `billing.finalPayable`.
@@ -798,12 +806,14 @@ Payment:
 CreditWallet:
 
 - Credit can be applied to a draft billing as `creditUsed`, but it is deducted only when payment succeeds.
+- Credit is money-equivalent refund/payment balance; it can cover all remaining payable but cannot exceed remaining payable or available credit.
 - Appointment booking does not currently deduct credit.
 
 Coin:
 
 - Booking coin discount still spends coin during booking if `useCoin=true`.
 - Billing has a separate `coinUsed` flow; billing coin is deducted only on payment success.
+- Billing coin is a reward discount and is capped by the shared 10% / 30,000 policy plus remaining payable and available coin checks.
 - This creates a cleanup need because booking `coinDiscountAmount` is not used by billing.
 
 ## 4. Current meaning of financial fields
@@ -820,6 +830,8 @@ Coin:
 | `depositAmount` | Intended/pre-recorded deposit metadata | Not proven | Yes, as `depositUsed` | No | Data-model gap |
 | `depositUsed` | Billing deduction from appointment deposit | Assumed by billing | Yes | No by itself | Needs deposit evidence model |
 | `insuranceAmount` | Billing BHYT coverage deduction | No | Yes | No | Computed from billing total and coverage rate |
+| `creditUsed` | Billing-applied credit wallet value | Not until payment success | Yes | Yes after commit evidence | Money-equivalent, no percent/fixed discount cap |
+| `coinUsed` | Billing-applied coin reward discount | Coin value spent at payment success | Yes | Product-specific | Capped by 10% / 30,000 plus remaining payable and available coin |
 | `finalPayable` | Final billing payable after deductions | No until payment success | Yes | No before payment success | Payment amount source |
 | `paymentMethod` | Legacy booking payment route metadata | No | No | No | Booking payment deferred |
 | `paidAt` | Legacy appointment payment metadata | Usually no | No | No | Set for zero-final or mock/legacy paths |

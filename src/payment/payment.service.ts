@@ -15,6 +15,7 @@ import { Doctor, DoctorDocument } from 'src/doctor/schema/doctor.schema';
 import { Patient, PatientDocument } from 'src/patient/schema/patient.schema';
 import { TimeSlotLog, TimeSlotLogDocument } from 'src/timeslot/schemas/timeslot-log.schema';
 import { Visit, VisitDocument } from 'src/visit/schemas/visit.schema';
+import { calculateCoinDiscountLimit } from 'src/wallet/coin/coin-discount-policy';
 import { COIN_DEFAULT_EXPIRE_DAYS, COIN_REWARD_RATE } from 'src/wallet/coin/coin-reward.config';
 import { CoinSpendAllocation, CoinSpendAllocationDocument } from 'src/wallet/coin/schemas/coin-spend-allocation.schema';
 import { CoinTransaction, CoinTransactionDocument } from 'src/wallet/coin/schemas/coin-transaction.schema';
@@ -59,7 +60,12 @@ export class PaymentService {
 
 	async createPaymentForBilling(
 		billingId: string,
-		options?: { method?: PaymentFlowMethodEnum; session?: ClientSession },
+		options?: {
+			method?: PaymentFlowMethodEnum;
+			session?: ClientSession;
+			requirePositiveAmount?: boolean;
+			nonPositiveAmountMessage?: string;
+		},
 	): Promise<PaymentDocument> {
 		if (!Types.ObjectId.isValid(billingId)) {
 			throw new NotFoundException('Billing not found');
@@ -82,18 +88,30 @@ export class PaymentService {
 			if (existingPayment.status === PaymentFlowStatusEnum.SUCCESS) {
 				throw new BadRequestException('Payment already completed for this billing');
 			}
+			if (options?.requirePositiveAmount && existingPayment.amount <= 0) {
+				throw new BadRequestException(
+					options.nonPositiveAmountMessage ?? 'Payment amount must be greater than 0',
+				);
+			}
 			return existingPayment;
+		}
+
+		const normalizedAmount = Math.max(0, Math.floor(billing.finalPayable ?? 0));
+		if (options?.requirePositiveAmount && normalizedAmount <= 0) {
+			throw new BadRequestException(
+				options.nonPositiveAmountMessage ?? 'Payment amount must be greater than 0',
+			);
 		}
 
 		const payment = await this.paymentModel.create([
 			{
 				purpose: PaymentPurposeEnum.BILLING,
 				billingId: billing._id,
-				amount: Math.max(0, Math.floor(billing.finalPayable ?? 0)),
+				amount: normalizedAmount,
 				method: options?.method ?? PaymentFlowMethodEnum.QR,
 				status: PaymentFlowStatusEnum.PENDING,
 				idempotencyKey: `PAYMENT:${billing._id.toString()}:ACTIVE`,
-				expireAt: this.buildPaymentExpireAt(),
+				expireAt: normalizedAmount > 0 ? this.buildPaymentExpireAt() : null,
 			},
 		], { session: options?.session ?? undefined });
 
@@ -102,14 +120,14 @@ export class PaymentService {
 	}
 
 	async createPaymentUrlForBilling(billingId: string, ipAddr: string) {
-		const payment = await this.createPaymentForBilling(billingId, { method: PaymentFlowMethodEnum.QR });
+		const payment = await this.createPaymentForBilling(billingId, {
+			method: PaymentFlowMethodEnum.QR,
+			requirePositiveAmount: true,
+			nonPositiveAmountMessage: 'No QR payment is required because this billing is fully covered.',
+		});
 
 		if (payment.status === PaymentFlowStatusEnum.SUCCESS) {
 			throw new BadRequestException('Payment already completed for this billing');
-		}
-
-		if (payment.amount <= 0) {
-			throw new BadRequestException('Payment amount must be greater than 0');
 		}
 
 		// BillingId is the canonical VNPay txnRef now, so the callback can resolve payment state safely.
@@ -277,7 +295,7 @@ export class PaymentService {
 					throw new BadRequestException('Payment is not a billing payment');
 				}
 
-				if (payment.expireAt && payment.expireAt.getTime() < Date.now()) {
+				if ((payment.amount ?? 0) > 0 && payment.expireAt && payment.expireAt.getTime() < Date.now()) {
 					throw new BadRequestException('Payment expired');
 				}
 
@@ -324,8 +342,11 @@ export class PaymentService {
 
 				const patientId = visit.patientId.toString();
 				const appointmentId = visit.appointmentId?.toString();
-				const creditUsed = Math.max(0, Math.floor(billing.creditUsed ?? 0));
-				const coinUsed = Math.max(0, Math.floor(billing.coinUsed ?? 0));
+				const { creditUsed, coinUsed } = await this.validateBillingWalletAdjustmentsBeforeCommit(
+					billing,
+					patientId,
+					session,
+				);
 
 				await this.commitCreditDeduction(patientId, creditUsed, paymentId, appointmentId, session);
 				await this.commitCoinSpend(patientId, coinUsed, paymentId, appointmentId, session);
@@ -620,6 +641,77 @@ export class PaymentService {
 
 	private calculateRewardAmount(finalPayable: number): number {
 		return Math.max(0, Math.floor(Math.max(0, finalPayable) * COIN_REWARD_RATE));
+	}
+
+	private normalizeAppliedAmount(amount: number | undefined): number {
+		return Math.max(0, Math.floor(amount || 0));
+	}
+
+	private getPayableBeforeWalletAdjustments(
+		billing: Pick<Billing, 'totalAmount' | 'insuranceAmount' | 'depositUsed'>,
+	): number {
+		return Math.max(
+			0,
+			Math.floor((billing.totalAmount ?? 0) - (billing.insuranceAmount ?? 0) - (billing.depositUsed ?? 0)),
+		);
+	}
+
+	private async validateBillingWalletAdjustmentsBeforeCommit(
+		billing: BillingDocument,
+		patientId: string,
+		session: ClientSession,
+	): Promise<{ creditUsed: number; coinUsed: number }> {
+		const creditUsed = this.normalizeAppliedAmount(billing.creditUsed);
+		const coinUsed = this.normalizeAppliedAmount(billing.coinUsed);
+		const payableBeforeWallet = this.getPayableBeforeWalletAdjustments(billing);
+		const remainingPayableAfterCoin = Math.max(0, Math.floor(payableBeforeWallet - coinUsed));
+		const remainingPayableAfterCredit = Math.max(0, Math.floor(payableBeforeWallet - creditUsed));
+
+		if (creditUsed > remainingPayableAfterCoin) {
+			throw new BadRequestException(`creditUsed cannot exceed remaining payable after coin (${remainingPayableAfterCoin})`);
+		}
+		if (coinUsed > remainingPayableAfterCredit) {
+			throw new BadRequestException(`coinUsed cannot exceed remaining payable after credit (${remainingPayableAfterCredit})`);
+		}
+
+		const coinCap = calculateCoinDiscountLimit(payableBeforeWallet);
+		if (coinUsed > coinCap) {
+			throw new BadRequestException(`coinUsed cannot exceed coin discount cap (${coinCap})`);
+		}
+
+		if (creditUsed > 0) {
+			const wallet = await this.creditWalletModel.findOne({ patientId: new Types.ObjectId(patientId) }).session(session).exec();
+			if (!wallet) {
+				throw new BadRequestException('Credit wallet not found');
+			}
+			if (wallet.creditBalance < creditUsed) {
+				throw new BadRequestException(`Insufficient credit. Balance: ${wallet.creditBalance}, Required: ${creditUsed}`);
+			}
+		}
+
+		if (coinUsed > 0) {
+			const availableCoin = await this.getAvailableCoinBalanceForCommit(patientId, session);
+			if (availableCoin < coinUsed) {
+				throw new BadRequestException('Insufficient coins');
+			}
+		}
+
+		return { creditUsed, coinUsed };
+	}
+
+	private async getAvailableCoinBalanceForCommit(patientId: string, session: ClientSession): Promise<number> {
+		const now = new Date();
+		const eligibleEarns = await this.loadCompletedEarnTransactions(patientId, {
+			upToCreatedAt: now,
+			onlyUnexpiredAt: now,
+		}, session);
+		const allocationMap = await this.loadAllocationMapForEarns(patientId, eligibleEarns.map((tx) => tx._id), session);
+
+		return eligibleEarns.reduce((sum, earn) => {
+			const earnAmount = this.normalizeCoinAmount(earn.amount);
+			const usedAmount = Math.min(earnAmount, allocationMap.get(earn._id.toString()) ?? 0);
+			return sum + Math.max(0, earnAmount - usedAmount);
+		}, 0);
 	}
 
 	private async commitCreditDeduction(

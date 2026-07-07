@@ -6,6 +6,17 @@ Keep this file lightweight. It should contain stable, cross-cutting rules only.
 
 Feature-specific behavior, API contracts, business rules, migration notes, and ticket-specific decisions belong in `/docs` or `api-contract/`, not here.
 
+## OpenWiki
+
+This repository has documentation located in the /openwiki directory.
+
+Start here:
+- [OpenWiki quickstart](openwiki/quickstart.md)
+
+OpenWiki includes repository overview, architecture notes, workflows, domain concepts, operations, integrations, testing guidance, and source maps.
+
+When working in this repository, read the OpenWiki quickstart first, then follow its links to the relevant architecture, workflow, domain, operation, and testing notes.
+
 ## Project Overview
 
 This repository is a NestJS backend application written in TypeScript.
