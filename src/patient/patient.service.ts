@@ -23,6 +23,24 @@ import {
 } from './schema/medical-record.schema';
 import { Patient, PatientDocument } from './schema/patient.schema';
 
+// Req 5 (admin PII removal): the ONLY patient fields the admin panel may see are the
+// patient's name + active/inactive status (Account.status) + the accountId handle used for
+// row actions (the status toggle is account-keyed). All contact/clinical data is omitted.
+export interface AdminPatientListItem {
+  name: string | null;
+  status: string | null;
+  accountId: string | null;
+}
+export function toAdminPatientListItem(patient: any): AdminPatientListItem {
+  const account = patient?.accountId;
+  const accountId = account?._id ? String(account._id) : account ? String(account) : null;
+  return {
+    name: patient?.profileId?.name ?? null,
+    status: account?.status ?? null,
+    accountId,
+  };
+}
+
 @Injectable()
 export class PatientService {
     
@@ -328,11 +346,11 @@ export class PatientService {
         .limit(limit)
         .populate({
           path: "profileId",
-          select: "name phone email gender dob avatarUrl",
+          select: "name",
         })
         .populate({
           path: "accountId",
-          select: "email role status",
+          select: "status",
         })
         .exec(),
 
@@ -342,7 +360,7 @@ export class PatientService {
     return {
       code: 200,
       message: "Get patients successfully",
-      data,
+      data: data.map(toAdminPatientListItem),
       pagination: {
         total,
         page,

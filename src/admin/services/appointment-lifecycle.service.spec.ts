@@ -40,12 +40,13 @@ function failQuery() {
   c.exec = () => Promise.reject(new Error('boom'));
   return c;
 }
-function fakeModel(cfg: { find?: () => any; findOne?: () => any; findById?: () => any; count?: number } = {}) {
+function fakeModel(cfg: { find?: () => any; findOne?: () => any; findById?: () => any; count?: number; aggregate?: () => any } = {}) {
   return {
     find: jest.fn(() => (cfg.find ? cfg.find() : okQuery([]))),
     findOne: jest.fn(() => (cfg.findOne ? cfg.findOne() : okQuery(null))),
     findById: jest.fn(() => (cfg.findById ? cfg.findById() : okQuery(null))),
     countDocuments: jest.fn(() => ({ exec: () => Promise.resolve(cfg.count ?? 0) })),
+    aggregate: jest.fn(() => ({ exec: () => Promise.resolve(cfg.aggregate ? cfg.aggregate() : []) })),
   } as any;
 }
 
@@ -115,13 +116,17 @@ describe('AppointmentLifecycleService', () => {
   describe('listAppointments', () => {
     it('returns paginated summaries with visit/billing rollups', async () => {
       const service = makeService({
-        appt: fakeModel({ find: () => okQuery([{ _id: VALID_ID, appointmentStatus: 'CONFIRMED', patientEmail: 'p@e.com', bookingDate: 500, scheduledAt: 5000 }]), count: 1 }),
+        appt: fakeModel({ find: () => okQuery([{ _id: VALID_ID, appointmentStatus: 'CONFIRMED', patientId: VALID_ID, patientEmail: 'p@e.com', bookingDate: 500, scheduledAt: 5000 }]), count: 1 }),
+        patient: fakeModel({ aggregate: () => [{ _id: VALID_ID, name: 'Nguyễn B' }] }),
       });
       const res = await service.listAppointments({ page: 1, limit: 20 } as any);
       expect(res.code).toBe('SUCCESS');
       expect(res.data!.total).toBe(1);
       expect(res.data!.items).toHaveLength(1);
       expect(res.data!.items[0].appointmentId).toBe(VALID_ID);
+      // Req 5: the list shows the patient NAME, never the email.
+      expect(res.data!.items[0].patient).toEqual({ name: 'Nguyễn B' });
+      expect((res.data!.items[0].patient as any).email).toBeUndefined();
     });
   });
 });

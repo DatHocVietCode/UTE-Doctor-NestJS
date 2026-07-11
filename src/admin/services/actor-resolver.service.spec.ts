@@ -30,6 +30,8 @@ describe('actor resolver confidence matrix', () => {
     expect(a.actorSource).toBe(ActorSource.STORED_FIELD);
     expect(a.actorId).toBe('recep1');
     expect(a.actorName).toBe('Rita Reception');
+    // Req 5: email is never surfaced on an actor, even when the lookup has one.
+    expect((a as any).actorEmail).toBeUndefined();
     expect(a.actorWarnings).toBeUndefined();
   });
 
