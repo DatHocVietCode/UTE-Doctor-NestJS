@@ -64,16 +64,14 @@ export function actorFromHistoryBy(by: unknown, lookups?: ActorLookups): ActorSu
   if (!id || id.toLowerCase() === 'system') {
     return systemActor();
   }
-  const { name, email, resolved } = lookupNameEmail(
+  const { name, resolved } = lookupNameEmail(
     id,
     lookups?.receptionists,
     lookups?.accounts,
   );
   return {
     actorId: id,
-    actorName: name,
-    actorEmail: email,
-    actorRole: 'RECEPTIONIST',
+    actorName: name,    actorRole: 'RECEPTIONIST',
     actorType: ActorType.USER,
     actorConfidence: ActorConfidence.EXACT,
     actorSource: ActorSource.STORED_FIELD,
@@ -91,12 +89,10 @@ export function actorFromRelation(
 ): ActorSummary {
   const sid = asId(id);
   if (!sid) return unknownActor();
-  const { name, email, resolved } = lookupNameEmail(sid, ...maps);
+  const { name, resolved } = lookupNameEmail(sid, ...maps);
   return {
     actorId: sid,
-    actorName: name,
-    actorEmail: email,
-    actorRole: role,
+    actorName: name,    actorRole: role,
     actorType: ActorType.USER,
     actorConfidence: ActorConfidence.EXACT,
     actorSource: ActorSource.DOMAIN_RELATION,
@@ -113,12 +109,10 @@ export function actorFromStoredField(
   const sid = asId(accountId);
   if (!sid && !role) return unknownActor();
   if (!sid) return roleInferredActor(role as string);
-  const { name, email, resolved } = lookupNameEmail(sid, lookups?.accounts, lookups?.doctors);
+  const { name, resolved } = lookupNameEmail(sid, lookups?.accounts, lookups?.doctors);
   return {
     actorId: sid,
-    actorName: name,
-    actorEmail: email,
-    actorRole: role,
+    actorName: name,    actorRole: role,
     actorType: ActorType.USER,
     actorConfidence: ActorConfidence.EXACT,
     actorSource: ActorSource.STORED_FIELD,

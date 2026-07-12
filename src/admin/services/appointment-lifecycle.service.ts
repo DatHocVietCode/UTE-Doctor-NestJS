@@ -268,6 +268,28 @@ export class AppointmentLifecycleService {
     for (const v of visits as any[]) visitByAppt.set(String(v.appointmentId), v);
     for (const d of doctors as any[]) doctorById.set(String(d._id), d);
 
+    // Req 5: resolve the patient display NAME (not email) via patientId -> profile.
+    const patientIds = [...new Set(appointments.map((a) => a.patientId).filter(Boolean).map(String))]
+      .filter((s) => Types.ObjectId.isValid(s))
+      .map((s) => new Types.ObjectId(s));
+    const nameByPatientId = new Map<string, string>();
+    if (patientIds.length) {
+      const patients = await this.safe(
+        'listPatientNames',
+        this.patientModel
+          .aggregate([
+            { $match: { _id: { $in: patientIds } } },
+            { $lookup: { from: 'profiles', localField: 'profileId', foreignField: '_id', as: 'profile' } },
+            { $unwind: { path: '$profile', preserveNullAndEmptyArrays: true } },
+            { $project: { _id: 1, name: '$profile.name' } },
+          ])
+          .exec(),
+        [],
+        failed,
+      );
+      for (const p of patients as any[]) if (p?.name) nameByPatientId.set(String(p._id), p.name);
+    }
+
     // Billing keyed by the resolved visit ids.
     const visitIds = (visits as any[]).map((v) => this.idIn(v._id));
     const billingByVisit = new Map<string, any>();
@@ -283,7 +305,7 @@ export class AppointmentLifecycleService {
       const doctor = a.doctorId ? doctorById.get(String(a.doctorId)) : null;
       return {
         appointmentId: apptId,
-        patient: a.patientEmail ? { email: a.patientEmail } : null,
+        patient: nameByPatientId.get(String(a.patientId)) ? { name: nameByPatientId.get(String(a.patientId)) } : null,
         doctor: a.doctorId ? { id: String(a.doctorId), name: doctor?.name } : null,
         appointmentStatus: a.appointmentStatus,
         assignmentStatus: a.assignmentStatus,

@@ -21,6 +21,11 @@ const SENSITIVE_KEYS = new Set([
   'healthinsurance',
   'healthinsurancenumber',
   'insurancenumber',
+  // Req 5: patient email + free-text clinical notes must not leave the backend in a snapshot.
+  'email',
+  'patientemail',
+  'diagnosis',
+  'note',
 ]);
 
 // Heavy/clinical arrays are summarized to a count instead of leaking full payloads.

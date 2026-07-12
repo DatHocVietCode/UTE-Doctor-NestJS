@@ -53,3 +53,17 @@ Whether a patient may still act (cancel/reschedule) on an appointment. An appoin
 
 **No-Show Reconciliation**:
 The idempotent backend process that transitions overdue confirmed appointments to No-Show. Runs on application startup (catch-up after restart/deploy) and daily at 06:00 Asia/Ho_Chi_Minh. It is a settlement job, not a realtime sweep, and it owns the No-Show side effects (notification/email), gated to business hours.
+
+## Admin Analytics & Audit
+
+**Examination (Khám)**:
+The canonical countable unit for admin analytics (most-examined specialty, most-examined doctor, frequent patients): one appointment that ran to completion, i.e. `Appointment.appointmentStatus === COMPLETED`. A booking that was cancelled, no-show, or failed is NOT an examination. Distinct from the `Visit` entity — a Visit is the check-in→completion lifecycle record, whereas an Examination is counted off the appointment's terminal COMPLETED state.
+_Avoid_: visit (the Visit entity is a separate record), booking (a booking is not yet an examination)
+
+**Examined Specialty**:
+The specialty attributed to an Examination for analytics: the *treating doctor's* specialty (`Doctor.chuyenKhoaId` reached via `Appointment.doctorId`), i.e. the specialty that actually delivered the exam — NOT the booking's requested `Appointment.specialtyId`. The requested `specialtyId` is nullable and reflects intent; it serves only as a fallback when the treating doctor has no `chuyenKhoaId`.
+_Avoid_: requested specialty, booking specialty (those mean `Appointment.specialtyId`, a different thing)
+
+**Admin-Visible Patient Identity**:
+The only patient information the admin panel may display: the patient's **name** and **active/inactive account status** (`Account.status`), plus opaque id handles needed for row actions. Every other patient field — contact info (phone, email, gender, dob, avatar) and all clinical/medical data — is deliberately outside the admin's view. The restriction is patient-scoped; staff identity is unaffected.
+_Avoid_: patient profile, patient details (those imply the full record, which the admin must not see)

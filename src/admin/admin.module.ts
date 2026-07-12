@@ -13,12 +13,15 @@ import { Notification, NotificationSchema } from 'src/notification/schemas/notif
 import { Doctor, DoctorSchema } from 'src/doctor/schema/doctor.schema';
 import { Patient, PatientSchema } from 'src/patient/schema/patient.schema';
 import { Account, AccountSchema } from 'src/account/schemas/account.schema';
+import { Review, ReviewSchema } from 'src/review/schema/review.schema';
 import { DoctorModule } from 'src/doctor/doctor.module';
 import { ReceptionistModule } from 'src/receptionist/receptionist.module';
 import { AdminAppointmentController } from './admin-appointment.controller';
 import { AdminUserController } from './admin-user.controller';
+import { AdminAnalyticsController } from './admin-analytics.controller';
 import { AppointmentLifecycleService } from './services/appointment-lifecycle.service';
 import { LifecycleDetailService } from './services/lifecycle-detail.service';
+import { AdminAnalyticsService } from './services/admin-analytics.service';
 
 // Read-only admin module. It registers the domain schemas it READS (no writes) and
 // owns no schema of its own — the lifecycle tree is reconstructed domain-first.
@@ -38,11 +41,12 @@ import { LifecycleDetailService } from './services/lifecycle-detail.service';
       { name: Doctor.name, schema: DoctorSchema },
       { name: Patient.name, schema: PatientSchema },
       { name: Account.name, schema: AccountSchema },
+      { name: Review.name, schema: ReviewSchema },
     ]),
     DoctorModule,
     ReceptionistModule,
   ],
-  controllers: [AdminAppointmentController, AdminUserController],
-  providers: [AppointmentLifecycleService, LifecycleDetailService],
+  controllers: [AdminAppointmentController, AdminUserController, AdminAnalyticsController],
+  providers: [AppointmentLifecycleService, LifecycleDetailService, AdminAnalyticsService],
 })
 export class AdminModule {}

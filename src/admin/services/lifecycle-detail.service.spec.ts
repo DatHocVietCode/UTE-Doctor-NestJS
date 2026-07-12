@@ -54,6 +54,8 @@ describe('LifecycleDetailService', () => {
     expect(res.data!.domainSnapshot.appointmentStatus).toBe('PENDING');
     expect(res.data!.domainSnapshot.phone).toBe('[redacted]');
     expect(res.data!.domainSnapshot.address).toBe('[redacted]');
+    // Req 5: patient email is redacted in node snapshots too.
+    expect(res.data!.domainSnapshot.patientEmail).toBe('[redacted]');
   });
 
   it('throws 404 for an unknown node id', async () => {
@@ -76,12 +78,18 @@ describe('sanitizeSnapshot', () => {
       _id: 'x',
       status: 'OK',
       phone: '123',
+      email: 'p@e.com',
+      diagnosis: 'Hypertension',
+      note: 'private clinical note',
       prescriptions: [1, 2, 3],
       createdAt: new Date(10),
       __v: 7,
     });
     expect(out.status).toBe('OK');
     expect(out.phone).toBe('[redacted]');
+    expect(out.email).toBe('[redacted]');
+    expect(out.diagnosis).toBe('[redacted]');
+    expect(out.note).toBe('[redacted]');
     expect(out.prescriptions).toEqual({ count: 3 });
     expect(out.createdAt).toBe(10);
     expect(out.__v).toBeUndefined();
